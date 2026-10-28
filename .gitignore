@@ -1,0 +1,70 @@
+# deps
+node_modules
+.pnp
+.pnp.js
+
+# next
+.next
+out
+dist
+build
+
+# expo
+.expo
+.expo-shared
+web-build
+
+# env - never commit real secrets
+.env
+.env.local
+.env.development.local
+.env.production.local
+.env.*.local
+
+# allow example
+!.env.example
+
+# pnpm
+.pnpm-store
+
+# vercel
+.vercel
+
+# supabase
+.supabase
+
+# tmp
+.tmp-cache
+.tmp-prefix
+tmp-cache
+
+# logs
+npm-debug.log*
+pnpm-debug.log*
+*.log
+
+# os
+.DS_Store
+Thumbs.db
+
+# ide
+.vscode
+.idea
+*.swp
+
+# turbo
+.turbo
+
+# generated previews/shots
+preview.html
+preview.png
+shot-*.png
+verify-phase2.mjs
+.tmp-data
+.tmp-vitest
+
+
+package-lock.json
+next-env.d.ts
+supabase/.temp
+
