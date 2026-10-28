@@ -6,16 +6,44 @@ type Item = { id: string; description: string; specification?: string; quantity:
 export function MaterialsList({ assessmentId, initial = [] as Item[], version = 1, onChange }: { assessmentId: string; initial?: Item[]; version?: number; onChange?: (items: Item[], version: number) => void }) {
   const [items, setItems] = useState<Item[]>(initial);
   const [saving, setSaving] = useState(false);
+  // Save-and-resume: load persisted materials on mount so user can leave and resume later
+  const [loaded, setLoaded] = useState(false);
+  const [resumeNote, setResumeNote] = useState<string | null>(null);
+
+  // Load persisted materials for draft/resume
+  const loadPersisted = async () => {
+    try {
+      const res = await fetch(`/api/materials?assessmentId=${assessmentId}`);
+      const data = await res.json();
+      if (data.items?.length) {
+        setItems(data.items);
+        setResumeNote(`Resumed ${data.count} persisted items — save to bump to v${version + 1}`);
+      }
+    } catch {}
+    setLoaded(true);
+  };
+  // Auto-load on mount
+  if (!loaded && typeof window !== "undefined") { setLoaded(true); loadPersisted(); }
 
   function add() {
-    const desc = prompt("Item description (e.g. 550W mono panel)");
+    const desc = prompt("Item description (e.g. 550W mono panel — trace to finding/measurement ID)");
     if (!desc) return;
-    const qtyStr = prompt("Quantity (number) — must trace to measurement/finding/rule/user_input");
+    const qtyStr = prompt("Quantity (number) — must trace to measurement/finding/rule/user_input. Leave blank to mark provisional");
     const qty = qtyStr ? Number(qtyStr) : NaN;
-    if (!Number.isFinite(qty) || qty <= 0) { alert("Quantity must be >0 or mark provisional"); return; }
+    let provisional = false;
+    let finalQty = qty;
+    if (!Number.isFinite(qty) || qty <= 0) {
+      const markProv = confirm("Quantity missing/invalid — mark as provisional (clearly identified, not fabricated) and continue?");
+      if (!markProv) return;
+      provisional = true;
+      finalQty = Number.isFinite(qty) && qty > 0 ? qty : 1;
+    }
     const unit = prompt("Unit (e.g. pc, m, kW)") || "pc";
-    const rationale = prompt("Rationale / source (e.g. linked to finding #3 + 120m2 roof measurement)") || "user_input";
-    const it: Item = { id: `tmp-${Date.now()}`, description: desc, quantity: qty, unit, rationale, source: "user_input", provisional: false };
+    const rationale = prompt("Rationale / source *required* (e.g. finding #3 + measurement roof-area 120m², or rule: 1 panel per 2m²). Be specific — this is the trace.") || "";
+    if (rationale.length < 10) { alert("Rationale too short — must be ≥10 chars describing source (finding ID, measurement, rule, or user_input + assumptions)."); return; }
+    const src = (prompt("Source: measurement / finding / rule / user_input", "user_input") ?? "user_input") as Item["source"];
+    const assumptions = provisional ? ["Quantity provisional — missing critical input"] : [];
+    const it: Item = { id: `tmp-${Date.now()}`, description: desc, quantity: finalQty, unit, rationale, source: src, provisional, assumptions };
     const next = [...items, it];
     setItems(next);
     onChange?.(next, version);
@@ -39,8 +67,8 @@ export function MaterialsList({ assessmentId, initial = [] as Item[], version = 
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold">Materials schedule — traceable {version ? `· v${version}` : ""}</h3>
-        <span className="text-xs text-slate-500">Each item needs rationale + source. Provisional if missing critical inputs.</span>
+        <h3 className="text-sm font-semibold">Materials schedule — traceable {version ? `· v${version}` : ""} {resumeNote ? <span className="rounded bg-green-100 px-1.5 py-0.5 text-xs text-green-700">{resumeNote}</span> : null}</h3>
+        <span className="text-xs text-slate-500">Each item needs rationale + source. <span className="rounded bg-amber-100 px-1 py-0.5 text-amber-800">Provisional</span> when inputs missing — clearly identified, never hidden.</span>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
