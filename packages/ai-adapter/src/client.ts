@@ -79,6 +79,24 @@ export async function metaFetch(
   throw lastErr ?? new AiAdapterError("Unknown AI error", "provider_error");
 }
 
+// Simple in-memory rate limiter — 10 req / 60s per workspace (Phase 4)
+const rateBuckets = new Map<string, number[]>();
+export function checkRateLimit(workspaceId: string, limit = 10, windowMs = 60_000): boolean {
+  const now = Date.now();
+  const arr = rateBuckets.get(workspaceId) ?? [];
+  const fresh = arr.filter((t) => now - t < windowMs);
+  if (fresh.length >= limit) return false;
+  fresh.push(now);
+  rateBuckets.set(workspaceId, fresh);
+  return true;
+}
+
+// Redacted usage metadata — never logs keys, audio, images, or full prompts
+export function logUsageMeta(meta: { operation: string; workspaceId: string; model: string; latencyMs: number; status: string; errorCode?: string }) {
+  const redacted = { ...meta, workspaceId: meta.workspaceId.slice(0, 8) + "***" };
+  console.log(JSON.stringify({ type: "ai_usage", ...redacted, ts: new Date().toISOString() }));
+}
+
 // Choose model per operation: Wonder for complex, Spark for fast, Voice for audio
 export function modelFor(op: string, cfg: AdapterConfig): string {
   if (op === "transcribeAudio" || op === "transcribe") return cfg.voiceModel;

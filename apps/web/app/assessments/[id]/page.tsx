@@ -6,6 +6,7 @@ import { ContextForm } from "../../../components/ContextForm";
 import { MeasurementsPanel } from "../../../components/MeasurementsPanel";
 import { PhotoCapture } from "../../../components/PhotoCapture";
 import { VoiceRecorder } from "../../../components/VoiceRecorder";
+import { AiDraftPanel } from "../../../components/AiDraftPanel";
 
 export default function AssessmentDetailPage({ params, searchParams }: { params: { id: string }; searchParams?: { pack?: string } }) {
   const id = params.id;
@@ -54,11 +55,7 @@ export default function AssessmentDetailPage({ params, searchParams }: { params:
         <VoiceRecorder onTranscript={(t) => console.log("voice transcript", t)} assessmentId={id} />
       </div>
 
-      <div className="card p-4">
-        <h2 className="text-sm font-semibold">AI Analysis — draft findings (Wonder)</h2>
-        <p className="mt-1 text-xs text-slate-600">User-initiated <code>POST /api/ai/analyze</code> — returns <code>potentialFindings</code> with <code>requiresHumanReview=true</code>, <code>missingInformation</code>, <code>assumptions</code>, <code>uncertainty</code>. Edit/accept/reject; drafts never overwrite verified facts. <span className="rounded bg-amber-100 px-1.5 py-0.5 text-amber-800">Fallback labelled until live Meta verification</span></p>
-        <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">No AI call is auto-triggered on every edit. Press “Analyze” explicitly. Provider failure preserves your saved work.</div>
-      </div>
+      <AiDraftPanel assessmentId={id} pack={pack} mode={mode as "assessment" | "inspection"} />
 
       <div className="card p-4">
         <h2 className="text-sm font-semibold">Report — versioned snapshot + PDF/HTML</h2>
