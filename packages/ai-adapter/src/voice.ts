@@ -15,6 +15,10 @@ export async function voiceTranscribe(input: z.infer<typeof TranscribeAudioInput
   const approxBytes = Math.ceil((validated.audioBase64.length * 3) / 4);
   if (approxBytes > 25 * 1024 * 1024) throw new Error("Audio too large (>25MB) — split recording or use shorter note");
 
+  const t0 = Date.now();
+  const { checkRateLimit, logUsageMeta } = await import("./client");
+  if (!checkRateLimit(validated.audioBase64.slice(0, 8))) throw new Error("Rate limited — please wait before retrying transcription");
+
   try {
     const raw = await metaFetch(cfg, "/v1/audio/transcriptions", {
       model,
@@ -22,12 +26,13 @@ export async function voiceTranscribe(input: z.infer<typeof TranscribeAudioInput
       mime_type: validated.mimeType,
       language: validated.language,
     });
+    logUsageMeta({ operation: "transcribeAudio", workspaceId: "voice", model, latencyMs: Date.now() - t0, status: "ok" });
 
     const r = raw as Record<string, unknown>;
     const transcript = String(r.transcript ?? r.text ?? r.output ?? "");
     if (!transcript) throw new Error("Empty transcript from provider");
 
-    // Voice transcripts are untrusted input — never auto-convert ambiguous speech to precise values
+    // Voice transcripts are untrusted input — never auto-convert ambiguous speech to precise values; always isUnconfirmed:true until human edits
     return TranscribeAudioOutput.parse({
       transcript: transcript.trim(),
       confidence: typeof r.confidence === "number" ? r.confidence : undefined,

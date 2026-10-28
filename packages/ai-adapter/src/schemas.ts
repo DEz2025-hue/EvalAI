@@ -69,12 +69,22 @@ export const AnalyzeAssessmentInput = z.object({
 });
 
 export const FindingDraft = z.object({
-  title: z.string(),
-  description: z.string(),
+  title: z.string().min(3),
+  description: z.string().min(10),
   severity: z.enum(["low", "medium", "high"]).optional(),
   evidenceRefs: z.array(z.string()).default([]),
   requiresHumanReview: z.boolean().default(true),
+  uncertainty: z.enum(["low", "medium", "high"]).default("medium"),
+  missingInputs: z.array(z.string()).default([]),
 });
+
+// Evidence-ref validation — ensure refs point to real evidence for the assessment (no fabricated IDs)
+export function validateEvidenceRefs(refs: string[], knownEvidenceIds: string[]): { valid: string[]; invalid: string[] } {
+  const known = new Set(knownEvidenceIds);
+  const valid = refs.filter((r) => known.has(r));
+  const invalid = refs.filter((r) => !known.has(r));
+  return { valid, invalid };
+}
 
 export const AnalyzeAssessmentOutput = z.object({
   summary: z.string(),
