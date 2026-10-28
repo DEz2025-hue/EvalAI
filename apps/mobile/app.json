@@ -1,0 +1,9 @@
+{
+  "expo": {
+    "name": "EvalAI",
+    "slug": "eval-ai",
+    "scheme": "eval-ai",
+    "platforms": ["ios", "android", "web"],
+    "plugins": ["expo-router"]
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "name": "@eval-ai/supabase",
+  "version": "0.1.0",
+  "private": true,
+  "main": "src/index.ts",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.0",
+    "eval-ai": "file:../.."
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0"
+  }
+}
