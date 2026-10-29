@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
 import { sparkClarifyContext } from "@eval-ai/ai-adapter";
+import { requireAuth } from "../../../../lib/auth";
 
 export async function POST(req: Request) {
+  const { auth, error: authErr } = await requireAuth();
+  if (authErr) return authErr;
   try {
     const body = await req.json();
-    // authz: verify workspace membership server-side (TODO: Supabase session)
+    if (auth.mode === "authenticated") body.workspaceId = auth.ctx.workspaceId;
     const result = await sparkClarifyContext(body);
     return NextResponse.json(result);
   } catch (e) {

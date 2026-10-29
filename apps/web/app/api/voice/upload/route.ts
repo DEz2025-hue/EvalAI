@@ -1,12 +1,16 @@
 import { NextResponse } from "next/server";
+import { requireAuth, storeError } from "../../../../lib/auth";
+import { saveEvidenceLocal } from "../../../../lib/store";
 
 const ALLOWED_AUDIO = new Set(["audio/webm", "audio/ogg", "audio/mp4", "audio/mpeg", "audio/wav"]);
 
 export async function POST(req: Request) {
+  const { auth, error: authErr } = await requireAuth();
+  if (authErr) return authErr;
   const form = await req.formData();
   const file = form.get("file") as File | null;
   const assessmentId = String(form.get("assessmentId") ?? "");
-  // const itemId = form.get("itemId") as string | null;
+  const itemId = form.get("itemId") as string | null;
 
   if (!file) return NextResponse.json({ error: "No audio file" }, { status: 400 });
   // Accept webm default, but validate
@@ -14,9 +18,28 @@ export async function POST(req: Request) {
   if (file.size > 25 * 1024 * 1024) return NextResponse.json({ error: "Audio too large (>25MB)" }, { status: 400 });
   if (!assessmentId) return NextResponse.json({ error: "assessmentId required for private linkage" }, { status: 400 });
 
-  // Verify workspace/assessment scope where Supabase env present — private bucket
-  const storageKey = `voice/${assessmentId}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
-  // TODO: supabase.storage.from('evidence').upload(storageKey, file, { contentType: file.type })
-  // Fallback: deterministic key + note, original audio preserved at least as local preview + server temp where storage not yet configured
-  return NextResponse.json({ storageKey, sizeBytes: file.size, mimeType: file.type, note: "Audio preserved — private storage upload pending Supabase env, local preview available" });
+  try {
+    const storageKey = `voice/${assessmentId}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const { record, persisted } = await saveEvidenceLocal({
+      assessmentId,
+      itemId,
+      storageKey,
+      mimeType: file.type,
+      sizeBytes: file.size,
+      bytes,
+      ctx: auth.ctx,
+    });
+    return NextResponse.json({
+      id: record.id,
+      storageKey: record.storageKey,
+      itemId: record.itemId,
+      sizeBytes: record.sizeBytes,
+      mimeType: record.mimeType,
+      persisted,
+      note: persisted ? "Audio stored privately + evidence row linked" : "Audio validated — metadata staged to file fallback, private storage pending Supabase env",
+    });
+  } catch (e) {
+    return storeError(e);
+  }
 }

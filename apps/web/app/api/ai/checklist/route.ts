@@ -1,9 +1,13 @@
 import { NextResponse } from "next/server";
 import { sparkProposeChecklist } from "@eval-ai/ai-adapter";
+import { requireAuth } from "../../../../lib/auth";
 
 export async function POST(req: Request) {
+  const { auth, error: authErr } = await requireAuth();
+  if (authErr) return authErr;
   try {
     const body = await req.json();
+    if (auth.mode === "authenticated") body.workspaceId = auth.ctx.workspaceId;
     const result = await sparkProposeChecklist(body);
     return NextResponse.json(result);
   } catch (e) {
