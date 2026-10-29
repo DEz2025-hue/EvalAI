@@ -1,28 +1,53 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { createReportSnapshotLocal, listSnapshotsLocal, verifyAssessmentWorkspace } from "../../../../lib/store";
+import { requireAuth, workspaceIdFor, storeError } from "../../../../lib/auth";
 
 const Body = z.object({
-  assessmentId: z.string().uuid(),
+  assessmentId: z.string().min(3),
+  workspaceId: z.string().uuid().optional().nullable(),
   includeMaterials: z.boolean().default(false),
   finalize: z.boolean().default(false),
+  limitations: z.array(z.string()).optional(),
 });
 
 export async function POST(req: Request) {
+  const { auth, error: authErr } = await requireAuth();
+  if (authErr) return authErr;
   try {
     const body = Body.parse(await req.json());
-    // Assemble report from stored facts + validated drafts — never re-generate facts from AI at export
-    // Create report_snapshots row with assessment_version, materials_version, quotation_version (immutable after finalize)
-    const snapshotId = `snap-${Date.now()}-${body.assessmentId.slice(0, 8)}`;
-    return NextResponse.json({
-      snapshotId,
+    await verifyAssessmentWorkspace(auth.ctx, body.assessmentId);
+    const { snapshot, input, persisted } = await createReportSnapshotLocal({
       assessmentId: body.assessmentId,
-      assessmentVersion: 1,
-      materialsVersion: body.includeMaterials ? 1 : null,
-      finalized: body.finalize,
-      artifactKey: body.finalize ? `reports/${snapshotId}.pdf` : null,
-      note: "Snapshot created — finalized snapshots are immutable; later edits create new versions",
+      workspaceId: workspaceIdFor(auth, body.workspaceId),
+      includeMaterials: body.includeMaterials,
+      limitations: body.limitations,
+      finalize: body.finalize,
+      ctx: auth.ctx,
+    });
+    return NextResponse.json({
+      snapshot,
+      input,
+      persisted,
+      note: snapshot.finalized
+        ? "Snapshot finalized — immutable. Later edits create new snapshots, never mutate this one (Phase 6 exit gate)"
+        : "Draft snapshot — finalize to make immutable",
     });
   } catch (e) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 400 });
+    return storeError(e);
+  }
+}
+
+export async function GET(req: Request) {
+  const { auth, error: authErr } = await requireAuth();
+  if (authErr) return authErr;
+  const url = new URL(req.url);
+  const assessmentId = url.searchParams.get("assessmentId") ?? undefined;
+  try {
+    if (assessmentId) await verifyAssessmentWorkspace(auth.ctx, assessmentId);
+    const snapshots = await listSnapshotsLocal(assessmentId, auth.ctx);
+    return NextResponse.json({ snapshots, count: snapshots.length });
+  } catch (e) {
+    return storeError(e);
   }
 }

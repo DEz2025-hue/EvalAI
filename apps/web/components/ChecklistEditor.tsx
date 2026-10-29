@@ -1,15 +1,43 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 type Item = { id: string; title: string; instructions?: string; required: boolean; category?: string };
 type Response = { itemId: string; status: "pass" | "fail" | "needs_attention" | "not_applicable" | "not_checked"; notes?: string; measuredValue?: number; measuredUnit?: string };
 
-export function ChecklistEditor({ items: initial, assessmentId }: { items: Item[]; assessmentId: string }) {
+export function ChecklistEditor({ items: initial, assessmentId }: { items: Item[]; assessmentId: string }): JSX.Element {
   const [items, setItems] = useState<Item[]>(initial);
   const [responses, setResponses] = useState<Record<string, Response>>(
     Object.fromEntries(initial.map((it) => [it.id, { itemId: it.id, status: "not_checked" as const }]))
   );
   const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  // Keep editor in sync when the parent loads stored items after us
+  useEffect(() => {
+    setItems(initial);
+    setResponses((prev) => {
+      const next: Record<string, Response> = {};
+      for (const it of initial) next[it.id] = prev[it.id] ?? { itemId: it.id, status: "not_checked" as const };
+      return next;
+    });
+  }, [initial]);
+
+  // Resume: load previously saved responses
+  useEffect(() => {
+    fetch(`/api/checklist/responses?assessmentId=${assessmentId}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        const list = (data?.responses ?? []) as Response[];
+        if (list.length > 0) {
+          setResponses((prev) => {
+            const next = { ...prev };
+            for (const r of list) if (next[r.itemId]) next[r.itemId] = r;
+            return next;
+          });
+        }
+      })
+      .catch(() => {});
+  }, [assessmentId]);
 
   function updateStatus(id: string, status: Response["status"]) {
     setResponses((r) => ({ ...r, [id]: { ...r[id], status } }));
@@ -17,13 +45,40 @@ export function ChecklistEditor({ items: initial, assessmentId }: { items: Item[
 
   async function save() {
     setSaving(true);
-    // Persist via /api/checklist/responses — enforces workspace RLS server-side
+    setMsg(null);
     try {
-      await fetch("/api/checklist/responses", {
-        method: "POST",
+      // Step 1: persist the item list itself (new/edited titles, order) — returns real ids.
+      const putRes = await fetch("/api/checklist/items", {
+        method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ assessmentId, responses: Object.values(responses) }),
+        body: JSON.stringify({ assessmentId, items: items.map((it) => ({ title: it.title, instructions: it.instructions, required: it.required, category: it.category })) }),
       });
+      const putData = await putRes.json().catch(() => ({}));
+      if (!putRes.ok) throw new Error((putData as { error?: string }).error ?? "Could not save checklist items");
+      const rows = ((putData as { items?: Item[] }).items ?? []);
+      if (rows.length === items.length) {
+        setItems(rows);
+        // Re-key responses by position so they follow the persisted rows
+        const rekeyed: Record<string, Response> = {};
+        items.forEach((old, i) => {
+          const r = responses[old.id];
+          if (r) rekeyed[rows[i].id] = { ...r, itemId: rows[i].id };
+        });
+        setResponses(rekeyed);
+        // Step 2: persist statuses/notes/measurements against the real ids
+        const respRes = await fetch("/api/checklist/responses", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ assessmentId, responses: Object.values(rekeyed) }),
+        });
+        const respData = await respRes.json().catch(() => ({}));
+        if (!respRes.ok) throw new Error((respData as { error?: string }).error ?? "Could not save responses");
+        setMsg(`Saved ${rows.length} items + responses${(putData as { persisted?: boolean }).persisted ? " to Supabase" : " to local fallback"}.`);
+      } else {
+        setMsg("Items saved, but response mapping mismatched — reload before editing further.");
+      }
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : String(e));
     } finally {
       setSaving(false);
     }
@@ -32,13 +87,15 @@ export function ChecklistEditor({ items: initial, assessmentId }: { items: Item[
   function addItem() {
     const title = prompt("New item title");
     if (!title) return;
-    setItems((prev) => [...prev, { id: `tmp-${Date.now()}`, title, required: false }]);
+    const it: Item = { id: `tmp-${Date.now()}`, title, required: false };
+    setItems((prev) => [...prev, it]);
+    setResponses((prev) => ({ ...prev, [it.id]: { itemId: it.id, status: "not_checked" as const } }));
   }
 
   return (
     <div className="space-y-3">
       {items.map((it) => {
-        const r = responses[it.id];
+        const r = responses[it.id] ?? { itemId: it.id, status: "not_checked" as const };
         return (
           <div key={it.id} className="card p-3">
             <div className="flex items-start justify-between gap-3">
@@ -68,6 +125,7 @@ export function ChecklistEditor({ items: initial, assessmentId }: { items: Item[
         <button onClick={addItem} className="btn-secondary text-xs">Add item</button>
         <button onClick={save} disabled={saving} className="btn-primary text-xs">{saving ? "Saving…" : "Save checklist responses"}</button>
       </div>
+      {msg && <p className="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">{msg}</p>}
       <p className="text-xs text-slate-500">Edits are versioned per assessment. AI suggestions remain drafts until you accept. Calculations stay deterministic.</p>
     </div>
   );

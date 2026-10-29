@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { requireAuth, storeError } from "../../../../lib/auth";
+import { saveEvidenceLocal, listEvidenceLocal, signedEvidenceUrl } from "../../../../lib/store";
 
 // Server-validated upload — private Storage, short-lived signed URLs only after authz
 // Validates mime + magic bytes, size, workspace scope; never trust client Content-Type alone
@@ -19,6 +21,26 @@ async function hasValidMagic(file: File, mime: string): Promise<boolean> {
 }
 
 export async function POST(req: Request) {
+  const { auth, error: authErr } = await requireAuth();
+  if (authErr) return authErr;
+  const contentType = req.headers.get("content-type") ?? "";
+
+  // JSON action: signed URL for a previously uploaded key
+  if (contentType.includes("application/json")) {
+    try {
+      const body = (await req.json()) as { action?: string; assessmentId?: string; storageKey?: string };
+      if (body.action !== "signedUrl" || !body.assessmentId || !body.storageKey) {
+        return NextResponse.json({ error: "Expected { action: 'signedUrl', assessmentId, storageKey }" }, { status: 400 });
+      }
+      const { signedUrl, error } = await signedEvidenceUrl(body.assessmentId, body.storageKey, auth.ctx);
+      if (!signedUrl) return NextResponse.json({ error: error ?? "Signed URL unavailable" }, { status: 404 });
+      return NextResponse.json({ signedUrl });
+    } catch (e) {
+      return storeError(e);
+    }
+  }
+
+  // Multipart upload
   const form = await req.formData();
   const file = form.get("file") as File | null;
   const assessmentId = String(form.get("assessmentId") ?? "");
@@ -32,11 +54,65 @@ export async function POST(req: Request) {
 
   if (!(await hasValidMagic(file, file.type))) return NextResponse.json({ error: "File content does not match declared type — possible spoofed upload" }, { status: 400 });
 
-  // Verify workspace/assessment scope where env present — else deterministic fallback still links to assessment
-  const storageKey = `evidence/${assessmentId}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+  try {
+    const storageKey = `evidence/${assessmentId}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const { record, persisted } = await saveEvidenceLocal({
+      assessmentId,
+      itemId,
+      storageKey,
+      mimeType: file.type,
+      sizeBytes: file.size,
+      bytes,
+      ctx: auth.ctx,
+    });
+    return NextResponse.json({
+      id: record.id,
+      storageKey: record.storageKey,
+      itemId: record.itemId,
+      sizeBytes: record.sizeBytes,
+      mimeType: record.mimeType,
+      persisted,
+      note: persisted
+        ? "Uploaded to private storage + evidence row linked"
+        : "Validated (mime+magic+size) — stored to deterministic file fallback, private storage pending Supabase env",
+    });
+  } catch (e) {
+    return storeError(e);
+  }
+}
 
-  // TODO: supabase.storage.from('evidence').upload(storageKey, file, { contentType: file.type })
-  // TODO: insert into evidence_items (workspace_id, assessment_id, item_id, storage_key, mime_type, size_bytes) + evidence_relationships
-  // RLS ensures only workspace members can later fetch via signed URL — never via public path
-  return NextResponse.json({ storageKey, itemId: itemId ?? null, sizeBytes: file.size, mimeType: file.type, note: "Validated (mime+magic+size) — private storage, signed URL only after authorization (pending Supabase env)" });
+export async function DELETE(req: Request) {
+  const { auth, error: authErr } = await requireAuth();
+  if (authErr) return authErr;
+  const url = new URL(req.url);
+  const assessmentId = url.searchParams.get("assessmentId");
+  const evidenceId = url.searchParams.get("evidenceId");
+  if (!assessmentId || !evidenceId) return NextResponse.json({ error: "assessmentId and evidenceId required" }, { status: 400 });
+  try {
+    const { deleteEvidenceLocal } = await import("../../../../lib/store");
+    const result = await deleteEvidenceLocal(assessmentId, evidenceId, auth.ctx);
+    return NextResponse.json({ ok: true, ...result, note: "Evidence row removed; storage object removed on best effort" });
+  } catch (e) {
+    return storeError(e);
+  }
+}
+
+export async function GET(req: Request) {
+  const { auth, error: authErr } = await requireAuth();
+  if (authErr) return authErr;
+  const url = new URL(req.url);
+  const assessmentId = url.searchParams.get("assessmentId");
+  if (!assessmentId) return NextResponse.json({ error: "assessmentId required" }, { status: 400 });
+  try {
+    const { items, persisted } = await listEvidenceLocal(assessmentId, auth.ctx);
+    return NextResponse.json({
+      assessmentId,
+      items: items.map((e) => ({ id: e.id, storage_key: e.storageKey, assessment_id: e.assessmentId, item_id: e.itemId, mime_type: e.mimeType, uploaded_at: e.uploadedAt })),
+      count: items.length,
+      persisted,
+    });
+  } catch (e) {
+    return storeError(e);
+  }
 }

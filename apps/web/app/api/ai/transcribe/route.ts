@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { voiceTranscribe } from "@eval-ai/ai-adapter";
+import { requireAuth } from "../../../../lib/auth";
 
 export async function POST(req: Request) {
+  const { error: authErr } = await requireAuth();
+  if (authErr) return authErr;
   try {
     const body = await req.json();
     const result = await voiceTranscribe(body);
