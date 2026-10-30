@@ -1,10 +1,9 @@
 {
   "framework": "nextjs",
   "buildCommand": "pnpm --filter web build",
-  "installCommand": "pnpm install",
+  "installCommand": "pnpm install --frozen-lockfile",
   "outputDirectory": "apps/web/.next",
-  "env": {
-    "NEXT_PUBLIC_SUPABASE_URL": "@supabase-url",
-    "NEXT_PUBLIC_SUPABASE_ANON_KEY": "@supabase-anon-key"
+  "functions": {
+    "apps/web/app/api/**/route.ts": { "maxDuration": 60 }
   }
 }

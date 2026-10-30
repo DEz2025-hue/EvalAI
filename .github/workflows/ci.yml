@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.0
+      
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+      
+      - name: Setup pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+      
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      
+      - name: Typecheck web
+        run: pnpm --filter web typecheck
+      
+      - name: Typecheck mobile
+        run: pnpm --filter mobile typecheck
+      
+      - name: Typecheck shared
+        run: pnpm --filter @eval-ai/shared typecheck
+      
+      - name: Typecheck ai-adapter
+        run: pnpm --filter @eval-ai/ai-adapter typecheck
+      
+      - name: Typecheck supabase
+        run: pnpm --filter @eval-ai/supabase typecheck
+      
+      - name: Build web
+        run: pnpm --filter web build
+      
+      - name: Lint web
+        run: pnpm --filter web lint
+      
+      - name: Test shared
+        run: pnpm --filter @eval-ai/shared test
+
+      - name: Test web and ai-adapter (if present)
+        run: pnpm -r --if-present test
