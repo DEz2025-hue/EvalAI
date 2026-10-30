@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { getAdapterConfig } from "./index";
+import { getAdapterConfig } from "./config";
 import { metaFetch } from "./client";
 
 // SAM 3.1 — visual segmentation, only if it adds value per D-013.

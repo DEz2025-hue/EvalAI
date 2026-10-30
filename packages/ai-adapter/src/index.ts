@@ -19,34 +19,15 @@ export const AiDraft = z.object({
 });
 export type AiDraft = z.infer<typeof AiDraft>;
 
-export type AdapterConfig = {
-  baseUrl: string; // AI_PROVIDER_BASE_URL
-  apiKey: string;  // server-only
-  wonderModel: string;
-  sparkModel: string;
-  voiceModel: string;
-  timeoutMs: number;
-};
-
-export function getAdapterConfig(): AdapterConfig {
-  const baseUrl = process.env.AI_PROVIDER_BASE_URL;
-  const apiKey = process.env.AI_PROVIDER_API_KEY;
-  if (!baseUrl || !apiKey) throw new Error("Missing AI_PROVIDER_BASE_URL / AI_PROVIDER_API_KEY — see .env.example (server-only)");
-  return {
-    baseUrl,
-    apiKey,
-    wonderModel: process.env.META_WONDER_MODEL || "muse-wonder",
-    sparkModel: process.env.META_SPARK_MODEL || "muse-spark",
-    voiceModel: process.env.META_VOICE_MODEL || "muse-voice-transcribe",
-    timeoutMs: 30000,
-  };
-}
+export type { AdapterConfig } from "./config";
+export { getAdapterConfig } from "./config";
 
 export async function callMetaModel(operation: AiOperation, input: unknown): Promise<AiDraft> {
   // Thin router to real implementations — keeps provider detail behind adapter
   const { wonderAnalyzeAssessment } = await import("./wonder");
   const { sparkClarifyContext, sparkProposeChecklist } = await import("./spark");
   const { voiceTranscribe } = await import("./voice");
+  const { analyzeImage } = await import("./image");
   if (operation === "analyzeAssessment" || operation === "draftFinding" || operation === "draftRecommendation") {
     const res = await wonderAnalyzeAssessment(input as never);
     // Map Wonder output shape to AiDraft shape
@@ -74,7 +55,11 @@ export async function callMetaModel(operation: AiOperation, input: unknown): Pro
     const r = await voiceTranscribe(input as never);
     return { summary: r.transcript, observations: [r.transcript], potential_findings: [], recommendations: [], missing_information: [], assumptions: ["Transcript unconfirmed until reviewed"], uncertainty: "high — speech", evidence_references: [], requires_human_review: true };
   }
-  // analyzeImage, draftReport, generateSpeech — routed similarly; fallback for now
+  if (operation === "analyzeImage") {
+    const r = await analyzeImage(input);
+    return { summary: r.summary, observations: r.observations, potential_findings: [], recommendations: [], missing_information: r.limitations, assumptions: ["Photo analysis is a draft"], uncertainty: r.uncertainty, evidence_references: [], requires_human_review: true };
+  }
+  // draftReport, generateSpeech — labelled fallback until verified
   return {
     summary: `Operation ${operation} — pending live verification`,
     observations: [],
@@ -93,5 +78,6 @@ export { wonderAnalyzeAssessment } from "./wonder";
 export { sparkClarifyContext, sparkProposeChecklist } from "./spark";
 export { voiceTranscribe } from "./voice";
 export { samSegment } from "./sam";
+export { analyzeImage } from "./image";
 export * from "./schemas";
 export * from "./client";
