@@ -1,6 +1,6 @@
 import { CctvCreateForm } from "./CctvCreateForm";
 
-export default function NewCctvPage() {
+export default function NewCctvPage(): JSX.Element {
   return (
     <div className="mx-auto max-w-2xl space-y-4">
       <h1 className="text-xl font-semibold">New Assessment — CCTV</h1>

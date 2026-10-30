@@ -1,7 +1,7 @@
 import { MaterialsList } from "../../../../components/MaterialsList";
 import { QuotationReview } from "../../../../components/QuotationReview";
 
-export default function MaterialsPage({ params }: { params: { id: string } }) {
+export default function MaterialsPage({ params }: { params: { id: string } }): JSX.Element {
   const id = params.id;
   return (
     <div className="space-y-6">
