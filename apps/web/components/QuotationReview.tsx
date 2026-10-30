@@ -1,11 +1,12 @@
 "use client";
 import { useState } from "react";
+import { formatAmount, lineTotalAmount, quotationTotalAmount } from "@eval-ai/shared";
 
 type QItem = { description: string; quantity: number; unit: string; unitPrice: number; currency: string; taxesOrFees?: number };
 type Quote = { id: string; supplier: string; date: string; currency: string; items: QItem[]; stale?: boolean; total?: number };
 
-const lineTotal = (it: QItem): number => it.quantity * it.unitPrice + (it.taxesOrFees ?? 0);
-const quoteTotal = (q: Quote): number => q.total ?? q.items.reduce((s, it) => s + lineTotal(it), 0);
+const lineTotal = (it: QItem, currency: string): number => lineTotalAmount(it, currency);
+const quoteTotal = (q: Quote): number => q.total ?? quotationTotalAmount(q.items, q.currency);
 
 export function QuotationReview({ assessmentId, materialsVersion = 1 }: { assessmentId: string; materialsVersion?: number }): JSX.Element {
   const [quotes, setQuotes] = useState<Quote[]>([]);
@@ -77,7 +78,7 @@ export function QuotationReview({ assessmentId, materialsVersion = 1 }: { assess
                   <tr key={q.id} className={`border-t border-slate-100 ${isBest ? "bg-green-50" : ""}`}>
                     <td className="py-1">{q.supplier}</td>
                     <td>{q.items.length}</td>
-                    <td className="text-right font-medium">{t.toFixed(2)} {q.currency}</td>
+                    <td className="text-right font-medium">{formatAmount(t, q.currency)} {q.currency}</td>
                     <td className="text-right">{isBest ? <span className="rounded bg-green-100 px-1.5 py-0.5 text-xs text-green-700">lowest</span> : null}</td>
                   </tr>
                 );
@@ -114,8 +115,8 @@ export function QuotationReview({ assessmentId, materialsVersion = 1 }: { assess
         <div className="space-y-2">
           {quotes.map((q) => (
             <div key={q.id} className={`card p-3 ${q.stale ? "border-amber-300 bg-amber-50" : ""}`}>
-              <div className="flex items-center justify-between"><span className="text-sm font-medium">{q.supplier} — {q.date} — {q.currency} — total {quoteTotal(q).toFixed(2)}</span>{q.stale ? <span className="rounded bg-red-100 px-2 py-0.5 text-xs text-red-700">stale</span> : <span className="rounded bg-green-100 px-2 py-0.5 text-xs text-green-700">current</span>}</div>
-              <table className="mt-2 w-full text-sm"><thead className="text-xs text-slate-500"><tr><th className="text-left">Item</th><th>Qty</th><th>Unit price</th><th>Line total</th></tr></thead><tbody>{q.items.map((it, i) => <tr key={i} className="border-t border-slate-100"><td>{it.description}</td><td>{it.quantity} {it.unit}</td><td>{it.unitPrice} {it.currency}</td><td>{lineTotal(it).toFixed(2)} {it.currency}</td></tr>)}</tbody></table>
+              <div className="flex items-center justify-between"><span className="text-sm font-medium">{q.supplier} — {q.date} — {q.currency} — total {formatAmount(quoteTotal(q), q.currency)}</span>{q.stale ? <span className="rounded bg-red-100 px-2 py-0.5 text-xs text-red-700">stale</span> : <span className="rounded bg-green-100 px-2 py-0.5 text-xs text-green-700">current</span>}</div>
+              <table className="mt-2 w-full text-sm"><thead className="text-xs text-slate-500"><tr><th className="text-left">Item</th><th>Qty</th><th>Unit price</th><th>Line total</th></tr></thead><tbody>{q.items.map((it, i) => <tr key={i} className="border-t border-slate-100"><td>{it.description}</td><td>{it.quantity} {it.unit}</td><td>{it.unitPrice} {it.currency}</td><td>{formatAmount(lineTotal(it, q.currency), q.currency)} {it.currency}</td></tr>)}</tbody></table>
             </div>
           ))}
         </div>
