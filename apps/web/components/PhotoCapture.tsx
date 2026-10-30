@@ -1,7 +1,9 @@
 "use client";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
-export function PhotoCapture({ assessmentId, itemId, onUploaded }: { assessmentId: string; itemId?: string; onUploaded: (key: string) => void }): JSX.Element {
+export function PhotoCapture({ assessmentId, itemId, items, onUploaded }: { assessmentId: string; itemId?: string; items?: Array<{ id: string; title: string }>; onUploaded: (key: string, linkedItemId?: string) => void }): JSX.Element {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [selectedItem, setSelectedItem] = useState<string>(itemId ?? "");
   const [preview, setPreview] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -18,8 +20,7 @@ export function PhotoCapture({ assessmentId, itemId, onUploaded }: { assessmentI
   }
 
   async function upload() {
-    const input = document.querySelector<HTMLInputElement>('input[type="file"][data-photo-input]');
-    const file = input?.files?.[0];
+    const file = fileRef.current?.files?.[0];
     if (!file) return;
     setUploading(true);
     setError(null);
@@ -27,11 +28,12 @@ export function PhotoCapture({ assessmentId, itemId, onUploaded }: { assessmentI
       const fd = new FormData();
       fd.append("file", file);
       if (assessmentId) fd.append("assessmentId", assessmentId);
-      if (itemId) fd.append("itemId", itemId);
+      if (selectedItem) fd.append("itemId", selectedItem);
       const res = await fetch("/api/evidence/upload", { method: "POST", body: fd });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Upload failed");
-      onUploaded(data.storageKey);
+      onUploaded(data.storageKey, selectedItem || undefined);
+      clear();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -39,9 +41,14 @@ export function PhotoCapture({ assessmentId, itemId, onUploaded }: { assessmentI
     }
   }
 
+  function clear() {
+    if (preview) URL.revokeObjectURL(preview);
+    setPreview(null);
+    if (fileRef.current) fileRef.current.value = "";
+  }
+
   async function requestAnalysis() {
-    const input = document.querySelector<HTMLInputElement>('input[type="file"][data-photo-input]');
-    const file = input?.files?.[0];
+    const file = fileRef.current?.files?.[0];
     if (!file || !preview) return;
     const base64 = await fileToBase64(file);
     setAnalyze("Analyzing — suggestion only, not a verified measurement...");
@@ -59,13 +66,21 @@ Confidence: ${data.uncertainty}`);
 
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-3">
-      <label className="block text-xs font-medium">Photo — capture or select, linked to {itemId ? "checklist item" : "assessment"}</label>
-      <input data-photo-input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" onChange={onPick} className="mt-2 block w-full text-sm" />
+      <label className="block text-xs font-medium">Photo — capture or select, linked to {selectedItem ? "the selected checklist item" : "the job"}</label>
+      {items && items.length > 0 ? (
+        <label className="mt-2 block text-xs">Link to checklist item (optional)
+          <select value={selectedItem} onChange={(e) => setSelectedItem(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm">
+            <option value="">Whole job (no specific item)</option>
+            {items.map((it) => <option key={it.id} value={it.id}>{it.title}</option>)}
+          </select>
+        </label>
+      ) : null}
+      <input ref={fileRef} data-photo-input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" onChange={onPick} className="mt-2 block w-full text-sm" />
       {preview && <img src={preview} alt="Preview" className="mt-3 max-h-64 rounded-lg border border-slate-200" />}
       <div className="mt-3 flex gap-2">
         <button onClick={upload} disabled={!preview || uploading} className="btn-primary text-xs">{uploading ? "Uploading…" : "Upload photo"}</button>
         <button onClick={requestAnalysis} disabled={!preview} className="btn-secondary text-xs">Analyze photo</button>
-        <button onClick={() => setPreview(null)} className="btn-secondary text-xs">Remove</button>
+        <button onClick={clear} className="btn-secondary text-xs">Remove</button>
       </div>
       <p className="mt-2 text-xs text-slate-500">Photos are stored privately and shared only with your workspace. AI image analysis is a suggestion — always confirm measurements yourself.</p>
       {error && <p className="mt-2 rounded bg-red-50 px-3 py-2 text-xs text-red-700">{error}</p>}

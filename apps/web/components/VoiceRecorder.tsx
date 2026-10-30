@@ -138,8 +138,8 @@ export function VoiceRecorder({ onTranscript, assessmentId, itemId }: { onTransc
           <label className="text-xs font-medium text-slate-700">Transcript — editable, <span className={confirmed ? "text-green-700" : "text-amber-700"}>{confirmed ? "confirmed" : "unconfirmed until you confirm"}</span></label>
           <textarea value={transcript} onChange={(e) => { setTranscript(e.target.value); setConfirmed(false); }} rows={3} className={`mt-1 w-full rounded-lg border px-3 py-2 text-sm ${confirmed ? "border-green-200 bg-green-50" : "border-amber-200 bg-amber-50"}`} />
           <div className="mt-2 flex gap-2 flex-wrap">
-            {!confirmed ? <button onClick={() => setConfirmed(true)} className="btn-secondary text-xs">Confirm transcript</button> : <span className="inline-flex items-center rounded bg-green-100 px-2 py-1 text-xs text-green-800">✓ Confirmed — will be saved on Attach</span>}
-            <button onClick={() => { setConfirmed(true); onTranscript(transcript, audioKey ?? undefined); }} className="btn-primary text-xs" disabled={!confirmed && transcript.length < 2}>Attach to {itemId ? "item" : assessmentId ? "assessment" : "note"}</button>
+            {!confirmed ? <button onClick={() => setConfirmed(true)} className="btn-secondary text-xs">Confirm transcript</button> : <span className="inline-flex items-center rounded bg-green-100 px-2 py-1 text-xs text-green-800">✓ Confirmed — saved as a note when you press Attach</span>}
+            <button onClick={() => { if (confirmed) onTranscript(transcript, audioKey ?? undefined); }} className="btn-primary text-xs" disabled={!confirmed || transcript.trim().length < 2}>Attach to {itemId ? "item" : assessmentId ? "assessment" : "note"}</button>
             <button onClick={() => { setTranscript(""); setConfirmed(false); setAudioUrl(null); }} className="btn-secondary text-xs">Discard</button>
           </div>
           <p className="mt-1 text-xs text-slate-500">Do not auto-convert ambiguous speech into precise values — confirm numbers/units. Text fallback always available below.</p>
