@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
-import { View, Text, ScrollView, Pressable, ActivityIndicator, Alert } from "react-native";
+import { View, Text, ScrollView, Pressable, ActivityIndicator } from "react-native";
 import { useLocalSearchParams, Link, useFocusEffect } from "expo-router";
 import { PACK_TEMPLATES } from "@eval-ai/shared";
 import { getSupabase, hasSupabaseEnv } from "../../lib/supabase";
 import { apiFetch, apiBase } from "../../lib/api";
 import { ChecklistEditorMobile } from "../../components/ChecklistEditorMobile";
-import { PhotoCaptureMobile } from "../../components/PhotoCaptureMobile";
-import { VoiceRecorderMobile } from "../../components/VoiceRecorderMobile";
+import { FieldCaptureMobile } from "../../components/FieldCaptureMobile";
 import { MeasurementsPanelMobile } from "../../components/MeasurementsPanelMobile";
 import { AiDraftPanelMobile } from "../../components/AiDraftPanelMobile";
 import type { AssessmentRow } from "../../lib/types";
@@ -17,6 +16,8 @@ export default function AssessmentDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [state, setState] = useState<State>({ kind: "loading" });
   const [storedItems, setStoredItems] = useState<Array<{ id: string; title: string; required: boolean; category?: string }> | null>(null);
+  const [itemsState, setItemsState] = useState<"loading" | "ready" | "empty" | "error">("loading");
+  const [itemsTick, setItemsTick] = useState(0);
   const readyId = state.kind === "ready" ? state.row.id : null;
 
   const fetchDetail = useCallback(async () => {
@@ -27,7 +28,8 @@ export default function AssessmentDetail() {
       return;
     }
     const supabase = getSupabase()!;
-    setState({ kind: "loading" });
+    // Only the first load shows the full-screen spinner — refetching on focus must not unmount the screen and discard in-progress work.
+    setState((prev) => (prev.kind === "ready" ? prev : { kind: "loading" }));
     try {
       const { data, error } = await supabase.from("assessments").select("id, workspace_id, site_id, mode, pack, status, context, created_at, updated_at, sites(name, address)").eq("id", id).single();
       if (error) throw new Error(error.message);
@@ -38,32 +40,35 @@ export default function AssessmentDetail() {
   }, [id]);
 
   useEffect(() => { fetchDetail(); }, [fetchDetail]);
-  useFocusEffect(useCallback(() => { fetchDetail(); }, [fetchDetail]));
+  useFocusEffect(useCallback(() => { fetchDetail(); setItemsTick((n) => n + 1); }, [fetchDetail]));
 
-  // Load stored checklist items (builder edits) once the assessment is ready
+  // Load the stored checklist (ids are real, so edits keep responses and evidence links).
   useEffect(() => {
     if (!readyId) return;
     let cancelled = false;
     (async () => {
       try {
         apiBase();
-        const res = await apiFetch(`/api/checklist/items?assessmentId=${readyId}`);
-        if (!res.ok || cancelled) return;
+        const res = await apiFetch("/api/checklist/items?assessmentId=" + readyId);
+        if (cancelled) return;
+        if (!res.ok) { setItemsState("error"); return; }
         const data = await res.json().catch(() => ({}));
         const list = (data as { items?: Array<{ id: string; title: string; required: boolean; category?: string }> }).items ?? [];
-        if (list.length > 0 && !cancelled) setStoredItems(list);
-      } catch {}
+        setStoredItems(list);
+        setItemsState(list.length > 0 ? "ready" : "empty");
+      } catch {
+        if (!cancelled) setItemsState("error");
+      }
     })();
     return () => { cancelled = true; };
-  }, [readyId]);
+  }, [readyId, itemsTick]);
 
   if (state.kind === "loading") return <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 8, padding: 16 }}><ActivityIndicator /><Text style={{ color: "#64748b", fontSize: 12 }}>Loading assessment…</Text></View>;
   if (state.kind === "error") return <View style={{ flex: 1, padding: 16, gap: 12 }}><Text style={{ color: "#dc2626", fontWeight: "700" }}>Couldn’t load assessment</Text><Text style={{ color: "#64748b", fontSize: 12 }}>{state.message}</Text><Pressable onPress={fetchDetail} style={{ backgroundColor: "#0f172a", padding: 12, borderRadius: 8, alignItems: "center" }}><Text style={{ color: "#fff", fontWeight: "700" }}>Retry</Text></Pressable></View>;
 
-  // Stored items first (builder edits included); template only as fallback.
   const row = state.row;
   const pack = PACK_TEMPLATES[row.pack];
-  const items = storedItems ?? pack.checklist.map((title, i) => ({ id: `${row.id}_item_${i}`, title, required: i < 5, category: i < 2 ? "Site" : "System" }));
+  const items = storedItems ?? [];
   const siteName = row.sites?.name ?? (row.context as { siteName?: string })?.siteName ?? String(id).slice(0, 8);
 
   return (
@@ -97,14 +102,20 @@ export default function AssessmentDetail() {
         <Text style={{ fontWeight: "700", fontSize: 13, color: "#0f172a" }}>Checklist — editable · Not Checked ≠ Pass</Text>
         <Text style={{ fontSize: 11, color: "#64748b", marginTop: 4 }}>Template from the {row.pack} pack — you can add, remove, or reorder items before you confirm.</Text>
         <View style={{ marginTop: 12 }}>
-          <ChecklistEditorMobile items={items} assessmentId={row.id} />
+          {itemsState === "loading" ? <ActivityIndicator /> : null}
+          {itemsState === "error" ? <Text style={{ fontSize: 12, color: "#b91c1c" }}>Could not load the checklist. Check your connection and pull to reopen this screen.</Text> : null}
+          {itemsState === "empty" ? (
+            <Link href={`/assessments/${row.id}/checklist-builder` as never} asChild>
+              <Pressable style={{ backgroundColor: "#0ea5e9", paddingVertical: 10, borderRadius: 8, alignItems: "center" }}><Text style={{ color: "#fff", fontWeight: "700", fontSize: 12 }}>This job has no checklist yet — open the checklist builder</Text></Pressable>
+            </Link>
+          ) : null}
+          {itemsState === "ready" ? <ChecklistEditorMobile key={items.map((i) => i.id).join(",")} items={items} assessmentId={row.id} /> : null}
         </View>
       </View>
 
-      <MeasurementsPanelMobile assessmentId={row.id} />
+      <MeasurementsPanelMobile assessmentId={row.id} items={items.map((i) => ({ id: i.id, title: i.title }))} />
 
-      <PhotoCaptureMobile assessmentId={row.id} onUploaded={(k) => Alert.alert("Evidence linked", k.slice(0, 60))} />
-      <VoiceRecorderMobile assessmentId={row.id} onTranscript={(t) => Alert.alert("Transcript attached", t.slice(0, 80))} />
+      <FieldCaptureMobile assessmentId={row.id} items={items.map((i) => ({ id: i.id, title: i.title }))} />
 
       <AiDraftPanelMobile assessmentId={row.id} pack={row.pack} mode={row.mode} />
 

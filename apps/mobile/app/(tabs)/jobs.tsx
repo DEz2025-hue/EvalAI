@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { View, Text, TextInput, Pressable, ScrollView, ActivityIndicator, RefreshControl } from "react-native";
 import { useRouter, useFocusEffect } from "expo-router";
 import { getSupabase, hasSupabaseEnv } from "../../lib/supabase";
+import { getActiveWorkspace } from "../../lib/workspace";
 import type { AssessmentRow } from "../../lib/types";
 
 type ModeFilter = "all" | "assessment" | "inspection";
@@ -72,6 +73,8 @@ export default function JobsScreen() {
         .order("updated_at", { ascending: false })
         .limit(50);
 
+      const activeWs = await getActiveWorkspace();
+      if (activeWs) query = query.eq("workspace_id", activeWs);
       if (mode !== "all") query = query.eq("mode", mode);
       if (pack !== "all") query = query.eq("pack", pack);
       if (status !== "all") query = query.eq("status", status);

@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { View, Text, TextInput, Pressable, ScrollView, Alert, ActivityIndicator } from "react-native";
+import { View, Text, TextInput, Pressable, ScrollView, ActivityIndicator } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { PACK_TEMPLATES } from "@eval-ai/shared";
-import { getSupabase, hasSupabaseEnv } from "../../lib/supabase";
+import { apiFetch } from "../../lib/api";
 
 type Mode = "assessment" | "inspection";
 type Pack = "solar" | "cctv";
@@ -31,49 +31,16 @@ export default function CreateScreen() {
       setError("Site name ≤100 chars.");
       return;
     }
-    if (!hasSupabaseEnv()) {
-      // Demo fallback walkable without DB — push to detail with demo id
-      const demoId = `demo-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 4)}`;
-      Alert.alert("Demo draft", "App not connected — opening a local draft.");
-      router.push(`/assessments/${demoId}`);
-      return;
-    }
     setSaving(true);
     try {
-      const supabase = getSupabase()!;
-      const { data: userRes } = await supabase.auth.getUser();
-      const userId = userRes?.user?.id;
-      // Get first workspace for demo — in production, use selected workspace from select screen
-      const { data: memberships } = await supabase.from("workspace_memberships").select("workspace_id").limit(1);
-      const workspaceId = (memberships as unknown as Array<{ workspace_id: string }>)?.[0]?.workspace_id;
-      if (!workspaceId) throw new Error("No workspace membership — join a workspace first (workspace/select).");
-      // Create site then assessment
-      let siteId: string | null = null;
-      if (siteName.trim()) {
-        const { data: siteRow, error: siteErr } = await supabase.from("sites").insert({ workspace_id: workspaceId, name: siteName.trim(), address: address.trim() || null }).select("id").single();
-        if (siteErr) throw new Error(siteErr.message);
-        siteId = (siteRow as { id: string }).id;
-      }
-      const { data: assessment, error } = await supabase
-        .from("assessments")
-        .insert({
-          workspace_id: workspaceId,
-          site_id: siteId,
-          mode,
-          pack,
-          status: "draft",
-          context: { siteName: siteName.trim(), address: address.trim() || undefined, goal: goal.trim() || undefined, existingEquipment: existingEquipment.trim() || undefined },
-          created_by: userId ?? null,
-        })
-        .select("id")
-        .single();
-      if (error) throw new Error(error.message);
-      const id = (assessment as { id: string }).id;
-      // Seed checklist_items from template
-      const tpl = PACK_TEMPLATES[pack];
-      const rows = tpl.checklist.map((title, i) => ({ assessment_id: id, title, required: i < 5, ord: i, category: i < 2 ? "Site" : "System" }));
-      await supabase.from("checklist_items").insert(rows);
-      router.push(`/assessments/${id}`);
+      const res = await apiFetch("/api/assessments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode, pack, siteName: siteName.trim(), address: address.trim() || undefined, goal: goal.trim() || undefined, existingEquipment: existingEquipment.trim() || undefined }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { id?: string; error?: string };
+      if (!res.ok || !data.id) throw new Error(data.error ?? "Could not create the job — please try again");
+      router.push(("/assessments/" + data.id) as never);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {

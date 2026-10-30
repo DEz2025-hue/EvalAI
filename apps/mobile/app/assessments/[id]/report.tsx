@@ -91,7 +91,7 @@ export default function MobileReport() {
         <Pressable onPress={() => createAndDownload(false, true)} disabled={downloading} style={{ flex: 1, minWidth: 120, backgroundColor: "#fff", borderWidth: 1, borderColor: "#e2e8f0", paddingVertical: 10, borderRadius: 8, alignItems: "center" }}>
           <Text style={{ fontWeight: "700", fontSize: 12, color: "#0f172a" }}>PDF with materials</Text>
         </Pressable>
-        <Pressable onPress={() => createAndDownload(true, true)} disabled={downloading} style={{ backgroundColor: "#f59e0b", paddingHorizontal: 14, paddingVertical: 10, borderRadius: 8, alignItems: "center" }}>
+        <Pressable onPress={() => Alert.alert("Finalize this report?", "A finalized report is immutable — later edits create a new version. It is refused while the completeness review has blockers.", [{ text: "Cancel", style: "cancel" }, { text: "Finalize", style: "destructive", onPress: () => void createAndDownload(true, true) }])} disabled={downloading} style={{ backgroundColor: "#f59e0b", paddingHorizontal: 14, paddingVertical: 10, borderRadius: 8, alignItems: "center" }}>
           <Text style={{ color: "#fff", fontWeight: "700", fontSize: 12 }}>Finalize</Text>
         </Pressable>
       </View>

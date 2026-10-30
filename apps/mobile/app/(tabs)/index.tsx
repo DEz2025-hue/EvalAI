@@ -3,6 +3,7 @@ import { View, Text, Pressable, ScrollView, ActivityIndicator, RefreshControl } 
 import { Link, useFocusEffect, useRouter } from "expo-router";
 import { PACK_TEMPLATES } from "@eval-ai/shared";
 import { getSupabase, hasSupabaseEnv } from "../../lib/supabase";
+import { getActiveWorkspace } from "../../lib/workspace";
 import type { AssessmentRow } from "../../lib/types";
 
 type HomeState =
@@ -48,18 +49,20 @@ export default function HomeScreen() {
       else setUserLabel(null);
 
       // workspace context: first membership → workspace name
-      const { data: memberships } = await supabase
-        .from("workspace_memberships")
-        .select("workspace_id, workspaces(name)")
-        .limit(1);
+      const activeWs = await getActiveWorkspace();
+      let membershipQuery = supabase.from("workspace_memberships").select("workspace_id, workspaces(name)");
+      if (activeWs) membershipQuery = membershipQuery.eq("workspace_id", activeWs);
+      const { data: memberships } = await membershipQuery.limit(1);
       const wsName = (memberships as unknown as Array<{ workspaces: { name: string } | null }>)?.[0]?.workspaces?.name ?? null;
       setWorkspaceName(wsName);
 
-      const { data, error } = await supabase
+      let jobsQuery = supabase
         .from("assessments")
         .select("id, workspace_id, site_id, mode, pack, status, context, created_at, updated_at, sites(name, address)")
         .order("updated_at", { ascending: false })
         .limit(10);
+      if (activeWs) jobsQuery = jobsQuery.eq("workspace_id", activeWs);
+      const { data, error } = await jobsQuery;
 
       if (error) throw new Error(error.message);
       const rows = (data ?? []) as unknown as AssessmentRow[];

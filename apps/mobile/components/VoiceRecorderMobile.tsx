@@ -171,7 +171,7 @@ export function VoiceRecorderMobile({ assessmentId, itemId, onTranscript }: { as
             ) : (
               <Text style={{ fontSize: 12, color: "#15803d", fontWeight: "600" }}>✓ Confirmed — will attach on Save</Text>
             )}
-            <Pressable onPress={() => { if (!confirmed && transcript.length < 2) { Alert.alert("Confirm first", "Confirm transcript before attaching (or type manually)."); return; } onTranscript?.(transcript, audioUri ?? undefined); Alert.alert("Attached", "Transcript attached to item — save checklist to persist."); }} style={{ backgroundColor: confirmed || transcript.length >= 2 ? "#0ea5e9" : "#94a3b8", paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8 }}>
+            <Pressable onPress={() => { if (!confirmed || transcript.trim().length < 2) { Alert.alert("Confirm first", "Confirm the transcript before attaching it. Numbers and units must be checked by you."); return; } onTranscript?.(transcript, audioUri ?? undefined); }} style={{ backgroundColor: confirmed && transcript.trim().length >= 2 ? "#0ea5e9" : "#94a3b8", paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8 }}>
               <Text style={{ color: "#fff", fontWeight: "700", fontSize: 12 }}>Attach to {itemId ? "item" : "assessment"}</Text>
             </Pressable>
             <Pressable onPress={() => { setTranscript(""); setConfirmed(false); }} style={{ paddingHorizontal: 10, paddingVertical: 8 }}>
