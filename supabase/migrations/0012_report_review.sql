@@ -1,3 +1,4 @@
+-- APPLIED to project gmzstzqmbsuqwserlaul (4 columns + sign-off check; advisor shows no new findings).
 -- 0012: report review and sign-off.
 -- A draft snapshot can be edited (narrative lives in snapshot_payload.narrative) until a person reviews it and
 -- finalizes it. Finalizing records who signed off, when, and any note. Finalized snapshots stay immutable
