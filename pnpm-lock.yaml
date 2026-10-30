@@ -175,6 +175,9 @@ importers:
       typescript:
         specifier: ^5.5.0
         version: 5.9.3
+      vitest:
+        specifier: ^1.6.0
+        version: 1.6.1(@types/node@20.19.43)(terser@5.51.2)
 
   packages/shared:
     dependencies:
