@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { PACK_TEMPLATES, buildReportHtml } from "@eval-ai/shared";
+import { PACK_TEMPLATES, buildReportHtml, computeCompleteness, type CompletenessResult } from "@eval-ai/shared";
 import type { ReportSnapshot, ReportInput } from "@eval-ai/shared";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -569,8 +569,9 @@ export async function buildReportInputFromStoredFacts(
     return { title, status: r?.status ?? "not_checked", notes: r?.notes };
   });
   // Measurements from responses that have measured values
+  const titleById = new Map(source.map((it) => [it.id, it.title]));
   const measurements = responses.filter((r) => r.measuredValue !== undefined).map((r) => ({
-    name: r.itemId,
+    name: titleById.get(r.itemId) ?? "Checklist item",
     value: r.measuredValue!,
     unit: r.measuredUnit ?? "",
   }));
@@ -610,8 +611,19 @@ export async function buildReportInputFromStoredFacts(
     }
   }
   // Limitations: derived from not_checked/failed items + caller limitations + missing inputs
+  const allFindings = await listFindingsLocal(assessmentId, ctx);
+  const confirmedFindings = allFindings.filter((f) => f.status === "confirmed").map((f) => ({
+    title: f.title,
+    severity: f.severity,
+    description: f.description,
+    uncertainty: f.uncertainty,
+    evidenceCount: f.evidenceRefs.length,
+    status: "confirmed",
+  }));
+  const awaitingReview = allFindings.filter((f) => f.status === "needs_review").length;
   const unresolved = checklist.filter((c) => c.status === "not_checked" || c.status === "fail" || c.status === "needs_attention").map((c) => `${c.title} — ${c.status}`);
   const limitations = [...(opts.limitations ?? []), ...unresolved];
+  if (awaitingReview > 0) limitations.push(`${awaitingReview} finding(s) are still awaiting review and are not included in this report`);
   if (materials?.some((m) => m.provisional)) limitations.push("Provisional quantities present — verify missing inputs before procurement");
   const input: ReportInput = {
     siteName: assessment.siteName,
@@ -619,7 +631,7 @@ export async function buildReportInputFromStoredFacts(
     pack: assessment.pack,
     context: assessment.context,
     checklist,
-    findings: [], // findings derived from AI drafts would be stored separately; keep empty for deterministic fallback
+    findings: confirmedFindings,
     measurements,
     materials,
     quotation: quotation ?? null,
@@ -638,6 +650,15 @@ export async function createReportSnapshotLocal(input: {
   finalize?: boolean;
   ctx?: StoreCtx;
 }): Promise<{ snapshot: ReportSnapshot; input: ReportInput; persisted: boolean }> {
+  // A report can only be finalized once the completeness review has no blockers.
+  if (input.finalize) {
+    await verifyAssessmentWorkspace(input.ctx, input.assessmentId);
+    const completeness = await getCompletenessLocal(input.assessmentId, input.ctx);
+    if (!completeness.ready) {
+      const list = completeness.blockers.map((b) => b.reason).join("; ");
+      throw new Error("Cannot finalize — " + completeness.blockers.length + " blocking issue(s) in the completeness review: " + list);
+    }
+  }
   const { input: reportInput, assessment, versions } = await buildReportInputFromStoredFacts(input.assessmentId, {
     includeMaterials: input.includeMaterials ?? false,
     limitations: input.limitations,
@@ -663,7 +684,7 @@ export async function createReportSnapshotLocal(input: {
     immutable: true as const,
   };
   const htmlPreview = buildReportHtml(snapshot, reportInput);
-  snapshot.htmlPreview = htmlPreview.slice(0, 20000);
+  snapshot.htmlPreview = htmlPreview;
   const record: SnapshotRecord = { ...snapshot, workspaceId, payload: reportInput };
   // Try Supabase first if env
   if (dbMode(input.ctx) && workspaceId && asUuidOrNull(input.assessmentId)) {
@@ -687,6 +708,7 @@ export async function createReportSnapshotLocal(input: {
       // The database allocates the version atomically; trust it over the predicted value.
       snapshot.assessmentVersion = (inserted as { assessment_version: number }).assessment_version;
       await auditEvent({ workspaceId, action: input.finalize ? "snapshot.finalized" : "snapshot.drafted", targetType: "snapshot", targetId: id, ctx: input.ctx });
+      await advanceStatusAfterSnapshot(input.assessmentId, !!input.finalize, input.ctx);
       return { snapshot, input: reportInput, persisted: true };
     } catch (e) {
       throw dbError(e);
@@ -699,6 +721,7 @@ export async function createReportSnapshotLocal(input: {
   // finalized is set on creation only; updates not allowed — create new id instead
   all.push(record);
   writeJson(SNAPSHOTS_FILE, all);
+  await advanceStatusAfterSnapshot(input.assessmentId, !!input.finalize, input.ctx);
   return { snapshot, input: reportInput, persisted: false };
 }
 
@@ -1183,4 +1206,63 @@ export async function listFindingsLocal(assessmentId: string, ctx?: StoreCtx): P
   }
   const all = readJson<FindingRecord[]>(FINDINGS_FILE, []);
   return all.filter((f) => f.assessmentId === assessmentId);
+}
+
+// ---- Assessment status lifecycle: draft -> in_progress -> review -> finalized ----
+export async function setAssessmentStatusLocal(id: string, status: AssessmentRecord["status"], ctx?: StoreCtx): Promise<void> {
+  if (dbMode(ctx)) {
+    const supabase = await clientFor(ctx);
+    const { error } = await supabase.from("assessments").update({ status, updated_at: new Date().toISOString() }).eq("id", id);
+    if (error) throw dbError(error);
+    return;
+  }
+  const all = readJson<AssessmentRecord[]>(ASSESSMENTS_FILE, []);
+  const idx = all.findIndex((a) => a.id === id);
+  if (idx >= 0) {
+    all[idx].status = status;
+    all[idx].updatedAt = new Date().toISOString();
+    writeJson(ASSESSMENTS_FILE, all);
+  }
+}
+
+/** Finalizing marks the job finalized; a draft snapshot moves an in-progress job to review. */
+async function advanceStatusAfterSnapshot(assessmentId: string, finalize: boolean, ctx?: StoreCtx): Promise<void> {
+  try {
+    if (finalize) return await setAssessmentStatusLocal(assessmentId, "finalized", ctx);
+    const current = await getAssessmentLocal(assessmentId, ctx);
+    if (current && (current.status === "draft" || current.status === "in_progress")) await setAssessmentStatusLocal(assessmentId, "review", ctx);
+  } catch (e) {
+    // The snapshot is already stored; a status update failure must not lose it.
+    console.error("Status update after snapshot failed", e instanceof Error ? e.message : String(e));
+  }
+}
+
+// ---- Completeness review (single source of truth for UI, API and the finalize gate) ----
+export async function getCompletenessLocal(assessmentId: string, ctx?: StoreCtx): Promise<CompletenessResult> {
+  await verifyAssessmentWorkspace(ctx, assessmentId);
+  const assessment = await getAssessmentLocal(assessmentId, ctx);
+  if (!assessment) throw new Error("Assessment not found");
+  const [items, responses, evidence, findings, materials, quotations] = await Promise.all([
+    getChecklistItemsLocal(assessmentId, ctx),
+    getResponsesLocal(assessmentId, ctx),
+    listEvidenceLocal(assessmentId, ctx),
+    listFindingsLocal(assessmentId, ctx),
+    getMaterialsLocal(assessmentId, ctx),
+    getQuotationsLocal(assessmentId, ctx),
+  ]);
+  const answers = (assessment.context as { clarificationAnswers?: Record<string, unknown> }).clarificationAnswers;
+  const result = computeCompleteness({
+    items: items.map((i) => ({ id: i.id, title: i.title, required: i.required })),
+    responses: responses.map((r) => ({ itemId: r.itemId, status: r.status, measuredValue: r.measuredValue })),
+    evidenceItemIds: evidence.items.map((e) => e.itemId).filter((x): x is string => !!x),
+    findings: findings.map((f) => ({ status: f.status })),
+    materials: materials.length > 0 ? { count: materials.length, provisionalCount: materials.filter((m) => m.provisional).length } : null,
+    quotations: quotations.map((q) => ({ stale: q.stale })),
+    clarificationAnswered: !!answers && Object.keys(answers).length > 0,
+  });
+  if (items.length === 0) {
+    result.blockers.unshift({ code: "no_checklist", reason: "The checklist has no items — confirm a checklist first", target: "checklist" });
+    result.ready = false;
+  }
+  return result;
 }

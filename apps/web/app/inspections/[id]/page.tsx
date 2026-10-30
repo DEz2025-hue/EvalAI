@@ -74,7 +74,7 @@ export default function InspectionDetailPage({ params, searchParams }: { params:
       <div className="card p-4">
         <h2 className="text-sm font-semibold">Defects & corrective actions</h2>
         <p className="text-sm text-slate-600">Inspection findings document defects, severity only when evidence supports it, and corrective actions. Review and confirm them on the findings page.</p>
-        <a href={`/assessments/${id}/findings`} className="mt-3 inline-flex btn-secondary text-xs">Review findings →</a>
+        <a href={`/inspections/${id}/findings`} className="mt-3 inline-flex btn-secondary text-xs">Review findings →</a>
       </div>
     </div>
   );

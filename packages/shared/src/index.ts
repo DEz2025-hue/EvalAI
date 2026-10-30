@@ -6,3 +6,4 @@ export * from "./quotations";
 export * from "./report";
 export * from "./reportHtml";
 export * from "./packs";
+export * from "./completeness";

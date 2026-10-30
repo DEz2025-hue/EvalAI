@@ -45,7 +45,7 @@ export async function POST(req: Request) {
       }
       return NextResponse.json({
         snapshot: snap,
-        htmlPreview: html.slice(0, 20000),
+        htmlPreview: html,
         pdfBase64: base64,
         pdfBytes: pdfBytes.length,
         artifactKey: snap.artifactKey ?? `reports/${snap.id}.pdf`,
@@ -84,7 +84,7 @@ export async function POST(req: Request) {
       return NextResponse.json({
         snapshot,
         input: assembled.input,
-        htmlPreview: html.slice(0, 20000),
+        htmlPreview: html,
         pdfBase64: base64,
         pdfBytes: pdfBytes.length,
         artifactKey: `reports/${snapshot.id}.pdf`,
@@ -124,7 +124,7 @@ export async function POST(req: Request) {
     const base64 = Buffer.from(pdfBytes).toString("base64");
     return NextResponse.json({
       snapshot,
-      htmlPreview: html.slice(0, 20000),
+      htmlPreview: html,
       pdfBase64: base64,
       pdfBytes: pdfBytes.length,
       artifactKey: `reports/${snapshot.id}.pdf`,

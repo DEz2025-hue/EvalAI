@@ -40,7 +40,8 @@ export async function GET(req: Request) {
     await verifyAssessmentWorkspace(auth.ctx, id);
     const { getMaterialsLocal } = await import("../../../lib/store");
     const items = await getMaterialsLocal(id, auth.ctx);
-    return NextResponse.json({ assessmentId: id, items, count: items.length });
+    const version = items.length > 0 ? Math.max(...items.map((m) => m.version)) : 0;
+    return NextResponse.json({ assessmentId: id, items, count: items.length, version });
   } catch (e) {
     return storeError(e);
   }

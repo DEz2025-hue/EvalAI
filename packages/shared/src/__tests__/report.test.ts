@@ -56,7 +56,7 @@ describe("Phase 6 — Reports from versioned snapshots", () => {
     const html = buildReportHtml(baseSnapshot(), baseInput());
     expect(html).toContain("No materials");
     expect(html).toContain("Not all areas accessible");
-    expect(html).not.toContain("provisional");
+    expect(html).not.toContain(">provisional<"); // no provisional badge (the notice text mentions the word)
   });
 
   it("report with materials renders traceable rationale and provisional flag", () => {
