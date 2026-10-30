@@ -7,7 +7,7 @@ export default function TemplatesPage(): JSX.Element {
     <div className="mx-auto max-w-3xl space-y-6 py-6">
       <div>
         <h1 className="text-xl font-semibold">Templates · {packs.length} packs</h1>
-        <p className="text-sm text-slate-600">Starting checklists for each trade. Templates seed the builder — every job's list stays editable per assessment, and edits never rewrite the template.</p>
+        <p className="text-sm text-slate-600">Starting checklists for each trade. Templates seed the builder — every job&apos;s list stays editable per assessment, and edits never rewrite the template.</p>
       </div>
       {packs.map((p) => (
         <div key={p.id} className="card p-4 space-y-3">
