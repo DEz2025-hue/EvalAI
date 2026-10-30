@@ -16,3 +16,6 @@ export { samSegment, SamSegmentInput } from "./sam";
 
 // Backwards-compatible names used by the web routes.
 export { clarifyContext as sparkClarifyContext, proposeChecklist as sparkProposeChecklist, analyzeAssessment as wonderAnalyzeAssessment } from "./text";
+
+export { probeProvider } from "./probe";
+export type { ProbeCheck } from "./probe";

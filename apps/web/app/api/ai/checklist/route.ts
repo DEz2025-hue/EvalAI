@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { sparkProposeChecklist } from "@eval-ai/ai-adapter";
 import { requireWriter } from "../../../../lib/auth";
-import { aiError, aiRateLimited, aiWorkspaceKey, loadAssessmentFacts } from "../../../../lib/aiRoute";
+import { aiError, aiGuard, aiRunHook, aiWorkspaceKey, loadAssessmentFacts } from "../../../../lib/aiRoute";
 
 // Proposals are suggestions only (source = ai_suggested) and are never saved until the user confirms the checklist.
 const Body = z.object({ assessmentId: z.string().min(1).max(100), maxItems: z.number().int().min(5).max(50).optional() });
@@ -10,7 +10,7 @@ const Body = z.object({ assessmentId: z.string().min(1).max(100), maxItems: z.nu
 export async function POST(req: Request) {
   const { auth, error: authErr } = await requireWriter();
   if (authErr) return authErr;
-  const limited = aiRateLimited(auth, "checklist");
+  const limited = await aiGuard(auth, "checklist");
   if (limited) return limited;
   try {
     const body = Body.parse(await req.json());
@@ -23,8 +23,9 @@ export async function POST(req: Request) {
       pack: facts.assessment.pack,
       context: ctx,
       answers: (ctx.clarificationAnswers as Record<string, unknown> | undefined) ?? undefined,
+      existingChecklist: facts.items.map((i) => ({ title: i.title })),
       maxItems: body.maxItems ?? 20,
-    });
+    }, { onRun: aiRunHook(auth, body.assessmentId) });
     return NextResponse.json(result);
   } catch (e) {
     return aiError(e);
