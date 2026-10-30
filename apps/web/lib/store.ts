@@ -167,9 +167,16 @@ export async function createAssessmentLocal(input: {
   if (dbMode(input.ctx) && workspaceId) {
     try {
       const supabase = await clientFor(input.ctx);
-      const { data: site, error: siteErr } = await supabase.from("sites").insert({ workspace_id: workspaceId, name: input.siteName, address: input.address ?? null }).select("id").single();
-      if (siteErr) throw siteErr;
-      const siteId = site?.id ?? null;
+      // Reuse an existing site with the same name instead of creating a duplicate per job.
+      const siteName = input.siteName.trim();
+      const { data: existingSite, error: findSiteErr } = await supabase.from("sites").select("id").eq("workspace_id", workspaceId).eq("name", siteName).limit(1).maybeSingle();
+      if (findSiteErr) throw findSiteErr;
+      let siteId: string | null = (existingSite as { id: string } | null)?.id ?? null;
+      if (!siteId) {
+        const { data: site, error: siteErr } = await supabase.from("sites").insert({ workspace_id: workspaceId, name: siteName, address: input.address ?? null }).select("id").single();
+        if (siteErr) throw siteErr;
+        siteId = (site as { id: string } | null)?.id ?? null;
+      }
       const { data: assessment, error } = await supabase
         .from("assessments")
         .insert({ workspace_id: workspaceId, site_id: siteId, created_by: input.ctx?.userId, mode: input.mode, pack: input.pack, status: "draft", context: { siteName: input.siteName, goal: input.goal, existingEquipment: input.existingEquipment } })

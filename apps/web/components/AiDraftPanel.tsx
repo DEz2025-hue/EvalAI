@@ -14,15 +14,11 @@ export function AiDraftPanel({ assessmentId, pack, mode }: { assessmentId: strin
     setLoading("analyze");
     setError(null);
     try {
-      // Analyze the ACTUAL saved field data — never empty placeholders.
-      const [respRes, evRes] = await Promise.all([
-        fetch(`/api/checklist/responses?assessmentId=${assessmentId}`).then((r) => (r.ok ? r.json() : { responses: [] })).catch(() => ({ responses: [] })),
-        fetch(`/api/evidence/upload?assessmentId=${assessmentId}`).then((r) => (r.ok ? r.json() : { items: [] })).catch(() => ({ items: [] })),
-      ]);
+      // The server assembles the analysis input from stored facts; only the assessment id is sent.
       const res = await fetch("/api/ai/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ assessmentId, mode, pack, checklistResponses: (respRes as { responses?: unknown[] }).responses ?? [], evidenceRefs: ((evRes as { items?: Array<{ storage_key: string }> }).items ?? []).map((e) => e.storage_key) }),
+        body: JSON.stringify({ assessmentId }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Analyze failed");

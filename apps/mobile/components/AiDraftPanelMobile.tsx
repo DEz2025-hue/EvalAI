@@ -24,20 +24,11 @@ export function AiDraftPanelMobile({ assessmentId, pack, mode }: { assessmentId:
         setMeta({ uncertainty: "high — not verified", missingInformation: ["pending"], assumptions: ["Fallback, not model output"], fallback: true });
         return;
       }
-      // Analyze the ACTUAL saved field data — never empty placeholders.
-      const [respRes, evRes, itemRes] = await Promise.all([
-        apiFetch(`/api/checklist/responses?assessmentId=${assessmentId}`).then((r) => (r.ok ? r.json() : { responses: [] })).catch(() => ({ responses: [] })),
-        apiFetch(`/api/evidence/upload?assessmentId=${assessmentId}`).then((r) => (r.ok ? r.json() : { items: [] })).catch(() => ({ items: [] })),
-        apiFetch(`/api/checklist/items?assessmentId=${assessmentId}`).then((r) => (r.ok ? r.json() : { items: [] })).catch(() => ({ items: [] })),
-      ]);
-      const titles = new Map<string, string>(((itemRes as { items?: Array<{ id: string; title: string }> }).items ?? []).map((it) => [it.id, it.title]));
-      const validStatus = (s: string): "pass" | "fail" | "needs_attention" | "not_applicable" | "not_checked" =>
-        (["pass", "fail", "needs_attention", "not_applicable", "not_checked"] as const).includes(s as "pass") ? (s as "pass") : "not_checked";
-      const checklistResponses = (((respRes as { responses?: Array<{ itemId: string; status: string; notes?: string; measuredValue?: number; measuredUnit?: string }> }).responses ?? []) as Array<{ itemId: string; status: string; notes?: string; measuredValue?: number; measuredUnit?: string }>).map((r) => ({ itemId: r.itemId, title: titles.get(r.itemId) ?? r.itemId, status: validStatus(r.status), notes: r.notes, measuredValue: r.measuredValue, measuredUnit: r.measuredUnit }));
+      // The server assembles the analysis input from stored facts; only the assessment id is sent.
       const res = await apiFetch("/api/ai/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ assessmentId, mode, pack, checklistResponses, evidenceRefs: (((evRes as { items?: Array<{ storage_key: string }> }).items ?? []).map((e) => e.storage_key)) }),
+        body: JSON.stringify({ assessmentId }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error((data as { error?: string }).error ?? "Analyze failed");
