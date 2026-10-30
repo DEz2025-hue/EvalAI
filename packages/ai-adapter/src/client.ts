@@ -1,4 +1,4 @@
-import type { AdapterConfig } from "./index";
+import type { AdapterConfig } from "./config";
 
 // Server-only HTTP client for Meta Model API
 // — timeouts, bounded retries, redacted logging, never expose secrets to client
