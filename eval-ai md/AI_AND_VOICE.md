@@ -129,3 +129,33 @@ reached: - keep all saved user work; - show a useful error without
 internal details or secrets; - permit retry when safe; - retain manual
 workflow functionality; - do not create fake or cached output that
 appears to be new analysis; - record redacted diagnostics.
+
+
+## 10. Provider facts and go-live runbook (verified 2026-10-30)
+
+**Status: code complete, NOT yet verified live.** The provider key works, but every inference call returned `402 billing_not_configured` because billing was not set up on the Meta team. Until billing is enabled the app degrades gracefully: AI buttons show "AI assistance is not available yet" and every manual workflow keeps working.
+
+### Models in use (Meta Model API, base `https://api.meta.ai/v1`)
+| Use | Model | Notes |
+|---|---|---|
+| Clarify, checklist suggestions, analysis, photo analysis, report draft | `muse-spark-1.3` | Reasoning level and token budget set per operation (`packages/ai-adapter/src/config.ts`) |
+| Voice notes | `muse-voice-transcribe-1.0` | WAV only (mono 16-bit, 16/24 kHz, 10 min, 32 MB); the server converts webm/m4a |
+| Optional segmentation | `sam-3.1` | Raw records only; masks are never measurements |
+| Not used | Muse Wonder (preview, ~3-5x cost, evaluate later), Muse Image, any `*-contributor` model | Contributor models let Meta train on content and forbid personal data — refused by the app |
+
+No Meta text-to-speech exists; spoken replies would use the device's own speech engine.
+
+### Rules the code enforces
+Standard models only; inline media only (no Files API, so Zero Data Retention stays possible); no temperature overrides; schema-constrained JSON; evidence ids limited to real ones; retry only 429/500/503 (never 504 or timeouts); every transcript and AI draft is unconfirmed until a person reviews it; usage is logged per workspace (`ai_runs`) with an optional daily cap (`AI_DAILY_COST_CAP_USD`).
+
+### Go-live runbook
+1. Meta dashboard: complete billing for the team (the 402 response links to the billing page).
+2. Environment (server only): `AI_PROVIDER_API_KEY`, `AI_PROVIDER_BASE_URL=https://api.meta.ai`, and the versioned model ids from `.env.example`. Unversioned ids (`muse-spark`) are mapped automatically but should be corrected.
+3. Sign in as an owner/admin and open `/api/ai/health` (free): configured models must all exist in the catalog.
+4. Open `/api/verify/provider`: every check must pass (structured JSON, image input, voice). Record failures with the provider error code.
+5. Deploy preview: confirm the transcription function includes the ffmpeg binary and stays within the function size limit; record a 30 second voice note on web and on a phone and confirm the transcript.
+6. Read Meta's AI Developer Legal Center terms (retention, abuse monitoring, regions) and decide whether Zero Data Retention is required before the first paying customer.
+7. Set `AI_DAILY_COST_CAP_USD` to a conservative value; watch `ai_runs` for the first week (cost per job, p95 latency, error codes).
+
+### Still to do after billing works
+Build the evaluation set (about 30 synthetic solar/CCTV cases, including fabricated-evidence and prompt-injection traps) and use it to confirm the reasoning-level defaults and decide whether Muse Wonder is worth offering for deep review. Implement the SAM record parser from a real response.
