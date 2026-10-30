@@ -1,0 +1,8 @@
+# Normalize line endings on commit; check out native endings per OS.
+* text=auto
+
+# Images stay binary.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
