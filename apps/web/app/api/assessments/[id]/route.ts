@@ -16,7 +16,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     }
     const responses = await getResponsesLocal(id, auth.ctx);
     const stored = await getChecklistItemsLocal(id, auth.ctx);
-    const checklist = stored.map((it) => ({ id: it.id, title: it.title, instructions: it.instructions, required: it.required, category: it.category }));
+    const checklist = stored.map((it) => ({ id: it.id, title: it.title, instructions: it.instructions, required: it.required, category: it.category, source: it.source, rationale: it.rationale }));
     return NextResponse.json({ ...assessment, checklist, responses, note: "Checklist from stored items — RLS when workspaceId present" });
   } catch (e) {
     return storeError(e);

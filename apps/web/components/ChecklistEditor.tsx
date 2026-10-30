@@ -1,7 +1,8 @@
 "use client";
 import { useEffect, useState } from "react";
+import { SourceBadge } from "./SourceBadge";
 
-type Item = { id: string; title: string; instructions?: string; required: boolean; category?: string };
+type Item = { id: string; title: string; instructions?: string; required: boolean; category?: string; source?: string };
 type Response = { itemId: string; status: "pass" | "fail" | "needs_attention" | "not_applicable" | "not_checked"; notes?: string; measuredValue?: number; measuredUnit?: string };
 
 export function ChecklistEditor({ items: initial, assessmentId }: { items: Item[]; assessmentId: string }): JSX.Element {
@@ -102,7 +103,7 @@ export function ChecklistEditor({ items: initial, assessmentId }: { items: Item[
               <div>
                 <div className="text-sm font-medium">{it.title} {it.required && <span className="rounded bg-red-100 px-1.5 py-0.5 text-xs text-red-700">required</span>}</div>
                 {it.instructions && <p className="text-xs text-slate-600">{it.instructions}</p>}
-                {it.category && <span className="badge bg-slate-100 text-slate-600 text-xs">{it.category}</span>}
+                <div className="mt-1 flex flex-wrap items-center gap-1"><SourceBadge source={it.source} />{it.category && <span className="badge bg-slate-100 text-slate-600 text-xs">{it.category}</span>}</div>
               </div>
               <select value={r.status} onChange={(e) => updateStatus(it.id, e.target.value as Response["status"])} className="rounded-lg border border-slate-200 px-2 py-1 text-xs">
                 <option value="not_checked">Not Checked</option>
