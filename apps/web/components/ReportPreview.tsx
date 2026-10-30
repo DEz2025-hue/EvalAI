@@ -1,6 +1,6 @@
 "use client";
 
-export function ReportPreview({ assessmentId, mode = "assessment", pack = "solar", items = [] as Array<{ title: string; status: string }> }: { assessmentId: string; mode?: "assessment" | "inspection"; pack?: "solar" | "cctv"; items?: Array<{ title: string; status: string }> }) {
+export function ReportPreview({ assessmentId, mode = "assessment", pack = "solar", items = [] as Array<{ title: string; status: string }> }: { assessmentId: string; mode?: "assessment" | "inspection"; pack?: "solar" | "cctv"; items?: Array<{ title: string; status: string }> }): JSX.Element {
   return (
     <div className="card p-0 overflow-hidden bg-white">
       <div className="border-b border-slate-200 bg-slate-50 px-4 py-3 flex items-center justify-between">

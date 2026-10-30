@@ -4,7 +4,7 @@ import { areaM2, volumeM3, cableLengthWithSag } from "@eval-ai/shared";
 
 type Measurement = { name: string; value: number; unit: string; source: string };
 
-export function MeasurementsPanel({ assessmentId }: { assessmentId: string }) {
+export function MeasurementsPanel({ assessmentId }: { assessmentId: string }): JSX.Element {
   const [items, setItems] = useState<Measurement[]>([
     { name: "Roof area", value: 0, unit: "m²", source: "manual" },
   ]);
@@ -37,7 +37,7 @@ export function MeasurementsPanel({ assessmentId }: { assessmentId: string }) {
         </table>
       </div>
       <button onClick={() => setItems((prev) => [...prev, { name: `M${prev.length + 1}`, value: area, unit: "m²", source: "calculation: areaM2" }])} className="btn-secondary text-xs">Save area to measurements</button>
-      <p className="text-xs text-slate-500">Values saved to <code>checklist_responses.measured_value</code> + <code>evidence</code> links. AI cannot overwrite them.</p>
+      <p className="text-xs text-slate-500">Values are saved with your checklist and evidence. AI suggestions never overwrite your measurements.</p>
     </div>
   );
 }

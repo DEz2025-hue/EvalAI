@@ -10,10 +10,26 @@ export type RequestAuth =
   | { mode: "authenticated"; ctx: StoreCtx; user: User; supabase: SupabaseClient }
   | { mode: "unauthenticated" };
 
-export async function ensureWorkspaceId(supabase: SupabaseClient, userId: string): Promise<string> {
-  const { data: memberships, error: memReadErr } = await supabase.from("workspace_memberships").select("workspace_id").eq("user_id", userId).limit(1);
+export const ACTIVE_WORKSPACE_COOKIE = "eval_ai_workspace";
+
+/** Workspace the caller asked for via cookie (web) or x-workspace-id header (native). Unverified — caller must check membership. */
+export function requestedWorkspaceId(cookieHeader: string | null, workspaceHeader: string | null): string | null {
+  const direct = workspaceHeader?.trim();
+  if (direct) return direct;
+  if (!cookieHeader) return null;
+  for (const part of cookieHeader.split(";")) {
+    const [k, ...rest] = part.trim().split("=");
+    if (k === ACTIVE_WORKSPACE_COOKIE) return decodeURIComponent(rest.join("=").trim()) || null;
+  }
+  return null;
+}
+
+export async function ensureWorkspaceId(supabase: SupabaseClient, userId: string, preferredId?: string | null): Promise<string> {
+  const { data: memberships, error: memReadErr } = await supabase.from("workspace_memberships").select("workspace_id").eq("user_id", userId);
   if (memReadErr) throw new Error(memReadErr.message);
-  if (memberships?.[0]?.workspace_id) return memberships[0].workspace_id as string;
+  const ids = ((memberships ?? []) as Array<{ workspace_id: string }>).map((m) => m.workspace_id);
+  if (preferredId && ids.includes(preferredId)) return preferredId;
+  if (ids[0]) return ids[0];
 
   const { data: ws, error: wsErr } = await supabase
     .from("workspaces")
@@ -47,7 +63,9 @@ export async function getRequestAuth(): Promise<RequestAuth> {
       data: { user },
     } = await supabase.auth.getUser();
     if (!user) return { mode: "unauthenticated" };
-    const workspaceId = await ensureWorkspaceId(supabase, user.id);
+    const headerList = (await headers());
+    const requested = requestedWorkspaceId(headerList.get("cookie"), headerList.get("x-workspace-id"));
+    const workspaceId = await ensureWorkspaceId(supabase, user.id, requested);
     return { mode: "authenticated", user, supabase, ctx: { supabase, userId: user.id, workspaceId } };
   }
   const supabase = await createUserServerClient();
@@ -56,7 +74,9 @@ export async function getRequestAuth(): Promise<RequestAuth> {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { mode: "unauthenticated" };
-  const workspaceId = await ensureWorkspaceId(supabase, user.id);
+  const cookieList = (await headers());
+  const requestedWs = requestedWorkspaceId(cookieList.get("cookie"), cookieList.get("x-workspace-id"));
+  const workspaceId = await ensureWorkspaceId(supabase, user.id, requestedWs);
   return {
     mode: "authenticated",
     user,
