@@ -2,23 +2,28 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { analyzeImage } from "@eval-ai/ai-adapter";
 import { requireWriter } from "../../../../lib/auth";
+import { aiError, aiGuard, aiRunHook } from "../../../../lib/aiRoute";
+import { verifyAssessmentWorkspace } from "../../../../lib/store";
 
-const Schema = z.object({ imageBase64: z.string().min(1).max(14_000_000), mimeType: z.string().default("image/jpeg"), assessmentId: z.string().optional(), prompt: z.string().optional() });
+const Body = z.object({
+  imageBase64: z.string().min(1).max(14_000_000),
+  mimeType: z.enum(["image/jpeg", "image/png", "image/webp"]).default("image/jpeg"),
+  assessmentId: z.string().max(100).optional(),
+  prompt: z.string().max(500).optional(),
+});
 
+/** One photo -> a SUGGESTION (never a measurement, count or compliance result). */
 export async function POST(req: Request) {
-  const { error: authErr } = await requireWriter();
+  const { auth, error: authErr } = await requireWriter();
   if (authErr) return authErr;
+  const limited = await aiGuard(auth, "image", 30);
+  if (limited) return limited;
   try {
-    const body = Schema.parse(await req.json());
-    const hasKey = !!process.env.AI_PROVIDER_API_KEY;
-    if (!hasKey) return NextResponse.json({ error: "AI_PROVIDER_API_KEY not set — photo analysis unavailable", limitations: ["Image analysis requires a configured Meta image-input model"], uncertainty: "high", requiresHumanReview: true }, { status: 503 });
-
-    // Live path — Spark with image_url input, verified against the live Meta API with synthetic data.
-    // The result is always a suggestion: never a verified measurement or hidden-condition claim.
-    const result = await analyzeImage({ imageBase64: body.imageBase64, mimeType: body.mimeType, prompt: body.prompt });
-    const isFallback = result.summary.startsWith("Fallback suggestion");
-    return NextResponse.json({ ...result, fallback: isFallback, mimeType: body.mimeType });
+    const body = Body.parse(await req.json());
+    if (body.assessmentId) await verifyAssessmentWorkspace(auth.ctx, body.assessmentId);
+    const result = await analyzeImage({ imageBase64: body.imageBase64, mimeType: body.mimeType, prompt: body.prompt }, { onRun: aiRunHook(auth, body.assessmentId) });
+    return NextResponse.json({ ...result, mimeType: body.mimeType });
   } catch (e) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 400 });
+    return aiError(e);
   }
 }

@@ -50,3 +50,13 @@ export function getPack(pack: PackId): PackTemplate {
   if (!t) throw new Error(`Unknown pack: ${pack}`);
   return t;
 }
+
+/** Domain terms that bias speech recognition toward the right spelling (a hint, not a guarantee). */
+export const PACK_KEYWORDS: Record<PackId, string[]> = {
+  solar: ["inverter", "MPPT", "string", "PV array", "DC isolator", "AC isolator", "combiner box", "MC4", "earthing", "charge controller", "battery bank", "kWp", "kWh", "Voc", "Isc", "tilt", "azimuth", "shading", "roof pitch", "mounting rail"],
+  cctv: ["NVR", "DVR", "PoE", "IP camera", "PTZ", "dome camera", "bullet camera", "RTSP", "ONVIF", "field of view", "IR illuminator", "Cat6", "coax", "VMS", "H.265", "bitrate", "retention", "lux", "switch", "patch panel"],
+};
+
+export function keywordsFor(pack: PackId | undefined): string[] {
+  return pack ? PACK_KEYWORDS[pack] : [...PACK_KEYWORDS.solar, ...PACK_KEYWORDS.cctv];
+}

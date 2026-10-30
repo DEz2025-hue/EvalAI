@@ -72,32 +72,40 @@ export function VoiceRecorderMobile({ assessmentId, itemId, onTranscript }: { as
       setRecording(null);
       if (timerRef.current) clearInterval(timerRef.current);
       if (!uri) return;
-      // Preserve original audio: upload to POST /api/voice/upload (now persisted + linked)
       try {
         apiBase();
-        if (assessmentId) await uploadEvidence({ assessmentId, itemId, uri, fileName: "voice-" + Date.now() + ".m4a", mimeType: "audio/mp4" });
-      } catch {}
-      // Transcribe: fetch base64
+      } catch {
+        setError("Transcription needs EXPO_PUBLIC_APP_URL set to your web app. The original audio is kept on this phone.");
+        return;
+      }
+      // Keep the original audio privately (linked to the job/item), then transcribe it by reference —
+      // the server converts m4a to WAV, so no large base64 body is sent from the phone.
+      let savedKey: string | null = null;
+      try {
+        if (assessmentId) savedKey = (await uploadEvidence({ assessmentId, itemId, uri, fileName: "voice-" + Date.now() + ".m4a", mimeType: "audio/mp4" })).storageKey ?? null;
+      } catch {
+        /* upload failed — fall back to sending the clip inline below if it is small */
+      }
       setTranscribing(true);
       try {
-        const resp = await fetch(uri);
-        const blob = await resp.blob();
-        const base64 = await new Promise<string>((resolve, reject) => {
-          const r = new FileReader();
-          r.onload = () => {
-            const s = String(r.result);
-            resolve(s.includes(",") ? s.split(",")[1] : s);
-          };
-          r.onerror = () => reject(new Error("read failed"));
-          r.readAsDataURL(blob);
-        });
-        try {
-          apiBase();
-        } catch {
-          setError("Transcription needs EXPO_PUBLIC_APP_URL set to your web. Original audio preserved locally.");
-          return;
+        let payload: Record<string, unknown>;
+        if (savedKey && assessmentId) {
+          payload = { assessmentId, storageKey: savedKey };
+        } else {
+          const blob = await (await fetch(uri)).blob();
+          if (blob.size > 3_500_000) throw new Error("This recording is too long to transcribe without saving it. Check your connection and record again, or type the note.");
+          const base64 = await new Promise<string>((resolve, reject) => {
+            const r = new FileReader();
+            r.onload = () => {
+              const str = String(r.result);
+              resolve(str.includes(",") ? str.split(",")[1] : str);
+            };
+            r.onerror = () => reject(new Error("read failed"));
+            r.readAsDataURL(blob);
+          });
+          payload = { assessmentId, audioBase64: base64 };
         }
-        const tr = await apiFetch("/api/ai/transcribe", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ audioBase64: base64, mimeType: "audio/m4a" }) });
+        const tr = await apiFetch("/api/ai/transcribe", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
         const data = await tr.json().catch(() => ({}));
         if (!tr.ok) throw new Error((data as { error?: string }).error ?? "Transcription unavailable");
         const t = (data as { transcript?: string }).transcript ?? "";

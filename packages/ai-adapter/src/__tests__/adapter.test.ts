@@ -27,7 +27,9 @@ beforeEach(() => {
   process.env.AI_PROVIDER_BASE_URL = "https://api.meta.ai";
   for (const k of Object.keys(process.env)) if (/^(META_|AI_MODEL_|AI_EFFORT_|AI_MAX_TOKENS_|AI_VOICE_MODE)/.test(k)) delete process.env[k];
 });
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 const noSleep = { sleep: async () => undefined, baseBackoffMs: 1 };
 
@@ -276,5 +278,51 @@ describe("voice transcription", () => {
     await expect(transcribeWav(wav({ channels: 2 }))).rejects.toMatchObject({ code: "unsupported_audio" });
     await expect(transcribeWav(wav({ seconds: 601 }))).rejects.toThrow(/10 minutes/);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("provider diagnostics probe", () => {
+  const modelsReply = () => reply({ body: { data: [{ id: "muse-spark-1.3" }, { id: "muse-voice-transcribe-1.0" }, { id: "sam-3.1" }] } });
+
+  it("passes when every capability answers and sends a valid synthetic image", async () => {
+    const { probeProvider } = await import("../probe");
+    const { inflateSync } = await import("node:zlib");
+    let sentImage = "";
+    fetchMock.mockImplementation(async (url: string, init: RequestInit) => {
+      if (url.endsWith("/v1/models")) return modelsReply();
+      if (url.endsWith("/v1/asr/transcribe")) return reply({ body: { sessionId: "s", transcript: "", audioDurationMs: 1000, turns: [] } });
+      const b = JSON.parse(init.body as string);
+      const userContent = b.messages[1].content;
+      if (Array.isArray(userContent)) sentImage = userContent[1].image_url.url;
+      return reply(chat({ colour: "red" }));
+    });
+    const r = await probeProvider(buildAdapterConfig(process.env as Record<string, string>));
+    expect(r.ok).toBe(true);
+    expect(r.checks.map((c) => c.ok)).toEqual([true, true, true, true, true]);
+
+    // the image must be a real PNG: signature, 64x64 header and a zlib stream that inflates to the expected size
+    const png = Buffer.from(sentImage.replace("data:image/png;base64,", ""), "base64");
+    expect([...png.subarray(0, 8)]).toEqual([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    expect(png.readUInt32BE(16)).toBe(64);
+    expect(png.readUInt32BE(20)).toBe(64);
+    const idatStart = png.indexOf("IDAT") + 4;
+    const idatLen = png.readUInt32BE(png.indexOf("IDAT") - 4);
+    expect(inflateSync(png.subarray(idatStart, idatStart + idatLen)).length).toBe((64 * 3 + 1) * 64);
+  });
+
+  it("reports the provider error CODE when billing is not set up, and flags a configured model that is not in the catalog", async () => {
+    const { probeProvider } = await import("../probe");
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.endsWith("/v1/models")) return reply({ body: { data: [{ id: "muse-spark-1.3" }] } }); // voice + sam models missing
+      return reply({ status: 402, body: { error: { code: "billing_not_configured", message: "Billing verification failed" } } });
+    });
+    const r = await probeProvider(buildAdapterConfig(process.env as Record<string, string>));
+    expect(r.ok).toBe(false);
+    const catalog = r.checks.find((c) => c.name.startsWith("Configured model ids"));
+    expect(catalog?.ok).toBe(false);
+    expect(catalog?.detail).toMatch(/muse-voice-transcribe-1\.0/);
+    const chatCheck = r.checks.find((c) => c.name.startsWith("Structured JSON"));
+    expect(chatCheck?.ok).toBe(false);
+    expect(chatCheck?.detail).toMatch(/billing \(billing_not_configured\)/);
   });
 });
