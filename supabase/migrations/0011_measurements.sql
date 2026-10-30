@@ -1,3 +1,4 @@
+-- APPLIED to project gmzstzqmbsuqwserlaul (RLS on, 4 policies; advisor shows no new findings).
 -- 0011: recorded measurements — formula, inputs (with units) and result are stored so any number in a
 -- report can be traced back to how it was produced. Results are computed deterministically in code.
 
