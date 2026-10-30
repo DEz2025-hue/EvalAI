@@ -89,7 +89,7 @@ export async function getRequestAuth(): Promise<RequestAuth> {
     const requested = requestedWorkspaceId(headerList.get("cookie"), headerList.get("x-workspace-id"));
     const workspaceId = await ensureWorkspaceId(supabase, user.id, requested);
     const role = await membershipRole(supabase, user.id, workspaceId);
-    return { mode: "authenticated", user, supabase, ctx: { supabase, userId: user.id, workspaceId, role: role ?? undefined } };
+    return { mode: "authenticated", user, supabase, ctx: { supabase, userId: user.id, email: user.email ?? undefined, workspaceId, role: role ?? undefined } };
   }
   const supabase = await createUserServerClient();
   if (!supabase) return demoModeAllowed() ? { mode: "demo", ctx: {} } : { mode: "unconfigured" };
@@ -105,7 +105,7 @@ export async function getRequestAuth(): Promise<RequestAuth> {
     mode: "authenticated",
     user,
     supabase,
-    ctx: { supabase, userId: user.id, workspaceId, role: role ?? undefined },
+    ctx: { supabase, userId: user.id, email: user.email ?? undefined, workspaceId, role: role ?? undefined },
   };
 }
 
