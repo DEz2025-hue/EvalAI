@@ -852,7 +852,7 @@ export async function saveEvidenceLocal(input: {
   const ws = workspaceOf(input.ctx, null);
   await verifyAssessmentWorkspace(input.ctx, input.assessmentId);
   // File-fallback/demo ids can never satisfy uuid FKs — link assessment-level, still listable.
-  const itemUuid = asUuidOrNull(input.itemId);
+  const itemUuid = dbMode(input.ctx) ? await assertItemInAssessment(input.ctx, input.assessmentId, input.itemId) : asUuidOrNull(input.itemId);
   const assessmentUuid = asUuidOrNull(input.assessmentId);
   if (dbMode(input.ctx)) {
     if (!ws || !assessmentUuid) throw new Error("Forbidden — invalid assessment");
@@ -1475,4 +1475,47 @@ export async function finalizeSnapshotLocal(snapshotId: string, reviewNote: stri
   await setAssessmentStatusLocal(snap.assessmentId, "finalized", ctx);
   await auditEvent({ workspaceId: ctx?.workspaceId, action: "snapshot.finalized", targetType: "snapshot", targetId: snapshotId, ctx });
   return { ...finalizedSnap, htmlPreview };
+}
+
+/** An item link must point at an item of the SAME assessment (RLS alone does not check this for evidence). */
+async function assertItemInAssessment(ctx: StoreCtx | undefined, assessmentId: string, itemId: string | null | undefined): Promise<string | null> {
+  const uuid = asUuidOrNull(itemId);
+  if (!uuid) return null;
+  if (!dbMode(ctx)) return uuid;
+  const supabase = await clientFor(ctx);
+  const { data, error } = await supabase.from("checklist_items").select("id").eq("id", uuid).eq("assessment_id", assessmentId).maybeSingle();
+  if (error) throw dbError(error);
+  if (!data) throw new Error("Forbidden — that checklist item does not belong to this job");
+  return uuid;
+}
+
+/**
+ * Record evidence for an object already uploaded straight to private Storage (large files skip the
+ * serverless request-body limit). The caller has verified the object; this inserts the row under RLS.
+ */
+export async function registerEvidenceLocal(input: {
+  assessmentId: string;
+  itemId?: string | null;
+  storageKey: string;
+  mimeType: string;
+  sizeBytes: number;
+  ctx?: StoreCtx;
+}): Promise<EvidenceRecord> {
+  if (!dbMode(input.ctx)) throw new Error("Direct upload needs a signed-in workspace");
+  await verifyAssessmentWorkspace(input.ctx, input.assessmentId);
+  const itemId = await assertItemInAssessment(input.ctx, input.assessmentId, input.itemId);
+  const supabase = await clientFor(input.ctx);
+  const { data, error } = await supabase.from("evidence_items").insert({
+    workspace_id: input.ctx?.workspaceId,
+    assessment_id: input.assessmentId,
+    item_id: itemId,
+    storage_key: input.storageKey,
+    mime_type: input.mimeType,
+    size_bytes: input.sizeBytes,
+    created_by: input.ctx?.userId,
+  }).select("id, captured_at").single();
+  if (error) throw dbError(error);
+  const row = data as { id: string; captured_at: string };
+  await auditEvent({ workspaceId: input.ctx?.workspaceId, action: "evidence.uploaded", targetType: "evidence", targetId: row.id, ctx: input.ctx });
+  return { id: row.id, assessmentId: input.assessmentId, itemId, storageKey: input.storageKey, mimeType: input.mimeType, sizeBytes: input.sizeBytes, uploadedAt: row.captured_at };
 }

@@ -1,5 +1,6 @@
 "use client";
 import { useRef, useState } from "react";
+import { uploadEvidence } from "../lib/clientUpload";
 
 export function PhotoCapture({ assessmentId, itemId, items, onUploaded }: { assessmentId: string; itemId?: string; items?: Array<{ id: string; title: string }>; onUploaded: (key: string, linkedItemId?: string) => void }): JSX.Element {
   const fileRef = useRef<HTMLInputElement>(null);
@@ -25,13 +26,7 @@ export function PhotoCapture({ assessmentId, itemId, items, onUploaded }: { asse
     setUploading(true);
     setError(null);
     try {
-      const fd = new FormData();
-      fd.append("file", file);
-      if (assessmentId) fd.append("assessmentId", assessmentId);
-      if (selectedItem) fd.append("itemId", selectedItem);
-      const res = await fetch("/api/evidence/upload", { method: "POST", body: fd });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Upload failed");
+      const data = await uploadEvidence(file, { assessmentId, itemId: selectedItem || undefined });
       onUploaded(data.storageKey, selectedItem || undefined);
       clear();
     } catch (e) {

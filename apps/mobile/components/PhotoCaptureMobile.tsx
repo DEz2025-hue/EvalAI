@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { View, Text, Pressable, Image, ActivityIndicator, Alert } from "react-native";
 import * as ImagePicker from "expo-image-picker";
+import { uploadEvidence } from "../lib/upload";
 import { apiFetch, apiBase } from "../lib/api";
 
 const ALLOWED = ["image/jpeg", "image/png", "image/webp"];
@@ -53,16 +54,8 @@ export function PhotoCaptureMobile({ assessmentId, itemId, onUploaded }: { asses
         onUploaded?.(file.uri);
         return;
       }
-      const fd = new FormData();
-      // @ts-ignore — RN FormData blob
-      fd.append("file", { uri: file.uri, name: file.fileName ?? `photo-${Date.now()}.jpg`, type: file.mimeType ?? "image/jpeg" } as unknown as Blob);
-      fd.append("assessmentId", assessmentId);
-      if (itemId) fd.append("itemId", itemId);
-      const res = await apiFetch("/api/evidence/upload", { method: "POST", body: fd as never });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error((data as { error?: string }).error ?? "Upload failed");
-      onUploaded?.((data as { storageKey?: string }).storageKey ?? file.uri);
-      Alert.alert("Uploaded", (data as { persisted?: boolean }).persisted ? "Photo stored privately + evidence row linked." : "Photo validated — metadata staged (Supabase storage pending).");
+      const data = await uploadEvidence({ assessmentId, itemId, uri: file.uri, fileName: file.fileName ?? "photo-" + Date.now() + ".jpg", mimeType: file.mimeType ?? "image/jpeg" });
+      onUploaded?.(data.storageKey ?? file.uri);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {

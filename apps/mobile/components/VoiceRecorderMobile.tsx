@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { View, Text, Pressable, TextInput, ActivityIndicator, Alert } from "react-native";
 import { Audio } from "expo-av";
 import { apiFetch, apiBase } from "../lib/api";
+import { uploadEvidence } from "../lib/upload";
 
 type PermState = "unknown" | "granted" | "denied" | "unsupported";
 
@@ -74,12 +75,7 @@ export function VoiceRecorderMobile({ assessmentId, itemId, onTranscript }: { as
       // Preserve original audio: upload to POST /api/voice/upload (now persisted + linked)
       try {
         apiBase();
-        const fd = new FormData();
-        // @ts-ignore RN fetch uri
-        fd.append("file", { uri, name: `voice-${Date.now()}.m4a`, type: "audio/m4a" } as unknown as Blob);
-        if (assessmentId) fd.append("assessmentId", assessmentId);
-        if (itemId) fd.append("itemId", itemId);
-        await apiFetch("/api/voice/upload", { method: "POST", body: fd as never });
+        if (assessmentId) await uploadEvidence({ assessmentId, itemId, uri, fileName: "voice-" + Date.now() + ".m4a", mimeType: "audio/mp4" });
       } catch {}
       // Transcribe: fetch base64
       setTranscribing(true);
