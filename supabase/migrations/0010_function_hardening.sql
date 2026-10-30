@@ -1,3 +1,4 @@
+-- APPLIED to project gmzstzqmbsuqwserlaul (verified: anon blocked, authenticated + service_role keep EXECUTE).
 -- 0010: address security-advisor warnings raised after 0009.
 --  1. Pin search_path on the plpgsql functions added in 0009 (role-mutable search_path).
 --  2. The SECURITY DEFINER helpers exist for RLS policies; signed-out callers have no business
