@@ -145,7 +145,7 @@ export function ChecklistEditorMobile({ items: initial, assessmentId }: { items:
             <TextInput placeholder="Observation / notes" value={r.notes ?? ""} onChangeText={(v) => setResponses((prev) => ({ ...prev, [it.id]: { ...prev[it.id], notes: v } }))} multiline style={{ borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 8, padding: 8, fontSize: 13, minHeight: 56, color: "#0f172a", backgroundColor: "#fff" }} />
 
             <View style={{ flexDirection: "row", gap: 8 }}>
-              <TextInput keyboardType="numeric" placeholder="Measured value" value={r.measuredValue !== undefined ? String(r.measuredValue) : ""} onChangeText={(v) => setResponses((prev) => ({ ...prev, [it.id]: { ...prev[it.id], measuredValue: v ? Number(v) : undefined } }))} style={{ flex: 1, borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 8, padding: 8, fontSize: 13, color: "#0f172a", backgroundColor: "#fff" }} />
+              <TextInput keyboardType="numeric" placeholder="Measured value" value={r.measuredValue !== undefined ? String(r.measuredValue) : ""} onChangeText={(v) => setResponses((prev) => ({ ...prev, [it.id]: { ...prev[it.id], measuredValue: v && Number.isFinite(Number(v.replace(",", "."))) ? Number(v.replace(",", ".")) : undefined } }))} style={{ flex: 1, borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 8, padding: 8, fontSize: 13, color: "#0f172a", backgroundColor: "#fff" }} />
               <TextInput placeholder="Unit (m, kW)" value={r.measuredUnit ?? ""} onChangeText={(v) => setResponses((prev) => ({ ...prev, [it.id]: { ...prev[it.id], measuredUnit: v } }))} style={{ flex: 1, borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 8, padding: 8, fontSize: 13, color: "#0f172a", backgroundColor: "#fff" }} />
             </View>
 
