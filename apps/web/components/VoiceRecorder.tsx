@@ -1,4 +1,5 @@
 "use client";
+import { uploadEvidence } from "../lib/clientUpload";
 import { useRef, useState } from "react";
 
 type PermissionState = "unknown" | "granted" | "denied" | "prompt" | "unsupported";
@@ -52,12 +53,8 @@ export function VoiceRecorder({ onTranscript, assessmentId, itemId }: { onTransc
         setAudioUrl(url);
         // Preserve original audio — upload to  where supported
         try {
-          const fd = new FormData();
-          fd.append("file", blob, `voice-${Date.now()}.webm`);
-          if (assessmentId) fd.append("assessmentId", assessmentId);
-          if (itemId) fd.append("itemId", itemId);
-          const up = await fetch("/api/voice/upload", { method: "POST", body: fd });
-          const uj = await up.json().catch(() => ({}));
+          if (!assessmentId) throw new Error("no job");
+          const uj = await uploadEvidence(blob, { assessmentId: assessmentId ?? "", itemId, fileName: `voice-${Date.now()}.webm`, mimeType: "audio/webm" });
           if (uj.storageKey) setAudioKey(uj.storageKey);
         } catch {}
         // Transcription — editable, stays unconfirmed until user confirms
