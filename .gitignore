@@ -69,3 +69,7 @@ next-env.d.ts
 supabase/.temp
 
 *.tsbuildinfo
+
+# playwright
+test-results
+playwright-report
