@@ -68,3 +68,4 @@ package-lock.json
 next-env.d.ts
 supabase/.temp
 
+*.tsbuildinfo
