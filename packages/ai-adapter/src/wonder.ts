@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { getAdapterConfig } from "./index";
+import { getAdapterConfig } from "./config";
 import { metaFetch, modelFor, AiAdapterError } from "./client";
 import { AnalyzeAssessmentInput, AnalyzeAssessmentOutput } from "./schemas";
 
