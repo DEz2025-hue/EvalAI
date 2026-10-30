@@ -1,16 +1,6 @@
 -- Team management + audit trail policies
-
--- Owners/admins may remove memberships (cannot remove the last owner — enforced in app layer).
-create policy "admins delete memberships"
-  on workspace_memberships for delete
-  using (
-    exists (
-      select 1 from workspace_memberships m
-      where m.workspace_id = workspace_memberships.workspace_id
-        and m.user_id = auth.uid()
-        and m.role in ('owner', 'admin')
-    )
-  );
+-- (Membership delete policies live in 0008, which replaced the recursive version
+-- that originally lived here.)
 
 -- Audit events: members can read their workspace trail; inserts run privileged
 -- from the app layer after authz (service role), so no insert policy needed.

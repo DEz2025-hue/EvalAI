@@ -978,13 +978,17 @@ export async function setMemberRoleLocal(workspaceId: string, userId: string, ro
   if (!ctx?.userId) throw new Error("Sign in required");
   const mine = await myRole(ctx, workspaceId);
   if (mine !== "owner" && mine !== "admin") throw new Error("Forbidden — owners/admins only");
-  if (userId === ctx.userId && role !== "owner") {
-    // Prevent self-demotion lockout when you are the last owner
-    const supabase = await clientFor(ctx);
-    const { data: owners } = await supabase.from("workspace_memberships").select("user_id").eq("workspace_id", workspaceId).eq("role", "owner");
+  const userClient = await clientFor(ctx);
+  const { data: target } = await userClient.from("workspace_memberships").select("role").eq("workspace_id", workspaceId).eq("user_id", userId).maybeSingle();
+  const targetRole = (target as { role: string } | null)?.role;
+  if (!targetRole) throw new Error("That user is not a member of this workspace");
+  // Only owners may grant, change, or revoke ownership — admins cannot escalate themselves or others.
+  if ((role === "owner" || targetRole === "owner") && mine !== "owner") throw new Error("Forbidden — only owners can grant or change the owner role");
+  if (targetRole === "owner" && role !== "owner") {
+    const { data: owners } = await userClient.from("workspace_memberships").select("user_id").eq("workspace_id", workspaceId).eq("role", "owner");
     if (((owners ?? []) as unknown[]).length <= 1) throw new Error("Cannot demote the last owner");
   }
-  const supabase = await serviceClient(); // privileged AFTER role check
+  const supabase = await serviceClient(); // privileged AFTER role + owner checks
   const { error } = await supabase.from("workspace_memberships").update({ role }).eq("workspace_id", workspaceId).eq("user_id", userId);
   if (error) throw error;
   await auditEvent({ workspaceId, action: `member.role:${role}`, targetType: "user", targetId: userId, ctx });
@@ -998,8 +1002,11 @@ export async function removeMemberLocal(workspaceId: string, userId: string, ctx
   const supabase = await clientFor(ctx);
   const { data: owners } = await supabase.from("workspace_memberships").select("user_id").eq("workspace_id", workspaceId).eq("role", "owner");
   const ownerIds = ((owners ?? []) as Array<{ user_id: string }>).map((o) => o.user_id);
-  if (ownerIds.includes(userId) && ownerIds.length <= 1) throw new Error("Cannot remove the last owner");
-  const admin = await serviceClient(); // privileged AFTER role + last-owner checks
+  if (ownerIds.includes(userId)) {
+    if (mine !== "owner") throw new Error("Forbidden — only owners can remove an owner");
+    if (ownerIds.length <= 1) throw new Error("Cannot remove the last owner");
+  }
+  const admin = await serviceClient(); // privileged AFTER role + owner checks
   const { error } = await admin.from("workspace_memberships").delete().eq("workspace_id", workspaceId).eq("user_id", userId);
   if (error) throw error;
   await auditEvent({ workspaceId, action: "member.removed", targetType: "user", targetId: userId, ctx });
