@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { PACK_TEMPLATES, buildReportHtml, computeCompleteness, calculateMeasurement, type CompletenessResult, type FormulaId, type MeasurementInput } from "@eval-ai/shared";
+import { PACK_TEMPLATES, buildReportHtml, computeCompleteness, calculateMeasurement, quotationTotalAmount, type CompletenessResult, type FormulaId, type MeasurementInput } from "@eval-ai/shared";
 import type { ReportSnapshot, ReportInput } from "@eval-ai/shared";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -430,7 +430,8 @@ export async function getMaterialsVersionLocal(assessmentId: string, ctx?: Store
 }
 
 export async function saveQuotationLocal(input: { assessmentId: string; workspaceId?: string | null; materialsVersion: number; supplier: string; currency: string; items: Array<{ description: string; quantity: number; unit: string; unitPrice: number; currency: string; taxesOrFees?: number }>; date?: string; reference?: string; ctx?: StoreCtx }): Promise<{ ok: boolean; total: number; persisted: boolean; id: string }> {
-  const total = input.items.reduce((s, it) => s + it.quantity * it.unitPrice + (it.taxesOrFees ?? 0), 0);
+  // Exact total from integer minor units; mixed currencies are rejected.
+  const total = quotationTotalAmount(input.items, input.currency);
   const ws = workspaceOf(input.ctx, input.workspaceId);
   await verifyAssessmentWorkspace(input.ctx, input.assessmentId);
   if (dbMode(input.ctx) && ws && asUuidOrNull(input.assessmentId)) {

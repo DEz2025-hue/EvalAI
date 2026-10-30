@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { View, Text, Pressable, TextInput, Alert } from "react-native";
+import { formatAmount, quotationTotalAmount } from "@eval-ai/shared";
 import { apiFetch, apiBase } from "../lib/api";
 
 type QItem = { description: string; quantity: number; unit: string; unitPrice: number; currency: string; taxesOrFees?: number };
 type Quote = { id: string; supplier: string; date: string; currency: string; items: QItem[]; stale?: boolean; total?: number };
 
-const quoteTotal = (q: Quote): number => q.total ?? q.items.reduce((s, it) => s + it.quantity * it.unitPrice + (it.taxesOrFees ?? 0), 0);
+const quoteTotal = (q: Quote): number => q.total ?? quotationTotalAmount(q.items, q.currency);
 
 export function QuotationReviewMobile({ assessmentId, materialsVersion = 1 }: { assessmentId: string; materialsVersion?: number }) {
   const [quotes, setQuotes] = useState<Quote[]>([]);
@@ -93,7 +94,7 @@ export function QuotationReviewMobile({ assessmentId, materialsVersion = 1 }: { 
             return (
               <View key={q.id} style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
                 <Text style={{ fontSize: 12, color: "#0f172a" }}>{q.supplier} · {q.items.length} lines</Text>
-                <Text style={{ fontSize: 12, fontWeight: "700", color: isBest ? "#15803d" : "#0f172a" }}>{t.toFixed(2)} {q.currency}{isBest ? " · lowest" : ""}</Text>
+                <Text style={{ fontSize: 12, fontWeight: "700", color: isBest ? "#15803d" : "#0f172a" }}>{formatAmount(t, q.currency)} {q.currency}{isBest ? " · lowest" : ""}</Text>
               </View>
             );
           })}
@@ -125,7 +126,7 @@ export function QuotationReviewMobile({ assessmentId, materialsVersion = 1 }: { 
           {quotes.map((q) => (
             <View key={q.id} style={{ borderWidth: 1, borderColor: q.stale ? "#fde68a" : "#e2e8f0", borderRadius: 10, padding: 10, backgroundColor: q.stale ? "#fefce8" : "#fff", gap: 6 }}>
               <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                <Text style={{ fontWeight: "600", fontSize: 12, color: "#0f172a" }}>{q.supplier} — {q.date} — total {quoteTotal(q).toFixed(2)} {q.currency}</Text>
+                <Text style={{ fontWeight: "600", fontSize: 12, color: "#0f172a" }}>{q.supplier} — {q.date} — total {formatAmount(quoteTotal(q), q.currency)} {q.currency}</Text>
                 <Text style={{ fontSize: 10, fontWeight: "700", color: q.stale ? "#92400e" : "#15803d", backgroundColor: q.stale ? "#fef3c7" : "#dcfce7", paddingHorizontal: 6, paddingVertical: 2, borderRadius: 999 }}>{q.stale ? "stale" : "current"}</Text>
               </View>
               {q.items.map((it, i) => (

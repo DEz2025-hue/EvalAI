@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { quotationTotalAmount, type PricedLine } from "./money";
+
 export const QuotationItem = z.object({
   id: z.string(),
   description: z.string(),
@@ -27,8 +29,9 @@ export const Quotation = z.object({
 });
 export type Quotation = z.infer<typeof Quotation>;
 
+/** Exact total (integer minor units internally); all lines must use the quotation currency. */
 export function quotationTotal(q: Quotation): number {
-  return q.items.reduce((s: number, it: { quantity: number; unitPrice: number; taxesOrFees?: number }) => s + it.quantity * it.unitPrice + (it.taxesOrFees ?? 0), 0);
+  return quotationTotalAmount(q.items as PricedLine[], q.currency);
 }
 
 export function isStale(quote: Quotation, currentMaterialsVersion: string): boolean {

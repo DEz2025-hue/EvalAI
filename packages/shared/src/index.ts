@@ -7,3 +7,4 @@ export * from "./report";
 export * from "./reportHtml";
 export * from "./packs";
 export * from "./completeness";
+export * from "./money";
