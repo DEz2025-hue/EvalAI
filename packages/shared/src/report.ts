@@ -13,6 +13,18 @@ export type ReportSnapshot = {
   createdBy: string;
   finalized: boolean;
   immutable: true;
+  /** Person who reviewed and signed off the report (set when a draft is finalized). */
+  reviewedBy?: string | null;
+  reviewedByLabel?: string | null;
+  reviewedAt?: string | null;
+  reviewNote?: string | null;
+};
+
+/** Human-written sections of a report. Edited on a DRAFT only; frozen at finalize. */
+export type ReportNarrative = {
+  summary?: string;
+  recommendations?: string;
+  notes?: string;
 };
 
 export type ReportFinding = {
@@ -38,6 +50,7 @@ export type ReportInput = {
   materials?: Array<{ description: string; quantity: number; unit: string; rationale: string; provisional?: boolean }>;
   quotation?: { supplier: string; total: number; currency: string } | null;
   limitations: string[];
+  narrative?: ReportNarrative;
 };
 
 /** Printed on every report so it is never mistaken for a certification or an automated verdict. */

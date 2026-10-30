@@ -94,6 +94,11 @@ export async function buildReportPdf(snapshot: ReportSnapshot, input: ReportInpu
   heading("Scope & context");
   draw(String(input.context.goal ?? input.context.scope ?? "-"), { size: 9 });
 
+  if (input.narrative?.summary?.trim()) {
+    heading("Summary");
+    draw(input.narrative.summary, { size: 9 });
+  }
+
   heading("Checklist outcomes");
   for (const r of input.checklist) draw(`- ${r.title} - ${r.status}${r.notes ? ` - ${r.notes}` : ""}`, { size: 9 });
   draw("Not Checked is not Pass. Pass requires an actual check and supporting evidence.", { size: 7, color: MUTED });
@@ -120,9 +125,26 @@ export async function buildReportPdf(snapshot: ReportSnapshot, input: ReportInpu
   }
   if (input.quotation) draw(`Quotation: ${input.quotation.supplier} - ${input.quotation.total} ${input.quotation.currency} (from supplied quotation)`, { size: 9 });
 
+  if (input.narrative?.recommendations?.trim()) {
+    heading("Recommendations");
+    draw(input.narrative.recommendations, { size: 9 });
+  }
+
   heading("Completeness, limitations & uncertainty");
   if (input.limitations.length === 0) draw("None stated.", { size: 9, color: MUTED });
   for (const l of input.limitations) draw(`- ${l}`, { size: 9 });
+
+  if (input.narrative?.notes?.trim()) {
+    heading("Reviewer notes");
+    draw(input.narrative.notes, { size: 9 });
+  }
+
+  heading("Review and sign-off");
+  if (snapshot.finalized && snapshot.reviewedAt) {
+    draw(`Reviewed and signed off by ${snapshot.reviewedByLabel ?? "a workspace member"} on ${snapshot.reviewedAt}.${snapshot.reviewNote ? " Note: " + snapshot.reviewNote : ""}`, { size: 9 });
+  } else {
+    draw(snapshot.finalized ? "Finalized." : "DRAFT - not yet reviewed or signed off. Do not rely on this document.", { size: 9, color: [0.57, 0.25, 0.05] });
+  }
 
   heading("Important notice");
   draw(REPORT_DISCLAIMER, { size: 8, color: MUTED });

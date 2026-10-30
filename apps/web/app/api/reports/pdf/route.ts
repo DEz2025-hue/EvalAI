@@ -18,7 +18,6 @@ const Body = z.object({
   materials: z.array(z.object({ description: z.string(), quantity: z.number(), unit: z.string(), rationale: z.string(), provisional: z.boolean().optional() })).optional(),
   quotation: z.object({ supplier: z.string(), total: z.number(), currency: z.string() }).nullable().optional(),
   limitations: z.array(z.string()).optional(),
-  finalize: z.boolean().default(false),
   includeMaterials: z.boolean().optional(),
 });
 
@@ -74,7 +73,7 @@ export async function POST(req: Request) {
         quotationVersionId: assembled.versions.quotationVersionId,
         createdAt: new Date().toISOString(),
         createdBy: "demo-user",
-        finalized: body.finalize,
+        finalized: false, // only the sign-off flow can finalize
         immutable: true as const,
       };
       const html = buildReportHtml(snapshot as never, assembled.input as never);
@@ -104,7 +103,7 @@ export async function POST(req: Request) {
       quotationVersionId: body.quotation ? `quote-${body.assessmentId}` : null,
       createdAt: new Date().toISOString(),
       createdBy: "demo-user",
-      finalized: body.finalize,
+      finalized: false, // only the sign-off flow can finalize
       immutable: true as const,
     };
     const input = {
