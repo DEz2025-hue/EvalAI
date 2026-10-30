@@ -1,83 +1,18 @@
-import { z } from "zod";
+// Server-only adapter for the Meta Model API — never import in client components.
+// Secrets (AI_PROVIDER_API_KEY) stay on the server. Every operation validates input and output at the trust boundary,
+// and every result is a DRAFT for a person to review.
 
-// Server-only adapter — never import in client components.
-// All secrets (AI_PROVIDER_API_KEY) stay server-side. Validate I/O at trust boundary.
-// Real Meta integration: Wonder (complex), Spark (fast), Voice Transcribe (audio) — verify live per D-013.
-
-export type AiOperation = "clarifyContext" | "proposeChecklist" | "analyzeAssessment" | "draftFinding" | "draftRecommendation" | "transcribeAudio" | "generateSpeech" | "analyzeImage" | "draftReport";
-
-export const AiDraft = z.object({
-  summary: z.string(),
-  observations: z.array(z.string()).default([]),
-  potential_findings: z.array(z.object({ title: z.string(), severity: z.enum(["low","medium","high"]).optional(), evidence_refs: z.array(z.string()).default([]) })).default([]),
-  recommendations: z.array(z.string()).default([]),
-  missing_information: z.array(z.string()).default([]),
-  assumptions: z.array(z.string()).default([]),
-  uncertainty: z.string().optional(),
-  evidence_references: z.array(z.string()).default([]),
-  requires_human_review: z.boolean().default(true),
-});
-export type AiDraft = z.infer<typeof AiDraft>;
-
-export type { AdapterConfig } from "./config";
-export { getAdapterConfig } from "./config";
-
-export async function callMetaModel(operation: AiOperation, input: unknown): Promise<AiDraft> {
-  // Thin router to real implementations — keeps provider detail behind adapter
-  const { wonderAnalyzeAssessment } = await import("./wonder");
-  const { sparkClarifyContext, sparkProposeChecklist } = await import("./spark");
-  const { voiceTranscribe } = await import("./voice");
-  const { analyzeImage } = await import("./image");
-  if (operation === "analyzeAssessment" || operation === "draftFinding" || operation === "draftRecommendation") {
-    const res = await wonderAnalyzeAssessment(input as never);
-    // Map Wonder output shape to AiDraft shape
-    return {
-      summary: res.summary,
-      observations: res.observations,
-      potential_findings: res.potentialFindings.map((f: { title: string; severity?: "low"|"medium"|"high"; evidenceRefs: string[] }) => ({ title: f.title, severity: f.severity, evidence_refs: f.evidenceRefs })),
-      recommendations: res.recommendations,
-      missing_information: res.missingInformation,
-      assumptions: res.assumptions,
-      uncertainty: res.uncertainty,
-      evidence_references: res.evidenceReferences,
-      requires_human_review: res.requiresHumanReview,
-    };
-  }
-  if (operation === "clarifyContext") {
-    const r = await sparkClarifyContext(input as never);
-    return { summary: `Clarification — ${r.questions.length} questions`, observations: [], potential_findings: [], recommendations: [], missing_information: r.missingCritical, assumptions: r.assumptions, uncertainty: "medium", evidence_references: [], requires_human_review: true };
-  }
-  if (operation === "proposeChecklist") {
-    const r = await sparkProposeChecklist(input as never);
-    return { summary: `Checklist — ${r.items.length} items`, observations: r.items.map((i: { title: string }) => i.title), potential_findings: [], recommendations: [], missing_information: r.warnings, assumptions: [], uncertainty: "medium", evidence_references: [], requires_human_review: true };
-  }
-  if (operation === "transcribeAudio") {
-    const r = await voiceTranscribe(input as never);
-    return { summary: r.transcript, observations: [r.transcript], potential_findings: [], recommendations: [], missing_information: [], assumptions: ["Transcript unconfirmed until reviewed"], uncertainty: "high — speech", evidence_references: [], requires_human_review: true };
-  }
-  if (operation === "analyzeImage") {
-    const r = await analyzeImage(input);
-    return { summary: r.summary, observations: r.observations, potential_findings: [], recommendations: [], missing_information: r.limitations, assumptions: ["Photo analysis is a draft"], uncertainty: r.uncertainty, evidence_references: [], requires_human_review: true };
-  }
-  // draftReport, generateSpeech — labelled fallback until verified
-  return {
-    summary: `Operation ${operation} — pending live verification`,
-    observations: [],
-    potential_findings: [],
-    recommendations: [],
-    missing_information: [`${operation} not yet verified against live Meta API`],
-    assumptions: ["Labelled fallback"],
-    uncertainty: "high — not verified",
-    evidence_references: [],
-    requires_human_review: true,
-  };
-}
-
-// Re-exports for server routes that want typed helpers
-export { wonderAnalyzeAssessment } from "./wonder";
-export { sparkClarifyContext, sparkProposeChecklist } from "./spark";
-export { voiceTranscribe } from "./voice";
-export { samSegment } from "./sam";
-export { analyzeImage } from "./image";
 export * from "./schemas";
-export * from "./client";
+export * from "./config";
+export * from "./pricing";
+export { AiAdapterError, checkRateLimit, metaRequest, normalizeUsage, redact } from "./client";
+export type { AiErrorCode, RequestOptions } from "./client";
+export { chatJson, reportRun } from "./chat";
+export type { AiRunRecord, RunHook, CallOptions, ContentPart, JsonSchema } from "./chat";
+export { clarifyContext, proposeChecklist, analyzeAssessment, draftReportNarrative, SYSTEM_GUARD, compact } from "./text";
+export { analyzeImage } from "./image";
+export { voiceTranscribe, transcribeWav, inspectWav, buildTranscribeRequest, MAX_AUDIO_BYTES, MAX_AUDIO_SECONDS } from "./voice";
+export { samSegment, SamSegmentInput } from "./sam";
+
+// Backwards-compatible names used by the web routes.
+export { clarifyContext as sparkClarifyContext, proposeChecklist as sparkProposeChecklist, analyzeAssessment as wonderAnalyzeAssessment } from "./text";

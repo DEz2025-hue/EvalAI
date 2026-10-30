@@ -1,105 +1,164 @@
 import type { AdapterConfig } from "./config";
+import type { Usage } from "./pricing";
 
-// Server-only HTTP client for Meta Model API
-// — timeouts, bounded retries, redacted logging, never expose secrets to client
+// Server-only HTTP client for the Meta Model API.
+// Retry rules follow https://dev.meta.ai/docs/error-handling: retry 429/500/503 (≤3, honour Retry-After, jittered
+// exponential backoff); never retry 400/401/402/403/404/413 or 504 — a retried timeout is billed twice and usually times out again.
+
+export type AiErrorCode =
+  | "auth"
+  | "billing"
+  | "forbidden"
+  | "model_not_found"
+  | "bad_request"
+  | "content_policy"
+  | "payload_too_large"
+  | "rate_limit"
+  | "timeout"
+  | "provider_error"
+  | "invalid_response"
+  | "not_configured"
+  | "unsupported_audio";
 
 export class AiAdapterError extends Error {
   constructor(
     message: string,
-    public readonly code: "auth" | "rate_limit" | "timeout" | "invalid_response" | "provider_error" | "not_configured",
+    public readonly code: AiErrorCode,
     public readonly status?: number,
+    /** The provider's own error code, e.g. "billing_not_configured". */
+    public readonly providerCode?: string,
   ) {
     super(message);
     this.name = "AiAdapterError";
   }
 }
 
-function redact(text: string): string {
-  // Never log raw API keys, audio, images, or full prompts
-  return text.replace(/sk-[a-zA-Z0-9_-]{10,}/g, "[REDACTED_API_KEY]").slice(0, 500);
+/** Never log or surface raw keys, audio, images or full prompts. */
+export function redact(text: string): string {
+  return String(text).replace(/sk-[a-zA-Z0-9_-]{10,}/g, "[REDACTED_API_KEY]").replace(/Bearer\s+[A-Za-z0-9._-]{10,}/g, "Bearer [REDACTED]").slice(0, 500);
 }
 
-export async function metaFetch(
-  cfg: AdapterConfig,
-  path: string,
-  body: unknown,
-  opts: { timeoutMs?: number; retries?: number } = {},
-): Promise<unknown> {
-  const timeoutMs = opts.timeoutMs ?? cfg.timeoutMs;
-  const maxRetries = opts.retries ?? 1; // bounded, idempotent only for safe GETs; POSTs retry only on 429/5xx with backoff
-  let lastErr: Error | undefined;
+export type RequestOptions = {
+  timeoutMs?: number;
+  /** Retries after the first attempt (default 3). */
+  maxRetries?: number;
+  /** Test hook / backoff tuning. */
+  sleep?: (ms: number) => Promise<void>;
+  baseBackoffMs?: number;
+  /** A Retry-After longer than this fails fast instead of holding a serverless function open. */
+  maxRetryWaitMs?: number;
+};
 
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+export type MetaResponse = { status: number; data: unknown; headers: Headers; latencyMs: number };
+
+const RETRYABLE = new Set([429, 500, 503]);
+
+function classify(status: number, body: unknown): AiAdapterError {
+  const err = ((body as { error?: { code?: string; message?: string; type?: string } } | null)?.error ?? {}) as { code?: string; message?: string; type?: string };
+  const providerCode = err.code;
+  const detail = err.message ? redact(err.message) : "";
+  switch (status) {
+    case 400:
+      if (providerCode === "content_policy_violation") return new AiAdapterError("The AI service declined this content", "content_policy", 400, providerCode);
+      return new AiAdapterError("The AI request was invalid" + (detail ? ": " + detail : ""), "bad_request", 400, providerCode);
+    case 401:
+      return new AiAdapterError("AI provider rejected the API key", "auth", 401, providerCode);
+    case 402:
+      return new AiAdapterError("AI provider billing is not set up for this account", "billing", 402, providerCode);
+    case 403:
+      return new AiAdapterError("This API key has no access to that model or feature", "forbidden", 403, providerCode);
+    case 404:
+      return new AiAdapterError("AI model or endpoint not found — check the configured model id", "model_not_found", 404, providerCode);
+    case 413:
+      return new AiAdapterError("The AI request was too large", "payload_too_large", 413, providerCode);
+    case 429:
+      return new AiAdapterError("AI provider rate limit reached", "rate_limit", 429, providerCode);
+    case 504:
+      return new AiAdapterError("The AI service timed out", "timeout", 504, providerCode);
+    default:
+      return new AiAdapterError(`AI provider error (${status})` + (detail ? ": " + detail : ""), "provider_error", status, providerCode);
+  }
+}
+
+export async function metaRequest(
+  cfg: Pick<AdapterConfig, "baseUrl" | "apiKey">,
+  path: string,
+  init: { method?: "GET" | "POST"; json?: unknown; form?: FormData; accept?: string },
+  opts: RequestOptions = {},
+): Promise<MetaResponse> {
+  const timeoutMs = opts.timeoutMs ?? 45_000;
+  const maxRetries = opts.maxRetries ?? 3;
+  const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const baseBackoff = opts.baseBackoffMs ?? 600;
+  const maxRetryWait = opts.maxRetryWaitMs ?? 20_000;
+  const url = `${cfg.baseUrl.replace(/\/+$/, "")}/v1${path}`;
+
+  for (let attempt = 0; ; attempt++) {
     const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), timeoutMs);
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    const t0 = Date.now();
+    let res: Response;
     try {
-      const res = await fetch(`${cfg.baseUrl.replace(/\/$/, "")}${path}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${cfg.apiKey}`,
-          "X-EvalAI-Operation": path,
-        },
-        body: JSON.stringify(body),
+      const headers: Record<string, string> = { Authorization: `Bearer ${cfg.apiKey}` };
+      if (init.json !== undefined) headers["Content-Type"] = "application/json";
+      if (init.accept) headers.Accept = init.accept;
+      res = await fetch(url, {
+        method: init.method ?? "POST",
+        headers,
+        body: init.form ?? (init.json !== undefined ? JSON.stringify(init.json) : undefined),
         signal: ctrl.signal,
       });
-      clearTimeout(t);
-
-      if (res.status === 429) {
-        // rate limited — retry once with backoff if attempts remain
-        if (attempt < maxRetries) {
-          await new Promise((r) => setTimeout(r, 800 * (attempt + 1)));
-          continue;
-        }
-        throw new AiAdapterError("Rate limited — please retry", "rate_limit", 429);
-      }
-      if (res.status === 401 || res.status === 403) throw new AiAdapterError("AI provider auth failed — check server env", "auth", res.status);
-      if (!res.ok) {
-        const txt = await res.text().catch(() => "");
-        throw new AiAdapterError(`Provider error ${res.status}: ${redact(txt)}`, "provider_error", res.status);
-      }
-      const json = (await res.json()) as unknown;
-      return json;
     } catch (e) {
-      clearTimeout(t);
-      lastErr = e as Error;
-      if (e instanceof AiAdapterError) throw e;
-      if ((e as Error).name === "AbortError") {
-        if (attempt < maxRetries) continue;
-        throw new AiAdapterError(`AI request timed out after ${timeoutMs}ms`, "timeout");
-      }
-      // network error — retry once
-      if (attempt < maxRetries) {
-        await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+      clearTimeout(timer);
+      if ((e as Error).name === "AbortError") throw new AiAdapterError(`AI request timed out after ${timeoutMs}ms`, "timeout");
+      // The request never reached the provider (DNS/connection) — safe to retry, nothing was billed.
+      if (attempt < Math.min(maxRetries, 2)) {
+        await sleep(baseBackoff * 2 ** attempt + Math.random() * 400);
         continue;
       }
       throw new AiAdapterError(`AI request failed: ${redact((e as Error).message)}`, "provider_error");
     }
+    clearTimeout(timer);
+    const latencyMs = Date.now() - t0;
+
+    const text = await res.text().catch(() => "");
+    let data: unknown = text;
+    try {
+      data = text ? JSON.parse(text) : null;
+    } catch {
+      /* non-JSON body (e.g. text/plain) is returned as text */
+    }
+
+    if (res.ok) return { status: res.status, data, headers: res.headers, latencyMs };
+
+    if (RETRYABLE.has(res.status) && attempt < maxRetries) {
+      const retryAfter = Number(res.headers.get("retry-after"));
+      const waitMs = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : baseBackoff * 2 ** attempt + Math.random() * 1000;
+      if (waitMs > maxRetryWait) throw classify(res.status, data);
+      await sleep(waitMs);
+      continue;
+    }
+    throw classify(res.status, data);
   }
-  throw lastErr ?? new AiAdapterError("Unknown AI error", "provider_error");
 }
 
-// Simple in-memory rate limiter — 10 req / 60s per workspace (Phase 4)
+/** Normalise usage from Chat Completions or Responses shapes. Reasoning tokens are billed as output. */
+export function normalizeUsage(raw: unknown): Usage {
+  const u = (raw ?? {}) as Record<string, unknown>;
+  const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
+  const prompt = n(u.prompt_tokens ?? u.input_tokens);
+  const completion = n(u.completion_tokens ?? u.output_tokens);
+  const details = (u.completion_tokens_details ?? u.output_tokens_details ?? {}) as Record<string, unknown>;
+  return { promptTokens: prompt, completionTokens: completion, reasoningTokens: n(details.reasoning_tokens), totalTokens: n(u.total_tokens) || prompt + completion };
+}
+
+// Simple in-memory limiter (per server instance). A shared limiter (Redis/DB) is a later hardening step.
 const rateBuckets = new Map<string, number[]>();
-export function checkRateLimit(workspaceId: string, limit = 10, windowMs = 60_000): boolean {
+export function checkRateLimit(key: string, limit = 10, windowMs = 60_000): boolean {
   const now = Date.now();
-  const arr = rateBuckets.get(workspaceId) ?? [];
-  const fresh = arr.filter((t) => now - t < windowMs);
+  const fresh = (rateBuckets.get(key) ?? []).filter((t) => now - t < windowMs);
   if (fresh.length >= limit) return false;
   fresh.push(now);
-  rateBuckets.set(workspaceId, fresh);
+  rateBuckets.set(key, fresh);
   return true;
-}
-
-// Redacted usage metadata — never logs keys, audio, images, or full prompts
-export function logUsageMeta(meta: { operation: string; workspaceId: string; model: string; latencyMs: number; status: string; errorCode?: string }) {
-  const redacted = { ...meta, workspaceId: meta.workspaceId.slice(0, 8) + "***" };
-  console.log(JSON.stringify({ type: "ai_usage", ...redacted, ts: new Date().toISOString() }));
-}
-
-// Choose model per operation: Wonder for complex, Spark for fast, Voice for audio
-export function modelFor(op: string, cfg: AdapterConfig): string {
-  if (op === "transcribeAudio" || op === "transcribe") return cfg.voiceModel;
-  if (op === "analyzeAssessment" || op === "draftFinding" || op === "clarifyContext") return cfg.wonderModel;
-  return cfg.sparkModel; // checklist, recommendations, etc — Spark for speed
 }
