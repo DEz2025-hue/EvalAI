@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireAuth, storeError } from "../../../../lib/auth";
+import { requireAuth, requireWriter, isWriter, forbidden, storeError } from "../../../../lib/auth";
 import { saveEvidenceLocal, listEvidenceLocal, signedEvidenceUrl } from "../../../../lib/store";
 
 // Server-validated upload — private Storage, short-lived signed URLs only after authz
@@ -40,7 +40,10 @@ export async function POST(req: Request) {
     }
   }
 
-  // Multipart upload
+  // Multipart upload (writes) — viewers are read-only
+  if (!isWriter(auth)) return forbidden("Forbidden — your role is read-only in this workspace");
+  const declared = Number(req.headers.get("content-length") ?? 0);
+  if (declared > 25 * 1024 * 1024) return NextResponse.json({ error: "File too large (>20MB)" }, { status: 413 });
   const form = await req.formData();
   const file = form.get("file") as File | null;
   const assessmentId = String(form.get("assessmentId") ?? "");
@@ -83,7 +86,7 @@ export async function POST(req: Request) {
 }
 
 export async function DELETE(req: Request) {
-  const { auth, error: authErr } = await requireAuth();
+  const { auth, error: authErr } = await requireWriter();
   if (authErr) return authErr;
   const url = new URL(req.url);
   const assessmentId = url.searchParams.get("assessmentId");

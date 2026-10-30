@@ -30,7 +30,9 @@ export default function WebSignIn(): JSX.Element {
       const supabase = createSupabaseBrowserClient();
       const { error: authErr } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
       if (authErr) throw new Error(authErr.message);
-      router.push("/");
+      const next = new URLSearchParams(window.location.search).get("next");
+      router.push(next && next.startsWith("/") && !next.startsWith("//") ? next : "/");
+      router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {

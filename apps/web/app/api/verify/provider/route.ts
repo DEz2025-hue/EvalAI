@@ -1,8 +1,13 @@
 import { NextResponse } from "next/server";
 import { getAdapterConfig } from "@eval-ai/ai-adapter";
+import { requireAuth, isAdmin } from "../../../../lib/auth";
 
 // Synthetic-data provider verification — never sends real customer data
 export async function GET() {
+  // Triggers an outbound call with the provider key — owners/admins only.
+  const { auth, error: authErr } = await requireAuth();
+  if (authErr) return authErr;
+  if (!isAdmin(auth)) return NextResponse.json({ error: "Forbidden — owners/admins only" }, { status: 403 });
   const hasKey = !!process.env.AI_PROVIDER_API_KEY;
   const cfg = hasKey ? getAdapterConfig() : null;
   if (!hasKey || !cfg) return NextResponse.json({ ok: false, error: "AI_PROVIDER_API_KEY not set — verification requires server env", synthetic: true }, { status: 503 });
@@ -26,5 +31,5 @@ export async function GET() {
   checks.push({ name: "audio transcribe (synthetic)", ok: false, note: "Send fakeAudioBase64 via POST /api/ai/transcribe to confirm Voice Transcribe — fallback currently labelled" });
   void tinyPngBase64; void fakeAudioBase64;
 
-  return NextResponse.json({ ok: checks.some((c) => c.ok), checks, models: { wonder: cfg.wonderModel, spark: cfg.sparkModel, voice: cfg.voiceModel }, synthetic: true, note: "Verification uses synthetic data only — never real customer data, per SECURITY.md" });
+  return NextResponse.json({ ok: checks.some((c) => c.ok), checks, synthetic: true, note: "Verification uses synthetic data only — never real customer data, per SECURITY.md" });
 }

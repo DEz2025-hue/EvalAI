@@ -24,7 +24,7 @@ export default function WebRecovery(): JSX.Element {
     setLoading(true);
     try {
       const supabase = createSupabaseBrowserClient();
-      const { error: err } = await supabase.auth.resetPasswordForEmail(email.trim());
+      const { error: err } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo: `${window.location.origin}/auth/callback?next=/auth/reset` });
       if (err) throw new Error(err.message);
       setSent(true);
     } catch (err) {

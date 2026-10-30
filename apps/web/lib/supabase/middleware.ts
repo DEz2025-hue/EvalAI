@@ -2,9 +2,10 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { isSupabaseConfigured } from "./env";
 
-const PROTECTED_PAGES = ["/assessments", "/inspections", "/reports"];
+const PROTECTED_PAGES = ["/assessments", "/inspections", "/reports", "/sites", "/team", "/templates", "/settings"];
 
 function isProtectedPage(pathname: string): boolean {
+  if (pathname === "/") return true; // dashboard
   return PROTECTED_PAGES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 }
 
