@@ -14,7 +14,7 @@ export async function GET() {
   if (!workspaceId) return NextResponse.json({ members: [], myRole: null, note: "Sign in to load your team" });
   try {
     const { members, myRole } = await listMembersLocal(workspaceId, auth.ctx);
-    return NextResponse.json({ workspaceId, members, myRole, count: members.length });
+    return NextResponse.json({ workspaceId, members, myRole, me: auth.ctx.userId ?? null, count: members.length });
   } catch (e) {
     return storeError(e);
   }

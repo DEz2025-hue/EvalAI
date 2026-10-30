@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 
-type Member = { workspaceId: string; userId: string; role: string; createdAt: string };
+type Member = { workspaceId: string; userId: string; email?: string; role: string; createdAt: string };
 type Audit = { id: string; actor: string | null; action: string; targetType: string | null; targetId: string | null; createdAt: string };
 
 const ROLES = ["owner", "admin", "member", "viewer"];
@@ -9,6 +9,7 @@ const ROLES = ["owner", "admin", "member", "viewer"];
 export default function TeamPage(): JSX.Element {
   const [members, setMembers] = useState<Member[]>([]);
   const [myRole, setMyRole] = useState<string | null>(null);
+  const [me, setMe] = useState<string | null>(null);
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   const [audit, setAudit] = useState<Audit[]>([]);
   const [email, setEmail] = useState("");
@@ -27,6 +28,7 @@ export default function TeamPage(): JSX.Element {
       if (!res.ok) throw new Error((data as { error?: string }).error ?? "Failed to load team");
       setMembers(((data as { members?: Member[] }).members ?? []) as Member[]);
       setMyRole((data as { myRole?: string }).myRole ?? null);
+      setMe((data as { me?: string | null }).me ?? null);
       setWorkspaceId((data as { workspaceId?: string }).workspaceId ?? null);
       const aRes = await fetch("/api/audit?limit=50");
       const aData = await aRes.json().catch(() => ({}));
@@ -113,18 +115,18 @@ export default function TeamPage(): JSX.Element {
           {members.map((m) => (
             <div key={m.userId} className="flex items-center justify-between p-3">
               <div>
-                <div className="text-sm font-medium">{m.userId.slice(0, 8)}</div>
+                <div className="text-sm font-medium">{m.email ?? m.userId.slice(0, 8)}{m.userId === me ? <span className="ml-1 text-xs font-normal text-slate-500">(you)</span> : null}</div>
                 <div className="text-xs text-slate-500">member since {new Date(m.createdAt).toLocaleDateString()}</div>
               </div>
               <div className="flex items-center gap-2">
                 {canManage ? (
-                  <select value={m.role} onChange={(e) => setRole(m.userId, e.target.value)} className="rounded-lg border border-slate-200 px-2 py-1 text-xs">
-                    {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+                  <select value={m.role} disabled={m.role === "owner" && myRole !== "owner"} onChange={(e) => setRole(m.userId, e.target.value)} className="rounded-lg border border-slate-200 px-2 py-1 text-xs">
+                    {ROLES.filter((r) => r !== "owner" || myRole === "owner" || m.role === "owner").map((r) => <option key={r} value={r}>{r}</option>)}
                   </select>
                 ) : (
                   <span className="rounded bg-slate-100 px-2 py-0.5 text-xs">{m.role}</span>
                 )}
-                {canManage ? <button onClick={() => remove(m.userId)} className="text-xs text-red-600 hover:underline">Remove</button> : null}
+                {canManage && !(m.role === "owner" && myRole !== "owner") ? <button onClick={() => remove(m.userId)} className="text-xs text-red-600 hover:underline">Remove</button> : null}
               </div>
             </div>
           ))}

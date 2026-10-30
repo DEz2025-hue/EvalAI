@@ -114,7 +114,10 @@ export default function AppShell({ children }: { children: ReactNode }): JSX.Ele
         })}
       </nav>
       <div className="border-t border-slate-200 p-4">
-        <Link href="/assessments/new" className="btn-primary w-full text-sm">+ New Assessment</Link>
+        <div className="space-y-2">
+          <Link href="/assessments/new" className="btn-primary w-full text-sm">+ New Assessment</Link>
+          <Link href="/inspections/new" className="btn-secondary w-full text-sm">+ New Inspection</Link>
+        </div>
       </div>
     </div>
   );
@@ -149,6 +152,10 @@ export default function AppShell({ children }: { children: ReactNode }): JSX.Ele
                 {NAV.find((n) => isActive(pathname ?? "/", n.href))?.label ?? "Dashboard"}
               </span>
             </div>
+            <div className="flex items-center gap-2 sm:gap-3">
+            <div className="hidden md:block"><SearchBox /></div>
+            <WorkspaceSwitcher />
+            <NotificationsBell />
             <div className="relative">
               <button
                 onClick={() => setAccountOpen((v) => !v)}
@@ -187,6 +194,7 @@ export default function AppShell({ children }: { children: ReactNode }): JSX.Ele
                   </div>
                 </>
               ) : null}
+            </div>
             </div>
           </div>
         </header>

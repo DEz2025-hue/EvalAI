@@ -258,8 +258,8 @@ export async function listAssessmentsLocal(workspaceId?: string | null, ctx?: St
   if (dbMode(ctx) && ws) {
     try {
       const supabase = await clientFor(ctx);
-      const { data } = await supabase.from("assessments").select("id, workspace_id, mode, pack, status, created_at, context").eq("workspace_id", ws).order("created_at", { ascending: false }).limit(50);
-      if (data) return data.map((d) => ({ id: d.id, workspaceId: d.workspace_id, siteId: null, siteName: (d.context as Record<string, unknown>)?.siteName as string ?? "—", mode: d.mode, pack: d.pack, status: d.status, context: d.context as Record<string, unknown>, createdAt: d.created_at, updatedAt: d.created_at }));
+      const { data } = await supabase.from("assessments").select("id, workspace_id, site_id, mode, pack, status, created_at, context").eq("workspace_id", ws).order("created_at", { ascending: false }).limit(50);
+      if (data) return data.map((d) => ({ id: d.id, workspaceId: d.workspace_id, siteId: d.site_id ?? null, siteName: (d.context as Record<string, unknown>)?.siteName as string ?? "—", mode: d.mode, pack: d.pack, status: d.status, context: d.context as Record<string, unknown>, createdAt: d.created_at, updatedAt: d.created_at }));
     } catch (e) { throw dbError(e); }
   }
   assertFileMode(ctx);
@@ -1106,21 +1106,68 @@ export async function listSitesLocal(workspaceId: string | null | undefined, ctx
   return [...seen.values()];
 }
 
-export async function renameSiteLocal(siteId: string, name: string, ctx?: StoreCtx): Promise<{ ok: boolean }> {
-  const clean = name.trim();
-  if (clean.length < 2 || clean.length > 100) throw new Error("Site name must be 2–100 chars");
-  if (dbMode(ctx) && asUuidOrNull(siteId)) {
-    const supabase = await clientFor(ctx);
-    const { data: existing } = await supabase.from("sites").select("workspace_id").eq("id", siteId).single();
-    if (!existing) throw new Error("Site not found");
-    if (ctx?.workspaceId && (existing as { workspace_id: string }).workspace_id !== ctx.workspaceId) {
-      throw new Error("Forbidden — site belongs to a different workspace");
-    }
-    const { error } = await supabase.from("sites").update({ name: clean }).eq("id", siteId);
-    if (error) throw error;
-    return { ok: true };
+async function ownedSite(ctx: StoreCtx | undefined, siteId: string): Promise<void> {
+  if (!asUuidOrNull(siteId)) throw new Error("Site not found");
+  const supabase = await clientFor(ctx);
+  const { data, error } = await supabase.from("sites").select("workspace_id").eq("id", siteId).maybeSingle();
+  if (error) throw dbError(error);
+  if (!data) throw new Error("Site not found");
+  if (ctx?.workspaceId && (data as { workspace_id: string }).workspace_id !== ctx.workspaceId) {
+    throw new Error("Forbidden — site belongs to a different workspace");
   }
-  throw new Error("Site rename needs a persisted site — connect Supabase");
+}
+
+export async function createSiteLocal(input: { name: string; address?: string }, ctx?: StoreCtx): Promise<SiteRecord> {
+  const name = input.name.trim();
+  if (name.length < 2 || name.length > 100) throw new Error("Site name must be 2–100 chars");
+  if (!dbMode(ctx) || !ctx?.workspaceId) throw new Error("Creating a site needs a signed-in workspace");
+  const supabase = await clientFor(ctx);
+  const { data: dup, error: dupErr } = await supabase.from("sites").select("id").eq("workspace_id", ctx.workspaceId).eq("name", name).limit(1).maybeSingle();
+  if (dupErr) throw dbError(dupErr);
+  if (dup) throw new Error("A site with that name already exists");
+  const { data, error } = await supabase.from("sites").insert({ workspace_id: ctx.workspaceId, name, address: input.address?.trim() || null }).select("id, workspace_id, name, address, created_at").single();
+  if (error) throw dbError(error);
+  const r = data as { id: string; workspace_id: string; name: string; address: string | null; created_at: string };
+  await auditEvent({ workspaceId: ctx.workspaceId, action: "site.created", targetType: "site", targetId: r.id, ctx });
+  return { id: r.id, workspaceId: r.workspace_id, name: r.name, address: r.address ?? undefined, createdAt: r.created_at, jobCount: 0 };
+}
+
+export async function updateSiteLocal(siteId: string, patch: { name?: string; address?: string | null }, ctx?: StoreCtx): Promise<{ ok: boolean }> {
+  if (!dbMode(ctx)) throw new Error("Site changes need a signed-in workspace");
+  const update: Record<string, unknown> = {};
+  if (patch.name !== undefined) {
+    const clean = patch.name.trim();
+    if (clean.length < 2 || clean.length > 100) throw new Error("Site name must be 2–100 chars");
+    update.name = clean;
+  }
+  if (patch.address !== undefined) update.address = patch.address?.trim() ? patch.address.trim().slice(0, 200) : null;
+  if (Object.keys(update).length === 0) throw new Error("Nothing to change");
+  await ownedSite(ctx, siteId);
+  const supabase = await clientFor(ctx);
+  const { data, error } = await supabase.from("sites").update(update).eq("id", siteId).select("id");
+  if (error) throw dbError(error);
+  if (!data || data.length === 0) throw new Error("Site not found");
+  await auditEvent({ workspaceId: ctx?.workspaceId, action: "site.updated", targetType: "site", targetId: siteId, ctx });
+  return { ok: true };
+}
+
+export async function renameSiteLocal(siteId: string, name: string, ctx?: StoreCtx): Promise<{ ok: boolean }> {
+  return updateSiteLocal(siteId, { name }, ctx);
+}
+
+/** A site that still has jobs cannot be deleted — move or delete the jobs first so history is not orphaned. */
+export async function deleteSiteLocal(siteId: string, ctx?: StoreCtx): Promise<{ ok: boolean }> {
+  if (!dbMode(ctx)) throw new Error("Site changes need a signed-in workspace");
+  await ownedSite(ctx, siteId);
+  const supabase = await clientFor(ctx);
+  const { count, error: cErr } = await supabase.from("assessments").select("id", { count: "exact", head: true }).eq("site_id", siteId);
+  if (cErr) throw dbError(cErr);
+  if ((count ?? 0) > 0) throw new Error("This site still has " + count + " job(s) — it can only be deleted once it has none");
+  const { data, error } = await supabase.from("sites").delete().eq("id", siteId).select("id");
+  if (error) throw dbError(error);
+  if (!data || data.length === 0) throw new Error("Forbidden — only owners and admins can delete a site");
+  await auditEvent({ workspaceId: ctx?.workspaceId, action: "site.deleted", targetType: "site", targetId: siteId, ctx });
+  return { ok: true };
 }
 
 export type MemberRecord = { workspaceId: string; userId: string; email?: string; role: string; createdAt: string };
@@ -1136,8 +1183,22 @@ export async function listMembersLocal(workspaceId: string, ctx?: StoreCtx): Pro
   const supabase = await clientFor(ctx);
   const role = await myRole(ctx, workspaceId);
   const { data, error } = await supabase.from("workspace_memberships").select("user_id, role, created_at").eq("workspace_id", workspaceId).order("created_at");
-  if (error) throw error;
-  return { members: ((data ?? []) as Array<{ user_id: string; role: string; created_at: string }>).map((m) => ({ workspaceId, userId: m.user_id, role: m.role, createdAt: m.created_at })), myRole: role };
+  if (error) throw dbError(error);
+  const rows = (data ?? []) as Array<{ user_id: string; role: string; created_at: string }>;
+  // Show who each member is (email). Looked up with the server key; teammates only ever see each other's emails.
+  const emails = new Map<string, string>();
+  if (hasServiceRole() && rows.length <= 100) {
+    const admin = await serviceClient();
+    await Promise.all(rows.map(async (m) => {
+      try {
+        const { data: u } = await admin.auth.admin.getUserById(m.user_id);
+        if (u?.user?.email) emails.set(m.user_id, u.user.email);
+      } catch {
+        /* a member without a resolvable email is shown by id */
+      }
+    }));
+  }
+  return { members: rows.map((m) => ({ workspaceId, userId: m.user_id, email: emails.get(m.user_id), role: m.role, createdAt: m.created_at })), myRole: role };
 }
 
 export async function setMemberRoleLocal(workspaceId: string, userId: string, role: "owner" | "admin" | "member" | "viewer", ctx?: StoreCtx): Promise<{ ok: boolean }> {

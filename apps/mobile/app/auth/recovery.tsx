@@ -3,6 +3,12 @@ import { View, Text, TextInput, Pressable, Alert, ActivityIndicator } from "reac
 import { Link } from "expo-router";
 import { getSupabase, hasSupabaseEnv } from "../../lib/supabase";
 
+/** The reset email opens the web app, which completes the password change (no deep-link handling needed on the phone). */
+function webResetUrl(): string | undefined {
+  const base = (process.env.EXPO_PUBLIC_APP_URL ?? "").replace(/\/$/, "");
+  return base ? base + "/auth/callback?next=/auth/reset" : undefined;
+}
+
 export default function Recovery() {
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
@@ -20,10 +26,10 @@ export default function Recovery() {
     setLoading(true);
     try {
       const supabase = getSupabase()!;
-      const { error } = await supabase.auth.resetPasswordForEmail(email.trim());
+      const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo: webResetUrl() });
       if (error) throw new Error(error.message);
       setSent(true);
-      Alert.alert("Check email", "If an account exists for that email, a recovery link has been sent. The confirmation does not reveal whether the account exists.");
+      Alert.alert("Check your email", "If an account exists for that email, a recovery link has been sent. Open it in your browser to choose a new password, then sign in here.");
     } catch (e) {
       Alert.alert("Recovery failed", e instanceof Error ? e.message : String(e));
     } finally {
@@ -41,7 +47,7 @@ export default function Recovery() {
           {loading ? <ActivityIndicator color="#fff" size="small" /> : null}
           <Text style={{ color: "#fff", fontWeight: "700" }}>{loading ? "Sending…" : "Send recovery link"}</Text>
         </Pressable>
-        {sent ? <Text style={{ fontSize: 12, color: "#15803d" }}>If an account exists for that email, a recovery link has been sent.</Text> : null}
+        {sent ? <Text style={{ fontSize: 12, color: "#15803d" }}>If an account exists for that email, a recovery link has been sent. Open it in your browser to set a new password, then come back and sign in.</Text> : null}
         <Link href="/auth/sign-in" asChild><Pressable style={{ alignItems: "center", paddingVertical: 6 }}><Text style={{ fontSize: 12, color: "#0ea5e9", fontWeight: "600" }}>Back to sign in</Text></Pressable></Link>
       </View>
     </View>
