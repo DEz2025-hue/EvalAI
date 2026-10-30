@@ -16,8 +16,7 @@ export async function voiceTranscribe(input: z.infer<typeof TranscribeAudioInput
   if (approxBytes > 25 * 1024 * 1024) throw new Error("Audio too large (>25MB) — split recording or use shorter note");
 
   const t0 = Date.now();
-  const { checkRateLimit, logUsageMeta } = await import("./client");
-  if (!checkRateLimit(validated.audioBase64.slice(0, 8))) throw new Error("Rate limited — please wait before retrying transcription");
+  const { logUsageMeta } = await import("./client"); // per-workspace rate limiting happens in the route (verified workspace id)
 
   try {
     const raw = await metaFetch(cfg, "/v1/audio/transcriptions", {

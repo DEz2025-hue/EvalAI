@@ -9,8 +9,8 @@ export const EvidenceRef = z.object({
 });
 
 export const ClarifyContextInput = z.object({
-  workspaceId: z.string().uuid(),
-  assessmentId: z.string().uuid().optional(),
+  workspaceId: z.string().min(1).max(100),
+  assessmentId: z.string().min(1).max(100).optional(),
   mode: z.enum(["assessment", "inspection"]),
   pack: z.enum(["solar", "cctv"]),
   context: z.record(z.unknown()).default({}),
@@ -31,7 +31,7 @@ export const ClarifyContextOutput = z.object({
 });
 
 export const ProposeChecklistInput = z.object({
-  workspaceId: z.string().uuid(),
+  workspaceId: z.string().min(1).max(100),
   assessmentId: z.string().uuid().optional(),
   mode: z.enum(["assessment", "inspection"]),
   pack: z.enum(["solar", "cctv"]),
@@ -53,8 +53,8 @@ export const ProposeChecklistOutput = z.object({
 });
 
 export const AnalyzeAssessmentInput = z.object({
-  workspaceId: z.string().uuid(),
-  assessmentId: z.string().uuid(),
+  workspaceId: z.string().min(1).max(100),
+  assessmentId: z.string().min(1).max(100),
   checklistResponses: z.array(z.object({
     itemId: z.string(),
     title: z.string(),
