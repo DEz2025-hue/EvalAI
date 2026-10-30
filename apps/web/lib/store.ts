@@ -11,6 +11,8 @@ export type StoreCtx = {
   supabase?: SupabaseClient;
   userId?: string;
   workspaceId?: string;
+  /** Caller's role in workspaceId (owner | admin | member | viewer). */
+  role?: string;
 };
 
 type AssessmentRecord = {
@@ -59,8 +61,47 @@ function writeJson(file: string, data: unknown) {
   fs.writeFileSync(file, JSON.stringify(data, null, 2));
 }
 
-function hasSupabaseEnv() {
+/** Service-role features (Storage, audit trail, admin API) need the server key. */
+function hasServiceRole() {
   return !!process.env.NEXT_PUBLIC_SUPABASE_URL && !!process.env.SUPABASE_SERVICE_ROLE_KEY;
+}
+
+/**
+ * A request is served by the database whenever it carries a user-scoped client
+ * (authenticated). Only demo-mode requests (no ctx.supabase) use the local file
+ * store — an authenticated request must never silently fall back to files.
+ */
+function dbMode(ctx?: StoreCtx): boolean {
+  return !!ctx?.supabase;
+}
+
+/**
+ * Normalise Supabase/Postgrest errors (plain objects, not Errors). App-level Errors pass through
+ * untouched so their user-facing messages survive. RLS denials -> Forbidden (403); unique
+ * violations -> conflict (409); anything else -> DbFailure (generic 500, detail logged only).
+ */
+function dbError(e: unknown): Error {
+  if (e instanceof Error) {
+    if (/row-level security/i.test(e.message)) return new Error("Forbidden — not permitted for your role in this workspace");
+    return e;
+  }
+  const rec = (e ?? {}) as { message?: string; code?: string };
+  const msg = rec.message ?? String(e);
+  if (rec.code === "42501" || /row-level security|permission denied/i.test(msg)) return new Error("Forbidden — not permitted for your role in this workspace");
+  if (rec.code === "23505") {
+    const conflict = new Error("Conflict — this change collided with another update; reload and retry");
+    conflict.name = "DbConflict";
+    return conflict;
+  }
+  console.error("Database error:", rec.code ?? "", msg);
+  const failure = new Error("Database operation failed");
+  failure.name = "DbFailure";
+  return failure;
+}
+
+/** Guard for the file-store branch: unreachable for authenticated (db-mode) requests. */
+function assertFileMode(ctx?: StoreCtx): void {
+  if (dbMode(ctx)) throw new Error("Persistence failed for this request");
 }
 
 // ---- Context-aware client resolution ----
@@ -88,11 +129,13 @@ export function asUuidOrNull(v: string | null | undefined): string | null {
 
 /** Throw 403-style error when an assessment is outside the request workspace. Demo/file mode skips. */
 export async function verifyAssessmentWorkspace(ctx: StoreCtx | undefined, assessmentId: string): Promise<void> {
-  if (!ctx?.supabase || !ctx.workspaceId) return;
-  if (!asUuidOrNull(assessmentId)) return; // file-fallback ids have no Supabase row to check
-  const { data } = await ctx.supabase.from("assessments").select("workspace_id").eq("id", assessmentId).single();
-  if (data && (data as { workspace_id: string }).workspace_id !== ctx.workspaceId) {
-    throw new Error("Forbidden — assessment belongs to a different workspace");
+  if (!ctx?.supabase || !ctx.workspaceId) return; // demo/file mode only
+  if (!asUuidOrNull(assessmentId)) throw new Error("Forbidden — invalid assessment id");
+  const { data, error } = await ctx.supabase.from("assessments").select("workspace_id").eq("id", assessmentId).maybeSingle();
+  if (error) throw dbError(error);
+  // RLS hides rows from other workspaces, so "not found" and "foreign" are indistinguishable — both fail closed.
+  if (!data || (data as { workspace_id: string }).workspace_id !== ctx.workspaceId) {
+    throw new Error("Forbidden — assessment not found in your workspace");
   }
 }
 
@@ -104,6 +147,9 @@ export type ChecklistItemRecord = {
   required: boolean;
   ord: number;
   category?: string;
+  /** Provenance: established pack requirement, user-added, or AI-suggested (never presented as fact). */
+  source?: "established" | "user" | "ai_suggested";
+  rationale?: string;
 };
 
 // ---- Assessments ----
@@ -118,29 +164,34 @@ export async function createAssessmentLocal(input: {
   ctx?: StoreCtx;
 }): Promise<{ id: string; persisted: boolean; items: ChecklistItemRecord[] }> {
   const workspaceId = workspaceOf(input.ctx, input.workspaceId);
-  if (hasSupabaseEnv() && workspaceId) {
+  if (dbMode(input.ctx) && workspaceId) {
     try {
       const supabase = await clientFor(input.ctx);
-      const { data: site } = await supabase.from("sites").insert({ workspace_id: workspaceId, name: input.siteName, address: input.address ?? null }).select("id").single();
+      const { data: site, error: siteErr } = await supabase.from("sites").insert({ workspace_id: workspaceId, name: input.siteName, address: input.address ?? null }).select("id").single();
+      if (siteErr) throw siteErr;
       const siteId = site?.id ?? null;
       const { data: assessment, error } = await supabase
         .from("assessments")
-        .insert({ workspace_id: workspaceId, site_id: siteId, mode: input.mode, pack: input.pack, status: "draft", context: { siteName: input.siteName, goal: input.goal, existingEquipment: input.existingEquipment } })
+        .insert({ workspace_id: workspaceId, site_id: siteId, created_by: input.ctx?.userId, mode: input.mode, pack: input.pack, status: "draft", context: { siteName: input.siteName, goal: input.goal, existingEquipment: input.existingEquipment } })
         .select("id")
         .single();
       if (error) throw error;
       const id = assessment.id as string;
       const tpl = PACK_TEMPLATES[input.pack];
-      const rows = tpl.checklist.map((title, i) => ({ assessment_id: id, title, required: i < 5, ord: i, category: i < 2 ? "Site" : "System" }));
-      const { data: inserted, error: itemsErr } = await supabase.from("checklist_items").insert(rows).select("id, title, required, ord, category");
-      if (itemsErr) throw itemsErr;
+      const rows = tpl.checklist.map((title, i) => ({ assessment_id: id, title, required: i < 5, ord: i, category: i < 2 ? "Site" : "System", source: "established" }));
+      const { data: inserted, error: itemsErr } = await supabase.from("checklist_items").insert(rows).select("id, title, required, ord, category, source");
+      if (itemsErr) {
+        await supabase.from("assessments").delete().eq("id", id); // no orphan job without its checklist
+        throw itemsErr;
+      }
       await auditEvent({ workspaceId, action: "assessment.created", targetType: "assessment", targetId: id, ctx: input.ctx });
       const items: ChecklistItemRecord[] = ((inserted ?? []) as Array<{ id: string; title: string; required: boolean; ord: number; category: string | null }>).map((r) => ({ id: r.id, assessmentId: id, title: r.title, required: r.required, ord: r.ord, category: r.category ?? undefined }));
       return { id, persisted: true, items };
     } catch (e) {
-      console.error("Supabase create failed, falling back to file store", e instanceof Error ? e.message : String(e));
+      throw dbError(e);
     }
   }
+  assertFileMode(input.ctx);
   // Deterministic local fallback — workspace-agnostic but preserves draft/resume without env
   ensureDir();
   const all = readJson<AssessmentRecord[]>(ASSESSMENTS_FILE, []);
@@ -169,7 +220,7 @@ export async function createAssessmentLocal(input: {
 }
 
 export async function getAssessmentLocal(id: string, ctx?: StoreCtx): Promise<AssessmentRecord | null> {
-  if (hasSupabaseEnv()) {
+  if (dbMode(ctx)) {
     try {
       const supabase = await clientFor(ctx);
       const { data, error } = await supabase.from("assessments").select("id, workspace_id, site_id, mode, pack, status, context, created_at").eq("id", id).single();
@@ -187,38 +238,45 @@ export async function getAssessmentLocal(id: string, ctx?: StoreCtx): Promise<As
           updatedAt: data.created_at,
         };
       }
-    } catch {}
+    } catch (e) { throw dbError(e); }
   }
+  if (dbMode(ctx)) return null;
   const all = readJson<AssessmentRecord[]>(ASSESSMENTS_FILE, []);
   return all.find((a) => a.id === id) ?? null;
 }
 
 export async function listAssessmentsLocal(workspaceId?: string | null, ctx?: StoreCtx): Promise<AssessmentRecord[]> {
   const ws = workspaceOf(ctx, workspaceId);
-  if (hasSupabaseEnv() && ws) {
+  if (dbMode(ctx) && ws) {
     try {
       const supabase = await clientFor(ctx);
       const { data } = await supabase.from("assessments").select("id, workspace_id, mode, pack, status, created_at, context").eq("workspace_id", ws).order("created_at", { ascending: false }).limit(50);
       if (data) return data.map((d) => ({ id: d.id, workspaceId: d.workspace_id, siteId: null, siteName: (d.context as Record<string, unknown>)?.siteName as string ?? "—", mode: d.mode, pack: d.pack, status: d.status, context: d.context as Record<string, unknown>, createdAt: d.created_at, updatedAt: d.created_at }));
-    } catch {}
+    } catch (e) { throw dbError(e); }
   }
+  assertFileMode(ctx);
   const all = readJson<AssessmentRecord[]>(ASSESSMENTS_FILE, []);
   if (workspaceId) return all.filter((a) => a.workspaceId === workspaceId);
   return all.slice(-50).reverse();
 }
 
 export async function updateAssessmentContextLocal(id: string, patch: { siteName?: string; context?: Record<string, unknown> }, ctx?: StoreCtx): Promise<boolean> {
-  if (hasSupabaseEnv()) {
+  if (dbMode(ctx)) {
     try {
       const supabase = await clientFor(ctx);
       // Merge with stored context (file fallback merges too) — never drop existing keys.
-      const { data: current } = await supabase.from("assessments").select("context").eq("id", id).single();
-      const merged = { ...((current?.context as Record<string, unknown>) ?? {}), ...(patch.context ?? {}) };
+      const { data: current, error: readErr } = await supabase.from("assessments").select("context, status").eq("id", id).maybeSingle();
+      if (readErr) throw readErr;
+      if (!current) return false; // not found / not visible in this workspace
+      const merged = { ...((current.context as Record<string, unknown>) ?? {}), ...(patch.context ?? {}) };
       if (patch.siteName) merged.siteName = patch.siteName;
-      const { error } = await supabase.from("assessments").update({ context: merged, updated_at: new Date().toISOString() }).eq("id", id);
-      if (!error) return true;
-    } catch {}
+      const status = current.status === "draft" ? "in_progress" : current.status;
+      const { data: updated, error } = await supabase.from("assessments").update({ context: merged, status, updated_at: new Date().toISOString() }).eq("id", id).select("id");
+      if (error) throw error;
+      return (updated ?? []).length > 0;
+    } catch (e) { throw dbError(e); }
   }
+  if (dbMode(ctx)) return false;
   const all = readJson<AssessmentRecord[]>(ASSESSMENTS_FILE, []);
   const idx = all.findIndex((a) => a.id === id);
   if (idx === -1) return false;
@@ -232,53 +290,66 @@ export async function updateAssessmentContextLocal(id: string, patch: { siteName
 
 // ---- Checklist items (editable per assessment) ----
 export async function getChecklistItemsLocal(assessmentId: string, ctx?: StoreCtx): Promise<ChecklistItemRecord[]> {
-  if (hasSupabaseEnv() && asUuidOrNull(assessmentId)) {
+  if (dbMode(ctx) && asUuidOrNull(assessmentId)) {
     try {
       const supabase = await clientFor(ctx);
-      const { data } = await supabase.from("checklist_items").select("id, title, instructions, required, ord, category").eq("assessment_id", assessmentId).order("ord");
-      if (data?.length) return (data as Array<{ id: string; title: string; instructions: string | null; required: boolean; ord: number; category: string | null }>).map((r) => ({ id: r.id, assessmentId, title: r.title, instructions: r.instructions ?? undefined, required: r.required, ord: r.ord, category: r.category ?? undefined }));
-    } catch {}
+      const { data } = await supabase.from("checklist_items").select("id, title, instructions, required, ord, category, source, rationale").eq("assessment_id", assessmentId).order("ord");
+      if (data?.length) return (data as DbChecklistRow[]).map((r) => toChecklistRecord(r, assessmentId));
+    } catch (e) { throw dbError(e); }
   }
+  if (dbMode(ctx)) return [];
   const file = path.join(DATA_DIR, `checklist_${assessmentId}.json`);
   const rows = readJson<ChecklistItemRecord[]>(file, []);
   return [...rows].sort((a, b) => a.ord - b.ord);
 }
 
+type DbChecklistRow = { id: string; title: string; instructions: string | null; required: boolean; ord: number; category: string | null; source?: string | null; rationale?: string | null };
+
+function toChecklistRecord(r: DbChecklistRow, assessmentId: string): ChecklistItemRecord {
+  return {
+    id: r.id,
+    assessmentId,
+    title: r.title,
+    instructions: r.instructions ?? undefined,
+    required: r.required,
+    ord: r.ord,
+    category: r.category ?? undefined,
+    source: (r.source as ChecklistItemRecord["source"]) ?? undefined,
+    rationale: r.rationale ?? undefined,
+  };
+}
+
+/**
+ * Replace the editable checklist. Items carrying an existing id are UPDATED in place so
+ * responses and evidence links survive; new items are inserted; omitted items are removed.
+ * Database path is one atomic RPC (replace_checklist, migration 0009).
+ */
 export async function replaceChecklistItemsLocal(
   assessmentId: string,
-  items: Array<{ title: string; instructions?: string; required?: boolean; category?: string }>,
+  items: Array<{ id?: string; title: string; instructions?: string; required?: boolean; category?: string; source?: "established" | "user" | "ai_suggested"; rationale?: string }>,
   ctx?: StoreCtx
 ): Promise<{ items: ChecklistItemRecord[]; persisted: boolean }> {
   const normalized = items
-    .map((it) => ({ title: it.title.trim(), instructions: it.instructions, required: it.required ?? false, category: it.category }))
+    .map((it) => ({ id: it.id, title: it.title.trim(), instructions: it.instructions, required: it.required ?? false, category: it.category, source: it.source, rationale: it.rationale }))
     .filter((it) => it.title.length > 0);
   if (normalized.length === 0) throw new Error("Checklist must keep at least one item");
   await verifyAssessmentWorkspace(ctx, assessmentId);
-  if (hasSupabaseEnv() && asUuidOrNull(assessmentId)) {
-    try {
-      const supabase = await clientFor(ctx);
-      const { error: delErr } = await supabase.from("checklist_items").delete().eq("assessment_id", assessmentId);
-      if (delErr) throw delErr;
-      const rows = normalized.map((it, i) => ({ assessment_id: assessmentId, title: it.title, instructions: it.instructions ?? null, required: it.required, ord: i, category: it.category ?? null }));
-      const { data: inserted, error: insErr } = await supabase.from("checklist_items").insert(rows).select("id, title, instructions, required, ord, category");
-      if (insErr) throw insErr;
-      // Drop orphaned responses for removed items so stale ids never reappear
-      const keepIds = new Set(((inserted ?? []) as Array<{ id: string }>).map((r) => r.id));
-      if (keepIds.size > 0) {
-        const { data: existing } = await supabase.from("checklist_responses").select("item_id").eq("assessment_id", assessmentId);
-        const stale = ((existing ?? []) as Array<{ item_id: string }>).map((r) => r.item_id).filter((id) => !keepIds.has(id));
-        if (stale.length > 0) await supabase.from("checklist_responses").delete().eq("assessment_id", assessmentId).in("item_id", stale);
-      }
-      const out: ChecklistItemRecord[] = ((inserted ?? []) as Array<{ id: string; title: string; instructions: string | null; required: boolean; ord: number; category: string | null }>).map((r) => ({ id: r.id, assessmentId, title: r.title, instructions: r.instructions ?? undefined, required: r.required, ord: r.ord, category: r.category ?? undefined }));
-      return { items: out, persisted: true };
-    } catch (e) {
-      console.error("Supabase checklist replace failed, falling back to file store", e instanceof Error ? e.message : String(e));
-    }
+  if (dbMode(ctx)) {
+    const supabase = await clientFor(ctx);
+    const payload = normalized.map((it) => ({ id: asUuidOrNull(it.id) ?? null, title: it.title, instructions: it.instructions ?? null, required: it.required, category: it.category ?? null, source: it.source ?? (asUuidOrNull(it.id) ? undefined : "user"), rationale: it.rationale ?? null }));
+    const { data, error } = await supabase.rpc("replace_checklist", { p_assessment: assessmentId, p_items: payload });
+    if (error) throw dbError(error);
+    await auditEvent({ workspaceId: ctx?.workspaceId, action: "checklist.updated", targetType: "assessment", targetId: assessmentId, ctx });
+    return { items: ((data ?? []) as DbChecklistRow[]).map((r) => toChecklistRecord(r, assessmentId)), persisted: true };
   }
   const file = path.join(DATA_DIR, `checklist_${assessmentId}.json`);
   const prev = readJson<ChecklistItemRecord[]>(file, []);
+  const prevIds = new Set(prev.map((p) => p.id));
   const prevByTitle = new Map(prev.map((p) => [p.title, p.id]));
-  const out: ChecklistItemRecord[] = normalized.map((it, i) => ({ id: prevByTitle.get(it.title) ?? `${assessmentId}_item_${i}`, assessmentId, title: it.title, instructions: it.instructions, required: it.required, ord: i, category: it.category }));
+  const out: ChecklistItemRecord[] = normalized.map((it, i) => ({
+    id: it.id && prevIds.has(it.id) ? it.id : prevByTitle.get(it.title) ?? `${assessmentId}_item_${i}`,
+    assessmentId, title: it.title, instructions: it.instructions, required: it.required, ord: i, category: it.category, source: it.source, rationale: it.rationale,
+  }));
   writeJson(file, out);
   return { items: out, persisted: false };
 }
@@ -291,29 +362,32 @@ const MATERIALS_FILE = path.join(DATA_DIR, "materials.json");
 const QUOTATIONS_FILE = path.join(DATA_DIR, "quotations.json");
 
 export async function saveMaterialsLocal(assessmentId: string, items: Array<{ description: string; specification?: string; quantity: number; unit: string; rationale: string; source: "measurement"|"finding"|"rule"|"user_input"; provisional?: boolean; assumptions?: string[]; findingId?: string }>, version?: number, workspaceId?: string | null, ctx?: StoreCtx): Promise<{ ok: boolean; version: number; persisted: boolean; provisionalCount: number }> {
-  const nextVersion = (version ?? 0) + 1;
+  void version; // client-supplied versions are ignored — the server allocates them atomically
   // Auto-mark provisional if rationale too short or assumptions empty and source is measurement/finding
   const enriched = items.map((it, idx) => ({
     ...it,
-    provisional: it.provisional ?? (it.rationale.length < 10 || (!it.assumptions?.length && ["measurement","finding"].includes(it.source))),
+    // A client may flag an item provisional but can never clear the automatic flag.
+    provisional: !!it.provisional || it.rationale.length < 10 || (!it.assumptions?.length && ["measurement", "finding"].includes(it.source)),
     assumptions: it.assumptions ?? [],
     ord: idx,
   }));
   const provisionalCount = enriched.filter((i) => i.provisional).length;
   const ws = workspaceOf(ctx, workspaceId);
   await verifyAssessmentWorkspace(ctx, assessmentId);
-  if (hasSupabaseEnv() && ws) {
-    try {
-      const supabase = await clientFor(ctx);
-      const { data: list } = await supabase.from("materials_lists").insert({ assessment_id: assessmentId, workspace_id: ws, version: nextVersion }).select("id").single();
-      const listId = list?.id as string;
-      if (listId) {
-        for (const it of enriched) await supabase.from("materials_items").insert({ list_id: listId, description: it.description, specification: it.specification ?? null, quantity: it.quantity, unit: it.unit, rationale: it.rationale, source: it.source, provisional: it.provisional, assumptions: it.assumptions, finding_id: it.findingId ?? null, ord: it.ord });
-        return { ok: true, version: nextVersion, persisted: true, provisionalCount };
-      }
-    } catch {}
+  if (dbMode(ctx)) {
+    if (!asUuidOrNull(assessmentId)) throw new Error("Forbidden — invalid assessment id");
+    const supabase = await clientFor(ctx);
+    const payload = enriched.map((it) => ({ description: it.description, specification: it.specification ?? null, quantity: it.quantity, unit: it.unit, rationale: it.rationale, source: it.source, provisional: it.provisional, assumptions: it.assumptions, finding_id: asUuidOrNull(it.findingId), ord: it.ord }));
+    const { data, error } = await supabase.rpc("save_materials_list", { p_assessment: assessmentId, p_items: payload });
+    if (error) throw dbError(error);
+    const row = (Array.isArray(data) ? data[0] : data) as { list_id: string; version: number } | null;
+    if (!row) throw new Error("Materials list was not saved");
+    await auditEvent({ workspaceId: ws, action: "materials.saved", targetType: "assessment", targetId: assessmentId, ctx });
+    return { ok: true, version: row.version, persisted: true, provisionalCount };
   }
+  assertFileMode(ctx);
   const all = readJson<MaterialRecord[]>(MATERIALS_FILE, []);
+  const nextVersion = Math.max(0, ...all.filter((m) => m.assessmentId === assessmentId).map((m) => m.version)) + 1;
   for (const it of enriched) {
     all.push({ id: `mat_${Date.now()}_${Math.random().toString(36).slice(2,6)}`, assessmentId, workspaceId: ws, description: it.description, specification: it.specification, quantity: it.quantity, unit: it.unit, rationale: it.rationale, source: it.source, provisional: !!it.provisional, assumptions: it.assumptions ?? [], findingId: it.findingId, ord: it.ord, listId: `list_${assessmentId}_v${nextVersion}`, version: nextVersion });
   }
@@ -326,7 +400,7 @@ export async function saveMaterialsLocal(assessmentId: string, items: Array<{ de
 }
 
 export async function getMaterialsLocal(assessmentId: string, ctx?: StoreCtx): Promise<MaterialRecord[]> {
-  if (hasSupabaseEnv()) {
+  if (dbMode(ctx)) {
     try {
       const supabase = await clientFor(ctx);
       const { data: lists } = await supabase.from("materials_lists").select("id, version").eq("assessment_id", assessmentId).order("version", { ascending: false }).limit(1);
@@ -335,14 +409,15 @@ export async function getMaterialsLocal(assessmentId: string, ctx?: StoreCtx): P
         const { data: items } = await supabase.from("materials_items").select("*").eq("list_id", list.id).order("ord");
         if (items) return items.map((it) => ({ id: it.id, assessmentId, workspaceId: null, description: it.description, specification: it.specification ?? undefined, quantity: it.quantity, unit: it.unit, rationale: it.rationale, source: it.source, provisional: it.provisional, assumptions: it.assumptions ?? [], findingId: it.finding_id ?? undefined, ord: it.ord, listId: it.list_id, version: list.version }));
       }
-    } catch {}
+    } catch (e) { throw dbError(e); }
   }
+  if (dbMode(ctx)) return [];
   const all = readJson<MaterialRecord[]>(MATERIALS_FILE, []);
   return all.filter((m) => m.assessmentId === assessmentId);
 }
 
-export async function getMaterialsVersionLocal(assessmentId: string): Promise<number> {
-  const mats = await getMaterialsLocal(assessmentId);
+export async function getMaterialsVersionLocal(assessmentId: string, ctx?: StoreCtx): Promise<number> {
+  const mats = await getMaterialsLocal(assessmentId, ctx);
   if (mats.length === 0) return 0;
   return Math.max(...mats.map((m) => m.version));
 }
@@ -351,18 +426,30 @@ export async function saveQuotationLocal(input: { assessmentId: string; workspac
   const total = input.items.reduce((s, it) => s + it.quantity * it.unitPrice + (it.taxesOrFees ?? 0), 0);
   const ws = workspaceOf(input.ctx, input.workspaceId);
   await verifyAssessmentWorkspace(input.ctx, input.assessmentId);
-  if (hasSupabaseEnv() && ws && asUuidOrNull(input.assessmentId)) {
+  if (dbMode(input.ctx) && ws && asUuidOrNull(input.assessmentId)) {
     try {
       const supabase = await clientFor(input.ctx);
-      const { data: lists } = await supabase.from("materials_lists").select("id").eq("assessment_id", input.assessmentId).order("version", { ascending: false }).limit(1);
-      const listId = lists?.[0]?.id ?? null;
+      if (input.items.some((it) => it.currency !== input.currency)) throw new Error("All quotation lines must use the quotation currency");
+      const { data: lists, error: listErr } = await supabase.from("materials_lists").select("id, version").eq("assessment_id", input.assessmentId).order("version", { ascending: false }).limit(1);
+      if (listErr) throw listErr;
+      const listId = (lists?.[0] as { id: string } | undefined)?.id ?? null;
+      const listVersion = (lists?.[0] as { version: number } | undefined)?.version ?? input.materialsVersion;
       if (!listId) throw new Error("No materials list for this assessment — save materials first");
-      const { data: q, error: qErr } = await supabase.from("quotations").insert({ workspace_id: ws, assessment_id: input.assessmentId, materials_list_id: listId, materials_version: input.materialsVersion, supplier: input.supplier, reference: input.reference ?? null, date: input.date ?? new Date().toISOString().slice(0,10), currency: input.currency, total }).select("id").single();
+      const { data: q, error: qErr } = await supabase.from("quotations").insert({ workspace_id: ws, assessment_id: input.assessmentId, materials_list_id: listId, materials_version: listVersion, created_by: input.ctx?.userId, supplier: input.supplier, reference: input.reference ?? null, date: input.date ?? new Date().toISOString().slice(0,10), currency: input.currency, total }).select("id").single();
       if (qErr) throw qErr;
       const qid = q?.id as string;
-      if (qid) { for (const it of input.items) await supabase.from("quotation_items").insert({ quotation_id: qid, description: it.description, quantity: it.quantity, unit: it.unit, unit_price: it.unitPrice, currency: it.currency, taxes_or_fees: it.taxesOrFees ?? null }); return { ok: true, total, persisted: true, id: qid }; }
-    } catch {}
+      if (qid) {
+        const rows = input.items.map((it) => ({ quotation_id: qid, description: it.description, quantity: it.quantity, unit: it.unit, unit_price: it.unitPrice, currency: it.currency, taxes_or_fees: it.taxesOrFees ?? null }));
+        const { error: itemsErr } = await supabase.from("quotation_items").insert(rows);
+        if (itemsErr) {
+          await supabase.from("quotations").delete().eq("id", qid); // no half-saved quotation
+          throw itemsErr;
+        }
+        return { ok: true, total, persisted: true, id: qid };
+      }
+    } catch (e) { throw dbError(e); }
   }
+  assertFileMode(input.ctx);
   const all = readJson<QuotationRecord[]>(QUOTATIONS_FILE, []);
   const id = `quote_${Date.now()}_${Math.random().toString(36).slice(2,6)}`;
   all.push({ id, assessmentId: input.assessmentId, workspaceId: ws, materialsListId: `list_${input.assessmentId}_v${input.materialsVersion}`, materialsVersion: input.materialsVersion, supplier: input.supplier, reference: input.reference, date: input.date ?? new Date().toISOString().slice(0,10), currency: input.currency, items: input.items, total, stale: false, reviewStatus: "pending", createdAt: new Date().toISOString() });
@@ -371,13 +458,18 @@ export async function saveQuotationLocal(input: { assessmentId: string; workspac
 }
 
 export async function getQuotationsLocal(assessmentId: string, ctx?: StoreCtx): Promise<QuotationRecord[]> {
-  if (hasSupabaseEnv()) {
+  if (dbMode(ctx)) {
     try {
       const supabase = await clientFor(ctx);
-      const { data } = await supabase.from("quotations").select("id, materials_version, supplier, currency, total, stale, review_status, date, quotation_items(description, quantity, unit, unit_price, currency, taxes_or_fees)").eq("assessment_id", assessmentId).order("created_at", { ascending: false });
-      if (data) return data.map((d) => ({ id: d.id, assessmentId, workspaceId: null, materialsListId: "", materialsVersion: d.materials_version, supplier: d.supplier, reference: undefined, date: d.date, currency: d.currency, items: ((d.quotation_items ?? []) as Array<{ description: string; quantity: number; unit: string; unit_price: number; currency: string; taxes_or_fees: number | null }>).map((it) => ({ description: it.description, quantity: it.quantity, unit: it.unit, unitPrice: it.unit_price, currency: it.currency, taxesOrFees: it.taxes_or_fees ?? undefined })), total: d.total ?? 0, stale: d.stale, reviewStatus: d.review_status, createdAt: "" }));
-    } catch {}
+      const { data: latestRows, error: latestErr } = await supabase.from("materials_lists").select("version").eq("assessment_id", assessmentId).order("version", { ascending: false }).limit(1);
+      if (latestErr) throw latestErr;
+      const latestVersion = (latestRows?.[0] as { version: number } | undefined)?.version ?? 0;
+      const { data, error: qErr } = await supabase.from("quotations").select("id, created_at, materials_version, supplier, currency, total, stale, review_status, date, quotation_items(description, quantity, unit, unit_price, currency, taxes_or_fees)").eq("assessment_id", assessmentId).order("created_at", { ascending: false });
+      if (qErr) throw qErr;
+      if (data) return data.map((d) => ({ id: d.id, assessmentId, workspaceId: null, materialsListId: "", materialsVersion: d.materials_version, supplier: d.supplier, reference: undefined, date: d.date, currency: d.currency, items: ((d.quotation_items ?? []) as Array<{ description: string; quantity: number; unit: string; unit_price: number; currency: string; taxes_or_fees: number | null }>).map((it) => ({ description: it.description, quantity: it.quantity, unit: it.unit, unitPrice: it.unit_price, currency: it.currency, taxesOrFees: it.taxes_or_fees ?? undefined })), total: d.total ?? 0, stale: d.stale || d.materials_version < latestVersion, reviewStatus: d.stale || d.materials_version < latestVersion ? "stale_needs_review" : d.review_status, createdAt: d.created_at }));
+    } catch (e) { throw dbError(e); }
   }
+  if (dbMode(ctx)) return [];
   const all = readJson<QuotationRecord[]>(QUOTATIONS_FILE, []);
   return all.filter((q) => q.assessmentId === assessmentId);
 }
@@ -389,7 +481,7 @@ export async function saveResponsesLocal(assessmentId: string, responses: Array<
     if (!["pass", "fail", "needs_attention", "not_applicable", "not_checked"].includes(r.status)) throw new Error(`Invalid status ${r.status}`);
   }
   await verifyAssessmentWorkspace(ctx, assessmentId);
-  if (hasSupabaseEnv() && asUuidOrNull(assessmentId)) {
+  if (dbMode(ctx) && asUuidOrNull(assessmentId)) {
     try {
       const supabase = await clientFor(ctx);
       for (const r of responses) {
@@ -399,9 +491,10 @@ export async function saveResponsesLocal(assessmentId: string, responses: Array<
       }
       return { ok: true, persisted: true, saved: responses.length };
     } catch (e) {
-      console.error("Supabase responses save failed, falling back to file store", e instanceof Error ? e.message : String(e));
+      throw dbError(e);
     }
   }
+  assertFileMode(ctx);
   const all = readJson<ChecklistResponseRecord[]>(RESPONSES_FILE, []);
   const now = new Date().toISOString();
   for (const r of responses) {
@@ -415,13 +508,14 @@ export async function saveResponsesLocal(assessmentId: string, responses: Array<
 }
 
 export async function getResponsesLocal(assessmentId: string, ctx?: StoreCtx): Promise<ChecklistResponseRecord[]> {
-  if (hasSupabaseEnv()) {
+  if (dbMode(ctx)) {
     try {
       const supabase = await clientFor(ctx);
       const { data } = await supabase.from("checklist_responses").select("item_id, status, notes, measured_value, measured_unit").eq("assessment_id", assessmentId);
       if (data) return data.map((d) => ({ assessmentId, itemId: d.item_id, status: d.status, notes: d.notes ?? undefined, measuredValue: d.measured_value ?? undefined, measuredUnit: d.measured_unit ?? undefined, updatedAt: new Date().toISOString() }));
-    } catch {}
+    } catch (e) { throw dbError(e); }
   }
+  if (dbMode(ctx)) return [];
   const all = readJson<ChecklistResponseRecord[]>(RESPONSES_FILE, []);
   return all.filter((r) => r.assessmentId === assessmentId);
 }
@@ -435,13 +529,14 @@ export type SnapshotRecord = ReportSnapshot & {
 const SNAPSHOTS_FILE = path.join(DATA_DIR, "report_snapshots.json");
 
 async function nextAssessmentVersion(assessmentId: string, ctx?: StoreCtx): Promise<number> {
-  if (hasSupabaseEnv() && asUuidOrNull(assessmentId)) {
+  if (dbMode(ctx) && asUuidOrNull(assessmentId)) {
     try {
       const supabase = await clientFor(ctx);
       const { count } = await supabase.from("report_snapshots").select("id", { count: "exact", head: true }).eq("assessment_id", assessmentId);
       if (typeof count === "number") return count + 1;
-    } catch {}
+    } catch (e) { throw dbError(e); }
   }
+  assertFileMode(ctx);
   const all = readJson<SnapshotRecord[]>(SNAPSHOTS_FILE, []);
   const counts = all.filter((s) => s.assessmentId === assessmentId).length;
   return counts + 1;
@@ -480,7 +575,7 @@ export async function buildReportInputFromStoredFacts(
   let quotationVersion: number | null = null;
   let quotationVersionId: string | null = null;
   if (opts.includeMaterials) {
-    const mats = await getMaterialsLocal(assessmentId);
+    const mats = await getMaterialsLocal(assessmentId, ctx);
     if (mats.length > 0) {
       const v = Math.max(...mats.map((m) => m.version));
       materialsVersion = v;
@@ -497,7 +592,7 @@ export async function buildReportInputFromStoredFacts(
       materials = undefined;
       materialsVersion = null;
     }
-    const quotes = await getQuotationsLocal(assessmentId);
+    const quotes = await getQuotationsLocal(assessmentId, ctx);
     if (quotes.length > 0) {
       // Pick latest non-stale if possible, otherwise latest
       const sorted = [...quotes].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -553,10 +648,10 @@ export async function createReportSnapshotLocal(input: {
     materialsVersion: versions.materialsVersion,
     quotationVersionId: versions.quotationVersionId,
     quotationVersion: versions.quotationVersion,
-    artifactKey: input.finalize ? `reports/${id}.pdf` : null,
+    artifactKey: null, // set only after the PDF artifact is actually uploaded
     htmlPreview: "", // filled after
     createdAt: new Date().toISOString(),
-    createdBy: "demo-user",
+    createdBy: input.ctx?.userId ?? "demo-user",
     finalized: !!input.finalize,
     immutable: true as const,
   };
@@ -564,13 +659,13 @@ export async function createReportSnapshotLocal(input: {
   snapshot.htmlPreview = htmlPreview.slice(0, 20000);
   const record: SnapshotRecord = { ...snapshot, workspaceId, payload: reportInput };
   // Try Supabase first if env
-  if (hasSupabaseEnv() && workspaceId && asUuidOrNull(input.assessmentId)) {
+  if (dbMode(input.ctx) && workspaceId && asUuidOrNull(input.assessmentId)) {
     try {
       const supabase = await clientFor(input.ctx);
-      await auditEvent({ workspaceId, action: input.finalize ? "snapshot.finalized" : "snapshot.drafted", targetType: "snapshot", targetId: id, ctx: input.ctx });
-      const { error } = await supabase.from("report_snapshots").insert({
+      const { data: inserted, error } = await supabase.from("report_snapshots").insert({
         id,
         workspace_id: workspaceId,
+        created_by: input.ctx?.userId,
         assessment_id: input.assessmentId,
         assessment_version: versions.assessmentVersion,
         checklist_version: versions.checklistVersion,
@@ -580,13 +675,17 @@ export async function createReportSnapshotLocal(input: {
         finalized: snapshot.finalized,
         html_preview: snapshot.htmlPreview,
         snapshot_payload: reportInput as unknown as never,
-      });
-      if (!error) return { snapshot, input: reportInput, persisted: true };
-      console.error("Supabase snapshot insert failed", error.message);
+      }).select("assessment_version").single();
+      if (error) throw error;
+      // The database allocates the version atomically; trust it over the predicted value.
+      snapshot.assessmentVersion = (inserted as { assessment_version: number }).assessment_version;
+      await auditEvent({ workspaceId, action: input.finalize ? "snapshot.finalized" : "snapshot.drafted", targetType: "snapshot", targetId: id, ctx: input.ctx });
+      return { snapshot, input: reportInput, persisted: true };
     } catch (e) {
-      console.error("Supabase snapshot fallback", e instanceof Error ? e.message : String(e));
+      throw dbError(e);
     }
   }
+  assertFileMode(input.ctx);
   // File fallback — enforce immutability: never overwrite finalized snapshot
   ensureDir();
   const all = readJson<SnapshotRecord[]>(SNAPSHOTS_FILE, []);
@@ -597,7 +696,7 @@ export async function createReportSnapshotLocal(input: {
 }
 
 export async function getSnapshotLocal(snapshotId: string, ctx?: StoreCtx): Promise<SnapshotRecord | null> {
-  if (hasSupabaseEnv()) {
+  if (dbMode(ctx)) {
     try {
       const supabase = await clientFor(ctx);
       const { data } = await supabase.from("report_snapshots").select("*").eq("id", snapshotId).single();
@@ -622,17 +721,21 @@ export async function getSnapshotLocal(snapshotId: string, ctx?: StoreCtx): Prom
           payload: (data.snapshot_payload as unknown as ReportInput) ?? ({} as ReportInput),
         };
       }
-    } catch {}
+    } catch (e) { throw dbError(e); }
   }
+  if (dbMode(ctx)) return null;
   const all = readJson<SnapshotRecord[]>(SNAPSHOTS_FILE, []);
   return all.find((s) => s.id === snapshotId) ?? null;
 }
 
 export async function listSnapshotsLocal(assessmentId?: string, ctx?: StoreCtx): Promise<SnapshotRecord[]> {
-  if (hasSupabaseEnv() && assessmentId) {
+  if (dbMode(ctx)) {
     try {
       const supabase = await clientFor(ctx);
-      const { data } = await supabase.from("report_snapshots").select("*").eq("assessment_id", assessmentId).order("created_at", { ascending: false }).limit(50);
+      if (!assessmentId && !ctx?.workspaceId) return [];
+      let query = supabase.from("report_snapshots").select("*");
+      query = assessmentId ? query.eq("assessment_id", assessmentId) : query.eq("workspace_id", ctx!.workspaceId!);
+      const { data } = await query.order("created_at", { ascending: false }).limit(50);
       if (data) return data.map((d) => ({
         id: d.id,
         assessmentId: d.assessment_id,
@@ -651,20 +754,21 @@ export async function listSnapshotsLocal(assessmentId?: string, ctx?: StoreCtx):
         workspaceId: d.workspace_id ?? null,
         payload: (d.snapshot_payload as unknown as ReportInput) ?? ({} as ReportInput),
       }));
-    } catch {}
+    } catch (e) { throw dbError(e); }
   }
+  assertFileMode(ctx);
   const all = readJson<SnapshotRecord[]>(SNAPSHOTS_FILE, []);
   const filtered = assessmentId ? all.filter((s) => s.assessmentId === assessmentId) : all;
   return filtered.slice(-50).reverse();
 }
 
 export async function tryUploadReportArtifact(snapshotId: string, pdfBytes: Uint8Array, ctx?: StoreCtx): Promise<{ uploaded: boolean; signedUrl: string | null; error?: string }> {
-  if (!hasSupabaseEnv()) return { uploaded: false, signedUrl: null, error: "Supabase env missing — using base64 fallback" };
+  if (!hasServiceRole()) return { uploaded: false, signedUrl: null, error: "Supabase env missing — using base64 fallback" };
   try {
     // Storage + artifact bookkeeping always run privileged AFTER route-level authz.
     const supabase = await serviceClient();
     const key = `reports/${snapshotId}.pdf`;
-    const { error: upErr } = await supabase.storage.from("reports").upload(key, pdfBytes, { contentType: "application/pdf", upsert: false });
+    const { error: upErr } = await supabase.storage.from("reports").upload(key, pdfBytes, { contentType: "application/pdf", upsert: true });
     if (upErr) return { uploaded: false, signedUrl: null, error: upErr.message };
     // Update snapshot artifact_key when upload succeeds — except on finalized
     // snapshots, where the immutability trigger rejects updates (the key was
@@ -711,26 +815,34 @@ export async function saveEvidenceLocal(input: {
   // File-fallback/demo ids can never satisfy uuid FKs — link assessment-level, still listable.
   const itemUuid = asUuidOrNull(input.itemId);
   const assessmentUuid = asUuidOrNull(input.assessmentId);
-  if (hasSupabaseEnv() && ws && assessmentUuid) {
-    const supabase = await serviceClient(); // privileged AFTER route-level membership check
+  if (dbMode(input.ctx)) {
+    if (!ws || !assessmentUuid) throw new Error("Forbidden — invalid assessment");
+    if (!hasServiceRole()) throw new Error("Evidence storage is not configured on the server");
+    const storage = await serviceClient(); // Storage writes are server-side only, AFTER the workspace check above
+    const supabase = await clientFor(input.ctx); // the row insert runs under RLS (role-aware)
     if (input.bytes) {
-      const { error: upErr } = await supabase.storage.from("evidence").upload(input.storageKey, input.bytes, { contentType: input.mimeType, upsert: false });
+      const { error: upErr } = await storage.storage.from("evidence").upload(input.storageKey, input.bytes, { contentType: input.mimeType, upsert: false });
       if (upErr) throw new Error(`Storage upload failed — ${upErr.message}`);
     }
     const { data, error } = await supabase.from("evidence_items").insert({
       workspace_id: ws,
+      created_by: input.ctx?.userId,
       assessment_id: assessmentUuid,
       item_id: itemUuid,
       storage_key: input.storageKey,
       mime_type: input.mimeType,
       size_bytes: input.sizeBytes,
     }).select("id, captured_at").single();
-    if (error) throw error;
+    if (error) {
+      if (input.bytes) await storage.storage.from("evidence").remove([input.storageKey]); // no orphaned object
+      throw dbError(error);
+    }
     return {
       record: { id: (data as { id: string }).id, assessmentId: input.assessmentId, itemId: input.itemId ?? null, storageKey: input.storageKey, mimeType: input.mimeType, sizeBytes: input.sizeBytes, uploadedAt: (data as { captured_at: string }).captured_at },
       persisted: true,
     };
   }
+  assertFileMode(input.ctx);
   const all = readJson<EvidenceRecord[]>(EVIDENCE_FILE, []);
   const record: EvidenceRecord = { id: `ev_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`, assessmentId: input.assessmentId, itemId: input.itemId ?? null, storageKey: input.storageKey, mimeType: input.mimeType, sizeBytes: input.sizeBytes, uploadedAt: new Date().toISOString() };
   all.push(record);
@@ -740,7 +852,7 @@ export async function saveEvidenceLocal(input: {
 
 export async function listEvidenceLocal(assessmentId: string, ctx?: StoreCtx): Promise<{ items: EvidenceRecord[]; persisted: boolean }> {
   await verifyAssessmentWorkspace(ctx, assessmentId);
-  if (hasSupabaseEnv() && asUuidOrNull(assessmentId)) {
+  if (dbMode(ctx) && asUuidOrNull(assessmentId)) {
     try {
       const supabase = await clientFor(ctx);
       const { data } = await supabase.from("evidence_items").select("id, assessment_id, item_id, storage_key, mime_type, size_bytes, captured_at").eq("assessment_id", assessmentId).order("captured_at", { ascending: false }).limit(100);
@@ -748,8 +860,9 @@ export async function listEvidenceLocal(assessmentId: string, ctx?: StoreCtx): P
         items: (data as Array<{ id: string; assessment_id: string; item_id: string | null; storage_key: string; mime_type: string; size_bytes: number; captured_at: string }>).map((r) => ({ id: r.id, assessmentId, itemId: r.item_id, storageKey: r.storage_key, mimeType: r.mime_type, sizeBytes: r.size_bytes, uploadedAt: r.captured_at })),
         persisted: true,
       };
-    } catch {}
+    } catch (e) { throw dbError(e); }
   }
+  if (dbMode(ctx)) return { items: [], persisted: true };
   const all = readJson<EvidenceRecord[]>(EVIDENCE_FILE, []);
   return { items: all.filter((e) => e.assessmentId === assessmentId).sort((a, b) => b.uploadedAt.localeCompare(a.uploadedAt)), persisted: false };
 }
@@ -759,7 +872,7 @@ export async function signedEvidenceUrl(assessmentId: string, storageKey: string
   await verifyAssessmentWorkspace(ctx, assessmentId);
   const { items } = await listEvidenceLocal(assessmentId, ctx);
   if (!items.some((e) => e.storageKey === storageKey)) return { signedUrl: null, error: "Unknown storage key for this assessment" };
-  if (!hasSupabaseEnv()) return { signedUrl: null, error: "Supabase env missing — file fallback has no private storage" };
+  if (!hasServiceRole()) return { signedUrl: null, error: "Supabase env missing — file fallback has no private storage" };
   try {
     const supabase = await serviceClient(); // privileged AFTER membership + key-ownership checks
     const { data, error } = await supabase.storage.from("evidence").createSignedUrl(storageKey, 60 * 15); // 15 min
@@ -780,7 +893,17 @@ export type FindingRecord = {
   status: string;
   evidenceRefs: string[];
   createdAt: string;
+  uncertainty?: string;
+  missingInputs?: string[];
+  reviewedAt?: string;
 };
+
+type DbFindingRow = { id: string; assessment_id?: string; title: string; description: string | null; severity: "low" | "medium" | "high" | null; status: string; evidence_refs: string[] | null; uncertainty: string | null; missing_inputs: string[] | null; reviewed_at: string | null; created_at: string };
+const FINDING_COLS = "id, assessment_id, title, description, severity, status, evidence_refs, uncertainty, missing_inputs, reviewed_at, created_at";
+
+function toFindingRecord(r: DbFindingRow, assessmentId: string): FindingRecord {
+  return { id: r.id, assessmentId, title: r.title, description: r.description ?? undefined, severity: r.severity ?? undefined, status: r.status, evidenceRefs: r.evidence_refs ?? [], uncertainty: r.uncertainty ?? undefined, missingInputs: r.missing_inputs ?? [], reviewedAt: r.reviewed_at ?? undefined, createdAt: r.created_at };
+}
 
 const FINDINGS_FILE = path.join(DATA_DIR, "findings.json");
 
@@ -790,31 +913,32 @@ export async function saveFindingLocal(input: {
   description?: string;
   severity?: "low" | "medium" | "high";
   evidenceRefs?: string[];
+  uncertainty?: string;
+  missingInputs?: string[];
   ctx?: StoreCtx;
 }): Promise<{ finding: FindingRecord; persisted: boolean }> {
   const title = input.title.trim();
   if (title.length < 3) throw new Error("Finding title must be at least 3 chars");
   const ws = workspaceOf(input.ctx, null);
   await verifyAssessmentWorkspace(input.ctx, input.assessmentId);
-  if (hasSupabaseEnv() && ws && asUuidOrNull(input.assessmentId)) {
-    try {
-      const supabase = await clientFor(input.ctx);
-      const { data, error } = await supabase.from("findings").insert({
-        assessment_id: input.assessmentId,
-        title,
-        severity: input.severity ?? null,
-        status: "needs_review",
-        evidence_refs: input.evidenceRefs ?? [],
-      }).select("id, status, created_at").single();
-      if (error) throw error;
-      return {
-        finding: { id: (data as { id: string }).id, assessmentId: input.assessmentId, title, description: input.description, severity: input.severity, status: (data as { status: string }).status, evidenceRefs: input.evidenceRefs ?? [], createdAt: (data as { created_at: string }).created_at },
-        persisted: true,
-      };
-    } catch (e) {
-      console.error("Supabase finding save failed, falling back to file store", e instanceof Error ? e.message : String(e));
-    }
+  if (dbMode(input.ctx)) {
+    if (!ws || !asUuidOrNull(input.assessmentId)) throw new Error("Forbidden — invalid assessment");
+    const supabase = await clientFor(input.ctx);
+    const { data, error } = await supabase.from("findings").insert({
+      assessment_id: input.assessmentId,
+      title,
+      description: input.description ?? null,
+      severity: input.severity ?? null,
+      status: "needs_review",
+      evidence_refs: input.evidenceRefs ?? [],
+      uncertainty: input.uncertainty ?? null,
+      missing_inputs: input.missingInputs ?? [],
+    }).select(FINDING_COLS).single();
+    if (error) throw dbError(error);
+    await auditEvent({ workspaceId: ws, action: "finding.created", targetType: "finding", targetId: (data as { id: string }).id, ctx: input.ctx });
+    return { finding: toFindingRecord(data as DbFindingRow, input.assessmentId), persisted: true };
   }
+  assertFileMode(input.ctx);
   const all = readJson<FindingRecord[]>(FINDINGS_FILE, []);
   const finding: FindingRecord = { id: `find_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`, assessmentId: input.assessmentId, title, description: input.description, severity: input.severity, status: "needs_review", evidenceRefs: input.evidenceRefs ?? [], createdAt: new Date().toISOString() };
   all.push(finding);
@@ -828,21 +952,18 @@ export async function updateFindingStatusLocal(findingId: string, status: string
   if (!FINDING_STATUSES.includes(status as (typeof FINDING_STATUSES)[number])) {
     throw new Error(`Invalid finding status ${status} — expected needs_review, confirmed, or rejected`);
   }
-  if (hasSupabaseEnv() && asUuidOrNull(findingId)) {
-    try {
-      const supabase = await clientFor(ctx);
-      const { data: existing } = await supabase.from("findings").select("assessment_id").eq("id", findingId).single();
-      if (existing) await verifyAssessmentWorkspace(ctx, (existing as { assessment_id: string }).assessment_id);
-      const { data, error } = await supabase.from("findings").update({ status }).eq("id", findingId).select("id, assessment_id, title, severity, status, evidence_refs, created_at").single();
-      if (error) throw error;
-      const { data: parent } = await supabase.from("assessments").select("workspace_id").eq("id", (data as { assessment_id: string }).assessment_id).single();
-      await auditEvent({ workspaceId: (parent as { workspace_id: string } | null)?.workspace_id ?? ctx?.workspaceId, action: `finding.${status}`, targetType: "finding", targetId: findingId, ctx });
-      const r = data as { id: string; assessment_id: string; title: string; severity: "low" | "medium" | "high" | null; status: string; evidence_refs: string[]; created_at: string };
-      return { id: r.id, assessmentId: r.assessment_id, title: r.title, severity: r.severity ?? undefined, status: r.status, evidenceRefs: r.evidence_refs ?? [], createdAt: r.created_at };
-    } catch (e) {
-      if (e instanceof Error && e.message.startsWith("Forbidden")) throw e;
-      console.error("Supabase finding update failed, falling back to file store", e instanceof Error ? e.message : String(e));
-    }
+  if (dbMode(ctx)) {
+    if (!asUuidOrNull(findingId)) throw new Error("Finding not found");
+    const supabase = await clientFor(ctx);
+    const { data: existing, error: exErr } = await supabase.from("findings").select("assessment_id").eq("id", findingId).maybeSingle();
+    if (exErr) throw dbError(exErr);
+    if (!existing) throw new Error("Finding not found");
+    await verifyAssessmentWorkspace(ctx, (existing as { assessment_id: string }).assessment_id);
+    const { data, error } = await supabase.from("findings").update({ status, reviewed_by: status === "needs_review" ? null : ctx?.userId ?? null, reviewed_at: status === "needs_review" ? null : new Date().toISOString() }).eq("id", findingId).select(FINDING_COLS).single();
+    if (error) throw dbError(error);
+    const row = data as DbFindingRow;
+    await auditEvent({ workspaceId: ctx?.workspaceId, action: "finding." + status, targetType: "finding", targetId: findingId, ctx });
+    return toFindingRecord(row, row.assessment_id ?? (existing as { assessment_id: string }).assessment_id);
   }
   const all = readJson<FindingRecord[]>(FINDINGS_FILE, []);
   const idx = all.findIndex((f) => f.id === findingId);
@@ -854,23 +975,28 @@ export async function updateFindingStatusLocal(findingId: string, status: string
 
 export async function deleteEvidenceLocal(assessmentId: string, evidenceId: string, ctx?: StoreCtx): Promise<{ ok: boolean; persisted: boolean }> {
   await verifyAssessmentWorkspace(ctx, assessmentId);
-  if (hasSupabaseEnv() && asUuidOrNull(evidenceId)) {
-    const supabase = await serviceClient(); // privileged AFTER membership check
-    const { data: row } = await supabase.from("evidence_items").select("storage_key, assessment_id").eq("id", evidenceId).single();
+  if (dbMode(ctx)) {
+    if (!asUuidOrNull(evidenceId)) throw new Error("Evidence not found");
+    const supabase = await clientFor(ctx); // RLS + role policy decide; no service role for the row
+    const { data: row, error: rowErr } = await supabase.from("evidence_items").select("storage_key, assessment_id, workspace_id").eq("id", evidenceId).maybeSingle();
+    if (rowErr) throw dbError(rowErr);
     if (!row) throw new Error("Evidence not found");
-    if ((row as { assessment_id: string }).assessment_id !== assessmentId && asUuidOrNull(assessmentId)) {
+    const ev = row as { storage_key: string; assessment_id: string | null; workspace_id: string };
+    if (ev.assessment_id !== assessmentId || ev.workspace_id !== ctx?.workspaceId) {
       throw new Error("Forbidden — evidence belongs to a different assessment");
     }
-    const key = (row as { storage_key: string }).storage_key;
     const { error: delErr } = await supabase.from("evidence_items").delete().eq("id", evidenceId);
-    if (delErr) throw delErr;
+    if (delErr) throw dbError(delErr);
     // Best-effort storage removal — the DB row is the source of truth for listing.
-    const { error: storErr } = await supabase.storage.from("evidence").remove([key]);
-    if (storErr) console.error("Evidence storage removal failed", storErr.message);
-    const { data: parent } = await supabase.from("assessments").select("workspace_id").eq("id", assessmentId).single();
-    await auditEvent({ workspaceId: (parent as { workspace_id: string } | null)?.workspace_id ?? ctx?.workspaceId, action: "evidence.deleted", targetType: "evidence", targetId: evidenceId, ctx });
+    if (hasServiceRole()) {
+      const admin = await serviceClient();
+      const { error: storErr } = await admin.storage.from("evidence").remove([ev.storage_key]);
+      if (storErr) console.error("Evidence storage removal failed", storErr.message);
+    }
+    await auditEvent({ workspaceId: ev.workspace_id, action: "evidence.deleted", targetType: "evidence", targetId: evidenceId, ctx });
     return { ok: true, persisted: true };
   }
+  assertFileMode(ctx);
   const all = readJson<EvidenceRecord[]>(EVIDENCE_FILE, []);
   const kept = all.filter((e) => !(e.id === evidenceId && e.assessmentId === assessmentId));
   if (kept.length === all.length) throw new Error("Evidence not found");
@@ -881,7 +1007,7 @@ export async function deleteEvidenceLocal(assessmentId: string, evidenceId: stri
 export async function auditEvent(input: { workspaceId?: string | null; action: string; targetType?: string; targetId?: string; actorId?: string; ctx?: StoreCtx }): Promise<void> {
   // Best-effort trail — never blocks the mutating operation.
   try {
-    if (!hasSupabaseEnv() || !input.workspaceId || !asUuidOrNull(input.workspaceId)) return;
+    if (!hasServiceRole() || !input.workspaceId || !asUuidOrNull(input.workspaceId)) return;
     const supabase = await serviceClient();
     await supabase.from("audit_events").insert({
       workspace_id: input.workspaceId,
@@ -898,13 +1024,13 @@ export async function auditEvent(input: { workspaceId?: string | null; action: s
 export type AuditRecord = { id: string; workspaceId: string | null; actor: string | null; action: string; targetType: string | null; targetId: string | null; createdAt: string };
 
 export async function listAuditLocal(workspaceId: string, opts: { assessmentId?: string; limit?: number } = {}, ctx?: StoreCtx): Promise<AuditRecord[]> {
-  if (hasSupabaseEnv() && asUuidOrNull(workspaceId)) {
+  if (dbMode(ctx) && asUuidOrNull(workspaceId)) {
     try {
       const supabase = await clientFor(ctx);
       let q = supabase.from("audit_events").select("id, workspace_id, actor, action, target_type, target_id, created_at").eq("workspace_id", workspaceId).order("created_at", { ascending: false }).limit(opts.limit ?? 100);
       const { data } = await q;
       if (data) return (data as Array<{ id: string; workspace_id: string | null; actor: string | null; action: string; target_type: string | null; target_id: string | null; created_at: string }>).map((r) => ({ id: r.id, workspaceId: r.workspace_id, actor: r.actor, action: r.action, targetType: r.target_type, targetId: r.target_id, createdAt: r.created_at }));
-    } catch {}
+    } catch (e) { throw dbError(e); }
   }
   return [];
 }
@@ -913,7 +1039,7 @@ export type SiteRecord = { id: string; workspaceId: string | null; name: string;
 
 export async function listSitesLocal(workspaceId: string | null | undefined, ctx?: StoreCtx): Promise<SiteRecord[]> {
   const ws = workspaceOf(ctx, workspaceId);
-  if (hasSupabaseEnv() && ws && asUuidOrNull(ws)) {
+  if (dbMode(ctx) && ws && asUuidOrNull(ws)) {
     try {
       const supabase = await clientFor(ctx);
       const { data } = await supabase.from("sites").select("id, workspace_id, name, address, created_at").eq("workspace_id", ws).order("created_at", { ascending: false }).limit(100);
@@ -924,8 +1050,9 @@ export async function listSitesLocal(workspaceId: string | null | undefined, ctx
         for (const j of ((jobs ?? []) as Array<{ site_id: string | null }>)) if (j.site_id) counts.set(j.site_id, (counts.get(j.site_id) ?? 0) + 1);
         return sites.map((s) => ({ id: s.id, workspaceId: s.workspace_id, name: s.name, address: s.address ?? undefined, createdAt: s.created_at, jobCount: counts.get(s.id) ?? 0 }));
       }
-    } catch {}
+    } catch (e) { throw dbError(e); }
   }
+  assertFileMode(ctx);
   // File fallback: derive sites from stored assessments
   const all = readJson<AssessmentRecord[]>(ASSESSMENTS_FILE, []);
   const seen = new Map<string, SiteRecord>();
@@ -943,7 +1070,7 @@ export async function listSitesLocal(workspaceId: string | null | undefined, ctx
 export async function renameSiteLocal(siteId: string, name: string, ctx?: StoreCtx): Promise<{ ok: boolean }> {
   const clean = name.trim();
   if (clean.length < 2 || clean.length > 100) throw new Error("Site name must be 2–100 chars");
-  if (hasSupabaseEnv() && asUuidOrNull(siteId)) {
+  if (dbMode(ctx) && asUuidOrNull(siteId)) {
     const supabase = await clientFor(ctx);
     const { data: existing } = await supabase.from("sites").select("workspace_id").eq("id", siteId).single();
     if (!existing) throw new Error("Site not found");
@@ -966,7 +1093,7 @@ async function myRole(ctx: StoreCtx | undefined, workspaceId: string): Promise<s
 }
 
 export async function listMembersLocal(workspaceId: string, ctx?: StoreCtx): Promise<{ members: MemberRecord[]; myRole: string | null }> {
-  if (!hasSupabaseEnv() || !asUuidOrNull(workspaceId)) return { members: [], myRole: null };
+  if (!dbMode(ctx) || !asUuidOrNull(workspaceId)) return { members: [], myRole: null };
   const supabase = await clientFor(ctx);
   const role = await myRole(ctx, workspaceId);
   const { data, error } = await supabase.from("workspace_memberships").select("user_id, role, created_at").eq("workspace_id", workspaceId).order("created_at");
@@ -1040,12 +1167,12 @@ export async function inviteMemberLocal(workspaceId: string, email: string, role
 }
 
 export async function listFindingsLocal(assessmentId: string, ctx?: StoreCtx): Promise<FindingRecord[]> {
-  if (hasSupabaseEnv() && asUuidOrNull(assessmentId)) {
-    try {
-      const supabase = await clientFor(ctx);
-      const { data } = await supabase.from("findings").select("id, title, severity, status, evidence_refs, created_at").eq("assessment_id", assessmentId).order("created_at", { ascending: false });
-      if (data) return (data as Array<{ id: string; title: string; severity: "low" | "medium" | "high" | null; status: string; evidence_refs: string[]; created_at: string }>).map((r) => ({ id: r.id, assessmentId, title: r.title, severity: r.severity ?? undefined, status: r.status, evidenceRefs: r.evidence_refs ?? [], createdAt: r.created_at }));
-    } catch {}
+  if (dbMode(ctx)) {
+    if (!asUuidOrNull(assessmentId)) return [];
+    const supabase = await clientFor(ctx);
+    const { data, error } = await supabase.from("findings").select(FINDING_COLS).eq("assessment_id", assessmentId).order("created_at", { ascending: false });
+    if (error) throw dbError(error);
+    return ((data ?? []) as DbFindingRow[]).map((r) => toFindingRecord(r, assessmentId));
   }
   const all = readJson<FindingRecord[]>(FINDINGS_FILE, []);
   return all.filter((f) => f.assessmentId === assessmentId);

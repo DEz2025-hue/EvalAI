@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { sparkProposeChecklist } from "@eval-ai/ai-adapter";
-import { requireAuth } from "../../../../lib/auth";
+import { requireWriter } from "../../../../lib/auth";
 
 export async function POST(req: Request) {
-  const { auth, error: authErr } = await requireAuth();
+  const { auth, error: authErr } = await requireWriter();
   if (authErr) return authErr;
   try {
     const body = await req.json();

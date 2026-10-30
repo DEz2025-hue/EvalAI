@@ -1,21 +1,21 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { saveResponsesLocal, getResponsesLocal, verifyAssessmentWorkspace } from "../../../../lib/store";
-import { requireAuth, storeError } from "../../../../lib/auth";
+import { requireAuth, storeError, requireWriter } from "../../../../lib/auth";
 
 const Body = z.object({
-  assessmentId: z.string(),
+  assessmentId: z.string().min(1).max(100),
   responses: z.array(z.object({
-    itemId: z.string(),
+    itemId: z.string().min(1).max(100),
     status: z.enum(["pass", "fail", "needs_attention", "not_applicable", "not_checked"]),
     notes: z.string().max(2000).optional(),
-    measuredValue: z.number().optional(),
+    measuredValue: z.number().finite().optional(),
     measuredUnit: z.string().max(20).optional(),
-  })),
+  })).max(500),
 });
 
 export async function POST(req: Request) {
-  const { auth, error: authErr } = await requireAuth();
+  const { auth, error: authErr } = await requireWriter();
   if (authErr) return authErr;
   try {
     const body = Body.parse(await req.json());

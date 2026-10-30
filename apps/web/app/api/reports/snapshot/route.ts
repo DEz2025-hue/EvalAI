@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createReportSnapshotLocal, listSnapshotsLocal, verifyAssessmentWorkspace } from "../../../../lib/store";
-import { requireAuth, workspaceIdFor, storeError } from "../../../../lib/auth";
+import { requireAuth, workspaceIdFor, storeError, requireWriter } from "../../../../lib/auth";
 
 const Body = z.object({
   assessmentId: z.string().min(3),
@@ -12,7 +12,7 @@ const Body = z.object({
 });
 
 export async function POST(req: Request) {
-  const { auth, error: authErr } = await requireAuth();
+  const { auth, error: authErr } = await requireWriter();
   if (authErr) return authErr;
   try {
     const body = Body.parse(await req.json());

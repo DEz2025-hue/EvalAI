@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { saveFindingLocal, listFindingsLocal, updateFindingStatusLocal, verifyAssessmentWorkspace } from "../../../lib/store";
-import { requireAuth, storeError } from "../../../lib/auth";
+import { requireAuth, storeError, requireWriter } from "../../../lib/auth";
 
 const Body = z.object({
   assessmentId: z.string(),
@@ -13,7 +13,7 @@ const Body = z.object({
 
 /** Persist a human-reviewed finding (AI drafts arrive here only after user presses Save). */
 export async function POST(req: Request) {
-  const { auth, error: authErr } = await requireAuth();
+  const { auth, error: authErr } = await requireWriter();
   if (authErr) return authErr;
   try {
     const body = Body.parse(await req.json());
@@ -41,7 +41,7 @@ export async function GET(req: Request) {
 
 /** Review a finding: needs_review -> confirmed | rejected. Never auto-verified. */
 export async function PATCH(req: Request) {
-  const { auth, error: authErr } = await requireAuth();
+  const { auth, error: authErr } = await requireWriter();
   if (authErr) return authErr;
   try {
     const body = z.object({ id: z.string(), status: z.enum(["needs_review", "confirmed", "rejected"]) }).parse(await req.json());

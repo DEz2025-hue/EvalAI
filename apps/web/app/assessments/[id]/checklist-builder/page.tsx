@@ -77,7 +77,7 @@ export default function ChecklistBuilderPage(): JSX.Element {
       const res = await fetch("/api/checklist/items", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ assessmentId: id, items: items.map((it) => ({ title: it.title, required: it.required, category: it.category })) }),
+        body: JSON.stringify({ assessmentId: id, items: items.map((it) => ({ id: it.id, title: it.title, required: it.required, category: it.category })) }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error((data as { error?: string }).error ?? "Could not save checklist");

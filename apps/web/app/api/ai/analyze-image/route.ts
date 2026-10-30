@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { analyzeImage } from "@eval-ai/ai-adapter";
-import { requireAuth } from "../../../../lib/auth";
+import { requireWriter } from "../../../../lib/auth";
 
 const Schema = z.object({ imageBase64: z.string().min(1).max(14_000_000), mimeType: z.string().default("image/jpeg"), assessmentId: z.string().optional(), prompt: z.string().optional() });
 
 export async function POST(req: Request) {
-  const { error: authErr } = await requireAuth();
+  const { error: authErr } = await requireWriter();
   if (authErr) return authErr;
   try {
     const body = Schema.parse(await req.json());
