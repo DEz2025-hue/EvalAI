@@ -41,7 +41,7 @@ export default function Recovery() {
           {loading ? <ActivityIndicator color="#fff" size="small" /> : null}
           <Text style={{ color: "#fff", fontWeight: "700" }}>{loading ? "Sending…" : "Send recovery link"}</Text>
         </Pressable>
-        {sent ? <Text style={{ fontSize: 12, color: "#15803d" }}>Neutral confirmation shown — no enumeration leak.</Text> : null}
+        {sent ? <Text style={{ fontSize: 12, color: "#15803d" }}>If an account exists for that email, a recovery link has been sent.</Text> : null}
         <Link href="/auth/sign-in" asChild><Pressable style={{ alignItems: "center", paddingVertical: 6 }}><Text style={{ fontSize: 12, color: "#0ea5e9", fontWeight: "600" }}>Back to sign in</Text></Pressable></Link>
       </View>
     </View>

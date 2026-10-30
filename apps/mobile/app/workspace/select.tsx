@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { View, Text, Pressable, ActivityIndicator, Alert, ScrollView } from "react-native";
 import { useRouter, useFocusEffect } from "expo-router";
 import { getSupabase, hasSupabaseEnv } from "../../lib/supabase";
+import { setActiveWorkspace } from "../../lib/workspace";
 
 type WS = { workspace_id: string; workspaces: { name: string } | null };
 
@@ -44,7 +45,7 @@ export default function WorkspaceSelect() {
           </View>
         ) : (
           state.rows.map((r) => (
-            <Pressable key={r.workspace_id} onPress={() => { Alert.alert("Workspace selected", `${r.workspaces?.name ?? r.workspace_id.slice(0, 8)} — workspace-scoped data refreshed.`); router.replace("/(tabs)"); }} style={{ backgroundColor: "#fff", borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 12, padding: 14, flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+            <Pressable key={r.workspace_id} onPress={() => { void (async () => { await setActiveWorkspace(r.workspace_id); router.replace("/(tabs)"); })(); }} style={{ backgroundColor: "#fff", borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 12, padding: 14, flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
               <View>
                 <Text style={{ fontWeight: "700", color: "#0f172a" }}>{r.workspaces?.name ?? r.workspace_id.slice(0, 8)}</Text>
                 <Text style={{ fontSize: 11, color: "#64748b" }}>{r.workspace_id.slice(0, 8)} · tap to switch — </Text>
