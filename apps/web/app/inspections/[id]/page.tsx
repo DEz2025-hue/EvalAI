@@ -4,8 +4,7 @@ import { PACK_TEMPLATES } from "@eval-ai/shared";
 import { ChecklistEditor } from "../../../components/ChecklistEditor";
 import { ContextForm } from "../../../components/ContextForm";
 import { MeasurementsPanel } from "../../../components/MeasurementsPanel";
-import { PhotoCapture } from "../../../components/PhotoCapture";
-import { VoiceRecorder } from "../../../components/VoiceRecorder";
+import { FieldCapture } from "../../../components/FieldCapture";
 import { LiveCameraPanel } from "../../../components/LiveCameraPanel";
 import { AiDraftPanel } from "../../../components/AiDraftPanel";
 
@@ -62,10 +61,7 @@ export default function InspectionDetailPage({ params, searchParams }: { params:
 
       <MeasurementsPanel assessmentId={id} />
 
-      <div className="grid gap-4 md:grid-cols-2">
-        <PhotoCapture assessmentId={id} onUploaded={(k: string) => console.log(k)} />
-        <VoiceRecorder onTranscript={(t: string) => console.log(t)} assessmentId={id} />
-      </div>
+      <FieldCapture assessmentId={id} basePath="/inspections" />
 
       <LiveCameraPanel assessmentId={id} />
 

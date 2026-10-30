@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { PACK_TEMPLATES, buildReportHtml, computeCompleteness, type CompletenessResult } from "@eval-ai/shared";
+import { PACK_TEMPLATES, buildReportHtml, computeCompleteness, calculateMeasurement, type CompletenessResult, type FormulaId, type MeasurementInput } from "@eval-ai/shared";
 import type { ReportSnapshot, ReportInput } from "@eval-ai/shared";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -575,6 +575,11 @@ export async function buildReportInputFromStoredFacts(
     value: r.measuredValue!,
     unit: r.measuredUnit ?? "",
   }));
+  // Recorded measurements: value + unit + the method that produced it (never an AI estimate).
+  const recorded = await listMeasurementsLocal(assessmentId, ctx);
+  for (const m of recorded) {
+    measurements.push({ name: m.name + (m.formula === "manual" ? " (manual entry)" : " (" + (m.method ?? m.formula) + ")"), value: m.value, unit: m.unit });
+  }
   // Materials + quotations
   let materials: ReportInput["materials"] | undefined = undefined;
   let quotation: ReportInput["quotation"] | undefined = undefined;
@@ -1265,4 +1270,106 @@ export async function getCompletenessLocal(assessmentId: string, ctx?: StoreCtx)
     result.ready = false;
   }
   return result;
+}
+
+// ---- Recorded measurements (formula + inputs + result; migration 0011) ----
+export type MeasurementRecord = {
+  id: string;
+  assessmentId: string;
+  itemId: string | null;
+  name: string;
+  formula: FormulaId | "manual";
+  method?: string;
+  inputs: Record<string, unknown>;
+  value: number;
+  unit: string;
+  note?: string;
+  createdAt: string;
+};
+
+const MEASUREMENTS_FILE = path.join(DATA_DIR, "measurements.json");
+
+type DbMeasurement = { id: string; assessment_id: string; item_id: string | null; name: string; formula: string; method: string | null; inputs: Record<string, unknown> | null; value: number; unit: string; note: string | null; created_at: string };
+const MEASUREMENT_COLS = "id, assessment_id, item_id, name, formula, method, inputs, value, unit, note, created_at";
+
+function toMeasurementRecord(r: DbMeasurement): MeasurementRecord {
+  return { id: r.id, assessmentId: r.assessment_id, itemId: r.item_id, name: r.name, formula: r.formula as MeasurementRecord["formula"], method: r.method ?? undefined, inputs: r.inputs ?? {}, value: r.value, unit: r.unit, note: r.note ?? undefined, createdAt: r.created_at };
+}
+
+export async function saveMeasurementLocal(input: {
+  assessmentId: string;
+  itemId?: string | null;
+  name: string;
+  formula: FormulaId | "manual";
+  inputs?: Record<string, MeasurementInput>;
+  value?: number;
+  unit?: string;
+  note?: string;
+  ctx?: StoreCtx;
+}): Promise<MeasurementRecord> {
+  const name = input.name.trim();
+  if (!name) throw new Error("Measurement needs a name");
+  await verifyAssessmentWorkspace(input.ctx, input.assessmentId);
+  let value: number;
+  let unit: string;
+  let method: string | undefined;
+  let inputs: Record<string, unknown> = {};
+  if (input.formula === "manual") {
+    if (input.value === undefined || !Number.isFinite(input.value)) throw new Error("Enter the measured value");
+    if (!input.unit?.trim()) throw new Error("Enter the unit for a manual measurement");
+    value = input.value;
+    unit = input.unit.trim();
+    method = "manual entry (value as measured on site)";
+  } else {
+    // Computed here from the entered inputs — never taken from the client or from AI.
+    const calc = calculateMeasurement(input.formula, input.inputs ?? {});
+    value = calc.value;
+    unit = calc.unit;
+    method = calc.method;
+    inputs = calc.inputs;
+  }
+  if (dbMode(input.ctx)) {
+    const supabase = await clientFor(input.ctx);
+    const { data, error } = await supabase.from("measurements").insert({
+      assessment_id: input.assessmentId,
+      item_id: asUuidOrNull(input.itemId),
+      name, formula: input.formula, method: method ?? null, inputs, value, unit, note: input.note ?? null,
+      created_by: input.ctx?.userId,
+    }).select(MEASUREMENT_COLS).single();
+    if (error) throw dbError(error);
+    await auditEvent({ workspaceId: input.ctx?.workspaceId, action: "measurement.saved", targetType: "assessment", targetId: input.assessmentId, ctx: input.ctx });
+    return toMeasurementRecord(data as DbMeasurement);
+  }
+  const all = readJson<MeasurementRecord[]>(MEASUREMENTS_FILE, []);
+  const rec: MeasurementRecord = { id: "meas_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 6), assessmentId: input.assessmentId, itemId: input.itemId ?? null, name, formula: input.formula, method, inputs, value, unit, note: input.note, createdAt: new Date().toISOString() };
+  all.push(rec);
+  writeJson(MEASUREMENTS_FILE, all);
+  return rec;
+}
+
+export async function listMeasurementsLocal(assessmentId: string, ctx?: StoreCtx): Promise<MeasurementRecord[]> {
+  if (dbMode(ctx)) {
+    if (!asUuidOrNull(assessmentId)) return [];
+    const supabase = await clientFor(ctx);
+    const { data, error } = await supabase.from("measurements").select(MEASUREMENT_COLS).eq("assessment_id", assessmentId).order("created_at", { ascending: true });
+    if (error) throw dbError(error);
+    return ((data ?? []) as DbMeasurement[]).map(toMeasurementRecord);
+  }
+  return readJson<MeasurementRecord[]>(MEASUREMENTS_FILE, []).filter((m) => m.assessmentId === assessmentId);
+}
+
+export async function deleteMeasurementLocal(assessmentId: string, measurementId: string, ctx?: StoreCtx): Promise<void> {
+  await verifyAssessmentWorkspace(ctx, assessmentId);
+  if (dbMode(ctx)) {
+    if (!asUuidOrNull(measurementId)) throw new Error("Measurement not found");
+    const supabase = await clientFor(ctx);
+    const { data, error } = await supabase.from("measurements").delete().eq("id", measurementId).eq("assessment_id", assessmentId).select("id");
+    if (error) throw dbError(error);
+    if (!data || data.length === 0) throw new Error("Measurement not found");
+    return;
+  }
+  const all = readJson<MeasurementRecord[]>(MEASUREMENTS_FILE, []);
+  const kept = all.filter((m) => !(m.id === measurementId && m.assessmentId === assessmentId));
+  if (kept.length === all.length) throw new Error("Measurement not found");
+  writeJson(MEASUREMENTS_FILE, kept);
 }
