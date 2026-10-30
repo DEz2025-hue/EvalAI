@@ -37,6 +37,8 @@ export const ProposeChecklistInput = z.object({
   pack: z.enum(["solar", "cctv"]),
   context: z.record(z.unknown()),
   answers: z.record(z.unknown()).optional(),
+  /** Titles already on the checklist, so suggestions only add what is missing. */
+  existingChecklist: z.array(z.object({ title: z.string() })).optional(),
   maxItems: z.number().min(5).max(50).default(20),
 });
 
@@ -98,17 +100,40 @@ export const AnalyzeAssessmentOutput = z.object({
   requiresHumanReview: z.boolean().default(true),
 });
 
+/** Muse Voice Transcribe accepts ONLY mono 16-bit PCM WAV at 16 or 24 kHz (≤10 min, ≤32 MB). Convert other formats first. */
 export const TranscribeAudioInput = z.object({
   audioBase64: z.string().min(1),
-  mimeType: z.string().default("audio/webm"),
-  language: z.string().optional(),
+  /** Domain terms to bias recognition toward (not a guarantee of spelling). */
+  keywords: z.array(z.string().min(1).max(60)).max(100).optional(),
+  /** Language names, e.g. ["English", "French"]. Omit to auto-detect. */
+  languageBias: z.array(z.string().min(2).max(40)).max(5).optional(),
 });
 
 export const TranscribeAudioOutput = z.object({
   transcript: z.string(),
-  confidence: z.number().min(0).max(1).optional(),
   isUnconfirmed: z.boolean().default(true),
   durationSec: z.number().optional(),
+  turnCount: z.number().optional(),
+});
+
+export const DraftReportInput = z.object({
+  workspaceId: z.string().min(1).max(100),
+  assessmentId: z.string().min(1).max(100),
+  siteName: z.string().max(200),
+  mode: z.enum(["assessment", "inspection"]),
+  pack: z.enum(["solar", "cctv"]),
+  goal: z.string().max(1000).optional(),
+  checklist: z.array(z.object({ title: z.string(), status: z.string(), notes: z.string().optional() })).max(300),
+  findings: z.array(z.object({ title: z.string(), severity: z.string().optional(), description: z.string().optional(), uncertainty: z.string().optional() })).max(50),
+  measurements: z.array(z.object({ name: z.string(), value: z.number(), unit: z.string() })).max(100),
+  limitations: z.array(z.string()).max(50),
+});
+
+export const DraftReportOutput = z.object({
+  summary: z.string(),
+  recommendations: z.string(),
+  missingInformation: z.array(z.string()).default([]),
+  requiresHumanReview: z.literal(true).default(true),
 });
 
 export const AnalyzeImageInput = z.object({

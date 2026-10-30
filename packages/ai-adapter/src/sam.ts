@@ -1,39 +1,39 @@
 import { z } from "zod";
 import { getAdapterConfig } from "./config";
-import { metaFetch } from "./client";
+import { AiAdapterError, metaRequest } from "./client";
+import { reportRun, type CallOptions } from "./chat";
+import { estimateSamImageCostUsd } from "./pricing";
 
-// SAM 3.1 — visual segmentation, only if it adds value per D-013.
-// Keep separate, do not present segmentation as verified measurement.
+// SAM 3.1 — POST /v1/responses with one input_text (a single noun phrase) and one input_image.
+// https://dev.meta.ai/docs/sam/segmenting
+// Masks and boxes are NOT measurements. The text-record output format has not been verified against a live response yet,
+// so the raw records are returned and nothing is parsed into counts or dimensions.
 
 export const SamSegmentInput = z.object({
-  imageBase64: z.string(),
+  imageBase64: z.string().min(1),
   mimeType: z.string().default("image/jpeg"),
-  prompt: z.string().optional(), // e.g. "roof", "panel array"
+  /** One short noun phrase, e.g. "solar panel". Lists, questions and negations are unreliable. */
+  prompt: z.string().min(2).max(60),
 });
 
-export const SamSegmentOutput = z.object({
-  masks: z.array(z.object({ label: z.string(), confidence: z.number().optional(), bbox: z.array(z.number()).optional() })),
-  limitations: z.array(z.string()).default(["Segmentation is not a verified measurement — human review required"]),
-  requiresHumanReview: z.boolean().default(true),
-});
-
-export async function samSegment(input: z.infer<typeof SamSegmentInput>) {
+export async function samSegment(input: z.infer<typeof SamSegmentInput>, options?: CallOptions) {
+  const v = SamSegmentInput.parse(input);
   const cfg = getAdapterConfig();
-  const validated = SamSegmentInput.parse(input);
+  const oc = cfg.ops.segment;
+  const t0 = Date.now();
   try {
-    const raw = await metaFetch(cfg, "/v1/vision/segment", {
-      model: process.env.META_SAM_MODEL || "sam-3.1",
-      image: validated.imageBase64,
-      mime_type: validated.mimeType,
-      prompt: validated.prompt,
-    });
-    const r = raw as Record<string, unknown>;
-    return SamSegmentOutput.parse({
-      masks: (r.masks as unknown[]) ?? [],
-      limitations: ["SAM segmentation — not a verified dimension"],
-      requiresHumanReview: true,
-    });
+    const res = await metaRequest(
+      cfg,
+      "/responses",
+      { json: { model: oc.model, input: [{ role: "user", content: [{ type: "input_text", text: v.prompt }, { type: "input_image", image_url: "data:" + v.mimeType + ";base64," + v.imageBase64 }] }], metadata: { include_confidence: "true" } } },
+      { timeoutMs: oc.timeoutMs, ...options?.request },
+    );
+    await reportRun(options?.onRun, { operation: "segment", model: oc.model, status: "ok", latencyMs: Date.now() - t0, estimatedCostUsd: estimateSamImageCostUsd() });
+    const d = res.data as { output?: Array<{ content?: Array<{ text?: string }> }>; output_text?: string } | null;
+    const text = d?.output_text ?? d?.output?.flatMap((o) => o.content ?? []).map((c) => c.text ?? "").join("\n") ?? "";
+    return { rawRecords: text.slice(0, 20000), limitations: ["Segmentation is not a verified measurement — human review required"], requiresHumanReview: true as const };
   } catch (e) {
-    return { masks: [], limitations: [`SAM unavailable: ${e instanceof Error ? e.message : String(e)}`], requiresHumanReview: true, _fallback: true };
+    await reportRun(options?.onRun, { operation: "segment", model: oc.model, status: "error", errorCode: e instanceof AiAdapterError ? e.code : "unknown", latencyMs: Date.now() - t0 });
+    throw e;
   }
 }
