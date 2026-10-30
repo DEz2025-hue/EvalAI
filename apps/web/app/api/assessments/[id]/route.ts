@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { getAssessmentLocal, getResponsesLocal, getChecklistItemsLocal } from "../../../../lib/store";
-import { requireAuth, storeError } from "../../../../lib/auth";
+import { requireAuth, storeError, requireWriter } from "../../../../lib/auth";
 
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
   const { auth, error: authErr } = await requireAuth();
@@ -22,12 +23,17 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   }
 }
 
+const PatchBody = z.object({
+  siteName: z.string().trim().min(2).max(100).optional(),
+  context: z.record(z.unknown()).refine((c) => JSON.stringify(c).length <= 50_000, "context is too large").optional(),
+});
+
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
-  const { auth, error: authErr } = await requireAuth();
+  const { auth, error: authErr } = await requireWriter();
   if (authErr) return authErr;
   const { id } = params;
   try {
-    const body = await req.json();
+    const body = PatchBody.parse(await req.json());
     const { verifyAssessmentWorkspace, updateAssessmentContextLocal } = await import("../../../../lib/store");
     await verifyAssessmentWorkspace(auth.ctx, id);
     const ok = await updateAssessmentContextLocal(id, { siteName: body.siteName, context: body.context }, auth.ctx);

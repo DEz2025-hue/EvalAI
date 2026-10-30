@@ -1,21 +1,22 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireAuth, workspaceIdFor, storeError } from "../../../lib/auth";
+import { requireAuth, workspaceIdFor, storeError, requireWriter } from "../../../lib/auth";
 import { verifyAssessmentWorkspace } from "../../../lib/store";
 
-const Item = z.object({ description: z.string().min(2), quantity: z.number().positive(), unit: z.string().min(1), unitPrice: z.number().nonnegative(), currency: z.string().length(3), taxesOrFees: z.number().optional() });
+const Currency = z.string().regex(/^[A-Z]{3}$/, "Use a 3-letter ISO currency code, e.g. USD");
+const Item = z.object({ description: z.string().min(2).max(500), quantity: z.number().positive().finite(), unit: z.string().min(1).max(30), unitPrice: z.number().nonnegative().finite(), currency: Currency, taxesOrFees: z.number().nonnegative().finite().optional() });
 const Body = z.object({
-  assessmentId: z.string(),
+  assessmentId: z.string().min(1).max(100),
   materialsVersion: z.number().int().positive(),
-  supplier: z.string().min(1),
-  currency: z.string().length(3),
-  items: z.array(Item).min(1),
+  supplier: z.string().min(1).max(200),
+  currency: Currency,
+  items: z.array(Item).min(1).max(500),
   date: z.string().optional(),
-  reference: z.string().optional(),
+  reference: z.string().max(200).optional(),
 });
 
 export async function POST(req: Request) {
-  const { auth, error: authErr } = await requireAuth();
+  const { auth, error: authErr } = await requireWriter();
   if (authErr) return authErr;
   try {
     const body = Body.parse(await req.json());

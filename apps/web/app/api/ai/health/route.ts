@@ -1,21 +1,17 @@
 import { NextResponse } from "next/server";
+import { requireAuth, isAdmin } from "../../../../lib/auth";
 
-// Server-only — verifies Meta API reachability without exposing AI_PROVIDER_API_KEY to client
+// Signed-in owners/admins only. Reports configuration presence — no keys, no provider URL.
 export async function GET() {
-  const hasKey = !!process.env.AI_PROVIDER_API_KEY;
-  const baseUrl = process.env.AI_PROVIDER_BASE_URL || "not-set";
-  const wonder = process.env.META_WONDER_MODEL || "muse-wonder";
-  const spark = process.env.META_SPARK_MODEL || "muse-spark";
-  const voice = process.env.META_VOICE_MODEL || "muse-voice-transcribe";
-
-  // Do not return the key — only presence + safe metadata
-  if (!hasKey) {
-    return NextResponse.json(
-      { ok: false, error: "AI_PROVIDER_API_KEY not set (server-only) — see .env.example", models: { wonder, spark, voice }, baseUrl, verified: false },
-      { status: 503 }
-    );
-  }
-
-  // TODO: live fetch to baseUrl with synthetic prompt to verify model IDs, image/audio support, limits
-  return NextResponse.json({ ok: true, baseUrl, models: { wonder, spark, voice }, verified: false, note: "Live verification pending — add synthetic test per AI_AND_VOICE.md D-013" });
+  const { auth, error: authErr } = await requireAuth();
+  if (authErr) return authErr;
+  if (!isAdmin(auth)) return NextResponse.json({ error: "Forbidden — owners/admins only" }, { status: 403 });
+  const hasKey = !!process.env.AI_PROVIDER_API_KEY && !!process.env.AI_PROVIDER_BASE_URL;
+  if (!hasKey) return NextResponse.json({ ok: false, configured: false, verified: false, error: "AI provider is not configured on the server" }, { status: 503 });
+  return NextResponse.json({
+    ok: true,
+    configured: true,
+    verified: false,
+    note: "Live capability verification is pending — run /api/verify/provider and record the results.",
+  });
 }

@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import { CreateAssessmentSchema } from "../../../lib/validations";
-import { requireAuth, workspaceIdFor, storeError } from "../../../lib/auth";
+import { requireAuth, workspaceIdFor, storeError, requireWriter } from "../../../lib/auth";
 import { createAssessmentLocal, listAssessmentsLocal } from "../../../lib/store";
 
 export async function POST(req: Request) {
-  const { auth, error: authErr } = await requireAuth();
+  const { auth, error: authErr } = await requireWriter();
   if (authErr) return authErr;
   try {
     const body = await req.json();

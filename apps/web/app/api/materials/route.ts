@@ -1,24 +1,24 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireAuth, workspaceIdFor, storeError } from "../../../lib/auth";
+import { requireAuth, workspaceIdFor, storeError, requireWriter } from "../../../lib/auth";
 import { verifyAssessmentWorkspace } from "../../../lib/store";
 
 const Item = z.object({
   id: z.string().optional(),
-  description: z.string().min(2),
-  specification: z.string().optional(),
-  quantity: z.number().positive(),
-  unit: z.string().min(1),
-  rationale: z.string().min(3), // traceable
+  description: z.string().min(2).max(500),
+  specification: z.string().max(500).optional(),
+  quantity: z.number().positive().finite(),
+  unit: z.string().min(1).max(30),
+  rationale: z.string().min(3).max(1000), // traceable
   source: z.enum(["measurement", "finding", "rule", "user_input"]),
   provisional: z.boolean().optional(),
-  assumptions: z.array(z.string()).optional(),
+  assumptions: z.array(z.string().max(500)).max(20).optional(),
 });
 
-const Body = z.object({ assessmentId: z.string(), items: z.array(Item).min(1), version: z.number().optional() });
+const Body = z.object({ assessmentId: z.string().min(1).max(100), items: z.array(Item).min(1).max(500), version: z.number().optional() });
 
 export async function POST(req: Request) {
-  const { auth, error: authErr } = await requireAuth();
+  const { auth, error: authErr } = await requireWriter();
   if (authErr) return authErr;
   try {
     const body = Body.parse(await req.json());

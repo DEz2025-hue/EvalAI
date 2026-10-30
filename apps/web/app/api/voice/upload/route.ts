@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
-import { requireAuth, storeError } from "../../../../lib/auth";
+import { storeError, requireWriter } from "../../../../lib/auth";
 import { saveEvidenceLocal } from "../../../../lib/store";
 
 const ALLOWED_AUDIO = new Set(["audio/webm", "audio/ogg", "audio/mp4", "audio/mpeg", "audio/wav"]);
 
 export async function POST(req: Request) {
-  const { auth, error: authErr } = await requireAuth();
+  const { auth, error: authErr } = await requireWriter();
   if (authErr) return authErr;
   const form = await req.formData();
   const file = form.get("file") as File | null;
