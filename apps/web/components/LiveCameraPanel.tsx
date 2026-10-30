@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { uploadEvidence } from "../lib/clientUpload";
 
 type Analysis = { summary: string; observations?: string[]; limitations?: string[]; uncertainty?: string; fallback?: boolean };
 
@@ -92,14 +93,8 @@ export function LiveCameraPanel({ assessmentId, itemId }: { assessmentId: string
     setError(null);
     try {
       const blob = await (await fetch(frameUrl)).blob();
-      const fd = new FormData();
-      fd.append("file", new File([blob], `live-frame-${Date.now()}.jpg`, { type: "image/jpeg" }));
-      fd.append("assessmentId", assessmentId);
-      if (itemId) fd.append("itemId", itemId);
-      const res = await fetch("/api/evidence/upload", { method: "POST", body: fd });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error((data as { error?: string }).error ?? "Save failed");
-      setSavedKey((data as { storageKey?: string }).storageKey ?? null);
+      const data = await uploadEvidence(new File([blob], `live-frame-${Date.now()}.jpg`, { type: "image/jpeg" }), { assessmentId, itemId });
+      setSavedKey(data.storageKey ?? null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
