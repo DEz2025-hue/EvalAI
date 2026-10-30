@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { PACK_TEMPLATES, buildReportHtml, computeCompleteness, calculateMeasurement, quotationTotalAmount, type CompletenessResult, type FormulaId, type MeasurementInput } from "@eval-ai/shared";
+import { PACK_TEMPLATES, buildReportHtml, type ReportNarrative, computeCompleteness, calculateMeasurement, quotationTotalAmount, type CompletenessResult, type FormulaId, type MeasurementInput } from "@eval-ai/shared";
 import type { ReportSnapshot, ReportInput } from "@eval-ai/shared";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -10,6 +10,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 export type StoreCtx = {
   supabase?: SupabaseClient;
   userId?: string;
+  email?: string;
   workspaceId?: string;
   /** Caller's role in workspaceId (owner | admin | member | viewer). */
   role?: string;
@@ -656,15 +657,9 @@ export async function createReportSnapshotLocal(input: {
   finalize?: boolean;
   ctx?: StoreCtx;
 }): Promise<{ snapshot: ReportSnapshot; input: ReportInput; persisted: boolean }> {
-  // A report can only be finalized once the completeness review has no blockers.
-  if (input.finalize) {
-    await verifyAssessmentWorkspace(input.ctx, input.assessmentId);
-    const completeness = await getCompletenessLocal(input.assessmentId, input.ctx);
-    if (!completeness.ready) {
-      const list = completeness.blockers.map((b) => b.reason).join("; ");
-      throw new Error("Cannot finalize — " + completeness.blockers.length + " blocking issue(s) in the completeness review: " + list);
-    }
-  }
+  // Snapshots are created as DRAFTS. Finalizing is a separate step (finalizeSnapshotLocal) that needs a
+  // person's sign-off and re-checks completeness and that the facts did not change since the draft.
+  if (input.finalize) throw new Error("Cannot finalize directly — create a draft, review it, then sign off to finalize it");
   const { input: reportInput, assessment, versions } = await buildReportInputFromStoredFacts(input.assessmentId, {
     includeMaterials: input.includeMaterials ?? false,
     limitations: input.limitations,
@@ -753,6 +748,10 @@ export async function getSnapshotLocal(snapshotId: string, ctx?: StoreCtx): Prom
           createdBy: data.created_by ?? "supabase-user",
           finalized: !!data.finalized,
           immutable: true as const,
+          reviewedBy: data.reviewed_by ?? null,
+          reviewedByLabel: data.reviewed_by_label ?? null,
+          reviewedAt: data.reviewed_at ?? null,
+          reviewNote: data.review_note ?? null,
           workspaceId: data.workspace_id ?? null,
           payload: (data.snapshot_payload as unknown as ReportInput) ?? ({} as ReportInput),
         };
@@ -787,6 +786,10 @@ export async function listSnapshotsLocal(assessmentId?: string, ctx?: StoreCtx):
         createdBy: d.created_by ?? "supabase-user",
         finalized: !!d.finalized,
         immutable: true as const,
+        reviewedBy: d.reviewed_by ?? null,
+        reviewedByLabel: d.reviewed_by_label ?? null,
+        reviewedAt: d.reviewed_at ?? null,
+        reviewNote: d.review_note ?? null,
         workspaceId: d.workspace_id ?? null,
         payload: (d.snapshot_payload as unknown as ReportInput) ?? ({} as ReportInput),
       }));
@@ -1373,4 +1376,103 @@ export async function deleteMeasurementLocal(assessmentId: string, measurementId
   const kept = all.filter((m) => !(m.id === measurementId && m.assessmentId === assessmentId));
   if (kept.length === all.length) throw new Error("Measurement not found");
   writeJson(MEASUREMENTS_FILE, kept);
+}
+
+// ---- Report review: edit a draft's narrative, then sign off and finalize it ----
+const NARRATIVE_MAX = 5000;
+
+function cleanNarrative(n: ReportNarrative): ReportNarrative {
+  const out: ReportNarrative = {};
+  for (const k of ["summary", "recommendations", "notes"] as const) {
+    const v = n[k];
+    if (v === undefined) continue;
+    if (typeof v !== "string") throw new Error("Narrative sections must be text");
+    if (v.length > NARRATIVE_MAX) throw new Error("A narrative section is limited to " + NARRATIVE_MAX + " characters");
+    out[k] = v.trim();
+  }
+  return out;
+}
+
+/** Everything in a report that comes from stored facts (excludes the human narrative). */
+function factsFingerprint(input: ReportInput): string {
+  const { narrative: _narrative, ...facts } = input;
+  void _narrative;
+  return JSON.stringify(facts);
+}
+
+async function writeDraftSnapshot(snapshotId: string, patch: { payload?: ReportInput; htmlPreview?: string; review?: { by: string | null; label: string | null; at: string; note: string | null; finalized: true } }, ctx?: StoreCtx): Promise<void> {
+  if (dbMode(ctx)) {
+    const supabase = await clientFor(ctx);
+    const update: Record<string, unknown> = {};
+    if (patch.payload) update.snapshot_payload = patch.payload as unknown as never;
+    if (patch.htmlPreview !== undefined) update.html_preview = patch.htmlPreview;
+    if (patch.review) {
+      update.finalized = true;
+      update.reviewed_by = patch.review.by;
+      update.reviewed_by_label = patch.review.label;
+      update.reviewed_at = patch.review.at;
+      update.review_note = patch.review.note;
+    }
+    // finalized = false in the filter means a finalized snapshot can never be modified through this path.
+    const { data, error } = await supabase.from("report_snapshots").update(update).eq("id", snapshotId).eq("finalized", false).select("id");
+    if (error) throw dbError(error);
+    if (!data || data.length === 0) throw new Error("This snapshot is already finalized (immutable) or was not found");
+    return;
+  }
+  const all = readJson<SnapshotRecord[]>(SNAPSHOTS_FILE, []);
+  const idx = all.findIndex((s) => s.id === snapshotId);
+  if (idx < 0) throw new Error("Snapshot not found");
+  if (all[idx].finalized) throw new Error("This snapshot is already finalized (immutable)");
+  if (patch.payload) all[idx].payload = patch.payload;
+  if (patch.htmlPreview !== undefined) all[idx].htmlPreview = patch.htmlPreview;
+  if (patch.review) {
+    all[idx].finalized = true;
+    all[idx].reviewedBy = patch.review.by;
+    all[idx].reviewedByLabel = patch.review.label;
+    all[idx].reviewedAt = patch.review.at;
+    all[idx].reviewNote = patch.review.note;
+  }
+  writeJson(SNAPSHOTS_FILE, all);
+}
+
+export async function updateSnapshotNarrativeLocal(snapshotId: string, narrative: ReportNarrative, ctx?: StoreCtx): Promise<SnapshotRecord> {
+  const snap = await getSnapshotLocal(snapshotId, ctx);
+  if (!snap) throw new Error("Snapshot not found");
+  await verifyAssessmentWorkspace(ctx, snap.assessmentId);
+  if (snap.finalized) throw new Error("This report is finalized (immutable) — create a new draft to change it");
+  const payload: ReportInput = { ...snap.payload, narrative: { ...(snap.payload.narrative ?? {}), ...cleanNarrative(narrative) } };
+  const htmlPreview = buildReportHtml(snap, payload);
+  await writeDraftSnapshot(snapshotId, { payload, htmlPreview }, ctx);
+  await auditEvent({ workspaceId: ctx?.workspaceId, action: "snapshot.edited", targetType: "snapshot", targetId: snapshotId, ctx });
+  return { ...snap, payload, htmlPreview };
+}
+
+/**
+ * Sign off and finalize a reviewed DRAFT. Requires: no completeness blockers, and the stored facts are
+ * unchanged since the draft was created (otherwise the reviewer would be signing something they did not see).
+ */
+export async function finalizeSnapshotLocal(snapshotId: string, reviewNote: string | undefined, ctx?: StoreCtx): Promise<SnapshotRecord> {
+  if (!ctx?.userId && dbMode(ctx)) throw new Error("Sign in required");
+  const snap = await getSnapshotLocal(snapshotId, ctx);
+  if (!snap) throw new Error("Snapshot not found");
+  await verifyAssessmentWorkspace(ctx, snap.assessmentId);
+  if (snap.finalized) throw new Error("This report is already finalized");
+
+  const completeness = await getCompletenessLocal(snap.assessmentId, ctx);
+  if (!completeness.ready) {
+    throw new Error("Cannot finalize — " + completeness.blockers.length + " blocking issue(s) in the completeness review: " + completeness.blockers.map((b) => b.reason).join("; "));
+  }
+  const current = await buildReportInputFromStoredFacts(snap.assessmentId, { includeMaterials: snap.payload.materials !== undefined }, ctx);
+  if (factsFingerprint(current.input) !== factsFingerprint(snap.payload)) {
+    throw new Error("Cannot finalize — the assessment changed since this draft was created. Create a new draft, review it, then sign off.");
+  }
+
+  const note = reviewNote?.trim() ? reviewNote.trim().slice(0, 1000) : null;
+  const review = { by: ctx?.userId ?? null, label: ctx?.email ?? null, at: new Date().toISOString(), note, finalized: true as const };
+  const finalizedSnap: SnapshotRecord = { ...snap, finalized: true, reviewedBy: review.by, reviewedByLabel: review.label, reviewedAt: review.at, reviewNote: note };
+  const htmlPreview = buildReportHtml(finalizedSnap, snap.payload);
+  await writeDraftSnapshot(snapshotId, { htmlPreview, review }, ctx);
+  await setAssessmentStatusLocal(snap.assessmentId, "finalized", ctx);
+  await auditEvent({ workspaceId: ctx?.workspaceId, action: "snapshot.finalized", targetType: "snapshot", targetId: snapshotId, ctx });
+  return { ...finalizedSnap, htmlPreview };
 }
