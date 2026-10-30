@@ -107,6 +107,27 @@ export function ReportView({ id, basePath }: { id: string; basePath: "/assessmen
     }
   }
 
+  async function suggestWithAi() {
+    if (!selected) return;
+    const hasText = !!(narrative.summary?.trim() || narrative.recommendations?.trim());
+    if (hasText && !confirm("Replace the current summary and recommendations in the editor with an AI suggestion? Your saved version is not changed until you press Save edits.")) return;
+    setBusy("suggest");
+    setError(null);
+    setMsg(null);
+    try {
+      const res = await fetch("/api/ai/report-draft", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ assessmentId: id }) });
+      const data = (await res.json().catch(() => ({}))) as { summary?: string; recommendations?: string; missingInformation?: string[]; error?: string };
+      if (!res.ok) throw new Error(data.error ?? "AI suggestions are unavailable — write the sections yourself");
+      setNarrative((n) => ({ ...n, summary: data.summary ?? n.summary, recommendations: data.recommendations ?? n.recommendations }));
+      const gaps = (data.missingInformation ?? []).filter(Boolean);
+      setMsg("AI draft added to the editor. It is a suggestion built only from confirmed findings and recorded facts — read it, correct it, then press Save edits." + (gaps.length ? " The AI noted missing information: " + gaps.slice(0, 3).join("; ") : ""));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function finalize() {
     if (!selected) return;
     setBusy("finalize");
@@ -204,7 +225,11 @@ export function ReportView({ id, basePath }: { id: string; basePath: "/assessmen
               <span className="text-xs text-slate-500">{sec.hint}</span>
             </label>
           ))}
-          <button onClick={saveNarrative} disabled={busy !== null} className="btn-secondary text-xs">{busy === "save" ? "Saving…" : "Save edits"}</button>
+          <div className="flex flex-wrap gap-2">
+            <button onClick={saveNarrative} disabled={busy !== null} className="btn-secondary text-xs">{busy === "save" ? "Saving…" : "Save edits"}</button>
+            <button onClick={suggestWithAi} disabled={busy !== null} className="btn-secondary text-xs">{busy === "suggest" ? "Asking AI…" : "Suggest draft with AI"}</button>
+          </div>
+          <p className="text-xs text-slate-500">AI suggestions use only confirmed findings and recorded facts. They are drafts: nothing is saved until you save, and you are responsible for the final text.</p>
         </div>
       ) : null}
 

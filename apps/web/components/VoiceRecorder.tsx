@@ -48,22 +48,32 @@ export function VoiceRecorder({ onTranscript, assessmentId, itemId }: { onTransc
       mr.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
       mr.onerror = () => setError("Recording interrupted — check microphone and try again, or type instead.");
       mr.onstop = async () => {
-        const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+        // Safari records audio/mp4, Chrome/Firefox audio/webm or ogg — keep the real type; the server converts for transcription.
+        const mime = (mr.mimeType || "audio/webm").split(";")[0];
+        const ext = mime.includes("mp4") ? "m4a" : mime.includes("ogg") ? "ogg" : "webm";
+        const blob = new Blob(chunksRef.current, { type: mime });
         const url = URL.createObjectURL(blob);
         setAudioUrl(url);
-        // Preserve original audio — upload to  where supported
+        // Preserve the original audio privately (linked to the job/item) and remember its key.
+        let savedKey: string | null = null;
         try {
           if (!assessmentId) throw new Error("no job");
-          const uj = await uploadEvidence(blob, { assessmentId: assessmentId ?? "", itemId, fileName: `voice-${Date.now()}.webm`, mimeType: "audio/webm" });
-          if (uj.storageKey) setAudioKey(uj.storageKey);
-        } catch {}
-        // Transcription — editable, stays unconfirmed until user confirms
-        const base64 = await blobToBase64(blob);
+          const uj = await uploadEvidence(blob, { assessmentId, itemId, fileName: `voice-${Date.now()}.${ext}`, mimeType: mime });
+          savedKey = uj.storageKey ?? null;
+          if (savedKey) setAudioKey(savedKey);
+        } catch {
+          /* the recording can still be transcribed below; it just is not stored */
+        }
+        // Transcription — editable, stays unconfirmed until the person confirms it.
         try {
-          const res = await fetch("/api/ai/transcribe", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ audioBase64: base64, mimeType: "audio/webm" }) });
-          const data = await res.json();
-          if (!res.ok) throw new Error(data.error || "Transcription unavailable");
-          setTranscript(data.transcript);
+          let payload: Record<string, unknown>;
+          if (savedKey && assessmentId) payload = { assessmentId, storageKey: savedKey };
+          else if (blob.size <= 3_500_000) payload = { assessmentId, audioBase64: await blobToBase64(blob) };
+          else throw new Error("This recording is too long to transcribe without saving it. Check your connection and record again, or type the note.");
+          const res = await fetch("/api/ai/transcribe", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error((data as { error?: string }).error || "Transcription unavailable");
+          setTranscript((data as { transcript: string }).transcript);
           setConfirmed(false);
         } catch (e) {
           setError(e instanceof Error ? e.message : String(e));
