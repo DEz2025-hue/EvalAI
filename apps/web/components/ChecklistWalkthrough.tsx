@@ -28,11 +28,14 @@ export function ChecklistWalkthrough({ id, basePath }: { id: string; basePath: "
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    // A stale load (StrictMode double-run, or a quick id change) must never overwrite answers the user has already entered.
+    let cancelled = false;
     async function load() {
       setLoading(true);
       try {
         const res = await fetch(`/api/assessments/${id}`);
         const data = await res.json().catch(() => ({}));
+        if (cancelled) return;
         if (!res.ok) throw new Error((data as { error?: string }).error ?? "Failed to load");
         const stored = (data as { checklist?: Item[] }).checklist;
         const list = stored ?? []; // real items only — never template rows with made-up ids
@@ -42,12 +45,13 @@ export function ChecklistWalkthrough({ id, basePath }: { id: string; basePath: "
         for (const it of list) map[it.id] = rList.find((r) => r.itemId === it.id) ?? { itemId: it.id, status: "not_checked" };
         setResponses(map);
       } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
+        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }
     load();
+    return () => { cancelled = true; };
   }, [id]);
 
   const cur = items[idx];
