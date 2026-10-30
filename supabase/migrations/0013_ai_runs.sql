@@ -1,3 +1,4 @@
+-- APPLIED to project gmzstzqmbsuqwserlaul (RLS on, members read-only; verified clients cannot insert, service role can).
 -- 0013: AI usage log. One row per provider call (success or failure): which model, how much it used, how long it took,
 -- and an estimated cost. Metadata only — never prompts, transcripts, images or audio.
 -- Written by the server with the service role; workspace members can read their own workspace's usage.
