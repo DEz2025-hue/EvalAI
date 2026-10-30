@@ -34,7 +34,7 @@ export default function AssessmentDetailPage({ params, searchParams }: { params:
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-xl font-semibold">Assessment &middot; {label} &middot; {id.slice(0, 8)}</h1>
-          <p className="text-sm text-slate-600">Mode: {mode} &middot; Pack: {pack} &middot; Status: draft &middot; {persisted ? persisted.siteName ?? "�" : "Loading�"}</p>
+          <p className="text-sm text-slate-600">Mode: {mode} &middot; Pack: {pack} &middot; Status: draft &middot; {persisted ? persisted.siteName ?? "—" : "Loading…"}</p>
         </div>
         <div className="flex gap-2">
           <a href={`/assessments/${id}/report`} className="btn-primary text-sm">Preview report</a>
@@ -55,7 +55,7 @@ export default function AssessmentDetailPage({ params, searchParams }: { params:
       <ContextForm assessmentId={id} pack={pack} mode={mode as "assessment" | "inspection"} />
 
       <div className="card p-4">
-        <h2 className="text-sm font-semibold">Checklist � editable &middot; Not Checked &ne; Pass</h2>
+        <h2 className="text-sm font-semibold">Checklist — editable &middot; Not Checked &ne; Pass</h2>
         <p className="mt-1 text-xs text-slate-500">Your checklist is based on the {label} template. You can add, remove, or reorder items before you confirm.</p>
         <div className="mt-4">
           <ChecklistEditor items={items} assessmentId={id} />
@@ -74,12 +74,12 @@ export default function AssessmentDetailPage({ params, searchParams }: { params:
       <AiDraftPanel assessmentId={id} pack={pack} mode={mode as "assessment" | "inspection"} />
 
       <div className="card p-4">
-        <h2 className="text-sm font-semibold">Report � versioned and shareable</h2>
-        <p className="mt-1 text-sm text-slate-600">Generate a report from your saved facts and validated drafts. When you finalise it, that version is preserved � later edits create a new version.</p>
+        <h2 className="text-sm font-semibold">Report — versioned and shareable</h2>
+        <p className="mt-1 text-sm text-slate-600">Generate a report from your saved facts and validated drafts. When you finalise it, that version is preserved — later edits create a new version.</p>
         <a href={`/assessments/${id}/report`} className="mt-3 inline-flex btn-secondary text-xs">Open HTML preview</a>
       </div>
 
-      <div className="rounded-lg border border-slate-200 bg-amber-50 p-3 text-xs text-amber-900">Live Camera Analysis � Coming Soon. Not available in this release. Use photo capture and on-demand analysis instead.</div>
+      <div className="rounded-lg border border-slate-200 bg-amber-50 p-3 text-xs text-amber-900">Live Camera Analysis — Coming Soon. Not available in this release. Use photo capture and on-demand analysis instead.</div>
     </div>
   );
 }

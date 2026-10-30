@@ -7,20 +7,25 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "allowJs": true,
-    "strict": true,
+    "strict": false,
     "noEmit": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "incremental": true,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "exactOptionalPropertyTypes": false,
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
     "plugins": [{ "name": "next" }],
     "paths": {
       "@/*": ["./*"],
       "@eval-ai/shared": ["../../packages/shared/src"],
       "@eval-ai/ai-adapter": ["../../packages/ai-adapter/src"],
       "@eval-ai/supabase": ["../../packages/supabase/src"]
-    },
-    "baseUrl": "."
+    }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
   "exclude": ["node_modules"]

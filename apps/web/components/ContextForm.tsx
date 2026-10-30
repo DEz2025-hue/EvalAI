@@ -9,7 +9,7 @@ type Props = {
   onSaved?: () => void;
 };
 
-export function ContextForm({ assessmentId, pack, mode, initial, onSaved }: Props) {
+export function ContextForm({ assessmentId, pack, mode, initial, onSaved }: Props): JSX.Element {
   const [siteName, setSiteName] = useState(initial?.siteName ?? "");
   const [goal, setGoal] = useState(initial?.goal ?? "");
   const [existing, setExisting] = useState(initial?.existingEquipment ?? "");
@@ -42,7 +42,7 @@ export function ContextForm({ assessmentId, pack, mode, initial, onSaved }: Prop
       });
       const data = await res.json();
       if (data.questions) setQuestions(data.questions);
-      else setQuestions([{ id: "fallback", question: data.error ? `Clarification unavailable: ${data.error} — continue manually` : "No questions — context sufficient for checklist proposal" }]);
+      else setQuestions([{ id: "fallback", question: data.error ? `Clarification unavailable: ${data.error} — continue manually` : "No questions — context looks complete for the checklist." }]);
     } catch (e) {
       setQuestions([{ id: "err", question: `Clarification failed: ${e instanceof Error ? e.message : String(e)}` }]);
     } finally {
@@ -52,22 +52,22 @@ export function ContextForm({ assessmentId, pack, mode, initial, onSaved }: Prop
 
   return (
     <div className="card p-4 space-y-3">
-      <h3 className="text-sm font-semibold">Context — before checklist (Phase 2)</h3>
-      <p className="text-xs text-slate-500">Collect site/pack/mode-specific context first. Clarification asks only when missing info materially affects checklist/safety. Unknowns stay unknown — never guessed.</p>
+      <h3 className="text-sm font-semibold">Context — before the checklist</h3>
+      <p className="text-xs text-slate-500">Share site details first. Clarification only asks when missing info would affect the checklist or safety — unknown stays unknown.</p>
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="text-sm">Site name<input value={siteName} onChange={(e) => setSiteName(e.target.value)} placeholder="e.g. 12 Acacia Rd" className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /></label>
-        <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm">Pack: {pack} · Mode: {mode}</div>
+        <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm">Pack: {pack} — Mode: {mode}</div>
       </div>
       <label className="block text-sm">Goal / scope<textarea value={goal} onChange={(e) => setGoal(e.target.value)} rows={2} placeholder={pack === "solar" ? "New/existing/upgrade/repair — load, usage, requested outcome" : "Coverage goals, existing system, retention"} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /></label>
       <label className="block text-sm">Existing equipment<textarea value={existing} onChange={(e) => setExisting(e.target.value)} rows={2} placeholder="Inventory already on site" className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /></label>
       <label className="block text-sm">Constraints<textarea value={constraints} onChange={(e) => setConstraints(e.target.value)} rows={2} placeholder="Access, wiring, roof, network, power, cabling" className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /></label>
       <div className="flex gap-2">
         <button onClick={save} disabled={saving} className="btn-primary text-xs">{saving ? "Saving…" : "Save context (draft)"}</button>
-        <button onClick={clarify} disabled={clarifying} className="btn-secondary text-xs">{clarifying ? "Asking…" : "Request AI clarification (Spark)"}</button>
+        <button onClick={clarify} disabled={clarifying} className="btn-secondary text-xs">{clarifying ? "Asking…" : "Request clarification"}</button>
       </div>
       {questions.length > 0 && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
-          <div className="text-xs font-medium text-amber-900">Clarification — editable, answer optional “I don&apos;t know”</div>
+          <div className="text-xs font-medium text-amber-900">Clarification — answer what you can, &ldquo;I don&apos;t know&rdquo; is fine</div>
           <ul className="mt-2 space-y-2">
             {questions.map((q) => (
               <li key={q.id} className="text-sm">
@@ -79,7 +79,7 @@ export function ContextForm({ assessmentId, pack, mode, initial, onSaved }: Prop
           </ul>
         </div>
       )}
-      <p className="text-xs text-slate-500">Save preserves draft for resume. Clarification is user-requested (POST /api/ai/clarify) — Spark with fallback, never auto-guesses.</p>
+      <p className="text-xs text-slate-500">Save keeps a draft you can resume later. Clarification is on request — helpful questions, never auto-filled answers.</p>
     </div>
   );
 }

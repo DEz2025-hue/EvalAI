@@ -3,7 +3,7 @@ import { useState } from "react";
 
 type Item = { id: string; description: string; specification?: string; quantity: number; unit: string; rationale: string; source: "measurement"|"finding"|"rule"|"user_input"; provisional?: boolean; assumptions?: string[] };
 
-export function MaterialsList({ assessmentId, initial = [] as Item[], version = 1, onChange }: { assessmentId: string; initial?: Item[]; version?: number; onChange?: (items: Item[], version: number) => void }) {
+export function MaterialsList({ assessmentId, initial = [] as Item[], version = 1, onChange }: { assessmentId: string; initial?: Item[]; version?: number; onChange?: (items: Item[], version: number) => void }): JSX.Element {
   const [items, setItems] = useState<Item[]>(initial);
   const [saving, setSaving] = useState(false);
   // Save-and-resume: load persisted materials on mount so user can leave and resume later
@@ -84,7 +84,7 @@ export function MaterialsList({ assessmentId, initial = [] as Item[], version = 
         <button onClick={add} className="btn-secondary text-xs">Add item</button>
         <button onClick={save} disabled={saving} className="btn-primary text-xs">{saving ? "Saving…" : `Save v${version + 1}`}</button>
       </div>
-      <p className="text-xs text-slate-500">Changing materials increments version and marks prior quotations stale — see <code>mark_quotations_stale</code> trigger. Prices never invented — only from quotations.</p>
+      <p className="text-xs text-slate-500">If you change materials, existing quotes are marked as out of date — you will need fresh quotes before finalising.</p>
     </div>
   );
 }

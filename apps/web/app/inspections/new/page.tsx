@@ -1,6 +1,6 @@
 import { InspectionCreateForm } from "./InspectionCreateForm";
 
-export default function NewInspectionPage() {
+export default function NewInspectionPage(): JSX.Element {
   return (
     <div className="mx-auto max-w-2xl space-y-4">
       <h1 className="text-xl font-semibold">New Inspection</h1>

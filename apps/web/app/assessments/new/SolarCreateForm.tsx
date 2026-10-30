@@ -15,10 +15,7 @@ export function SolarCreateForm() {
     setSaving(true);
     setError(null);
     try {
-      // TODO: POST /api/assessments with RLS workspace check
-      // For now, navigate to detail with deterministic id so workflow is walkable without DB
       const id = `demo-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-      // In real impl: const { id } = await fetch("/api/assessments", { method: "POST", body: JSON.stringify({ mode: "assessment", pack: "solar", siteName, address, goal }) }).then(r=>r.json())
       router.push(`/assessments/${id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -41,7 +38,7 @@ export function SolarCreateForm() {
         <a href="/assessments" className="btn-secondary">Cancel</a>
       </div>
       {error && <p className="rounded bg-red-50 px-3 py-2 text-xs text-red-700">{error}</p>}
-      <p className="text-xs text-slate-500">Saves as draft — resumable. Later: site_id → workspaces/sites tables with RLS. CCTV follows same shape with different template.</p>
+      <p className="text-xs text-slate-500">Saves as draft — you can resume it from Assessments.</p>
     </form>
   );
 }

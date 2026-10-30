@@ -28,7 +28,7 @@ export function AiDraftPanel({ assessmentId, pack, mode }: { assessmentId: strin
       if (!res.ok) throw new Error(data.error || "Analyze failed");
       setFindings((data.potentialFindings ?? data.potential_findings ?? []).map((f: Finding) => ({ ...f, savedId: undefined as string | undefined })));
       setMeta({ uncertainty: data.uncertainty, missingInformation: data.missingInformation ?? data.missing_information, assumptions: data.assumptions, fallback: !!data._fallback });
-      if (data._fallback) setError("Draft created from fallback � your saved work is intact. Review and edit before saving.");
+      if (data._fallback) setError("Draft created from fallback — your saved work is intact. Review and edit before saving.");
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -58,34 +58,34 @@ export function AiDraftPanel({ assessmentId, pack, mode }: { assessmentId: strin
 
   return (
     <div className="card p-4 space-y-3">
-      <h3 className="text-sm font-semibold">AI drafts � on request, editable before you save</h3>
+      <h3 className="text-sm font-semibold">AI drafts — on request, editable before you save</h3>
       <p className="text-xs text-slate-500">Each draft is editable before you save it. Review the suggestions, check what&apos;s missing, and keep only what you confirm.</p>
       <div className="flex gap-2 flex-wrap">
-        <button onClick={runAnalysis} disabled={loading !== "idle"} className="btn-primary text-xs">{loading === "analyze" ? "Analyzing�" : "Request AI analysis"}</button>
-        <span className="text-xs text-slate-500">Status: {loading === "idle" ? "idle" : loading + "�"}</span>
+        <button onClick={runAnalysis} disabled={loading !== "idle"} className="btn-primary text-xs">{loading === "analyze" ? "Analyzing…" : "Request AI analysis"}</button>
+        <span className="text-xs text-slate-500">Status: {loading === "idle" ? "idle" : loading + "…"}</span>
       </div>
-      {error && <p className="rounded bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-700">{error} � your checklist and evidence are still saved.</p>}
+      {error && <p className="rounded bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-700">{error} — your checklist and evidence are still saved.</p>}
       {meta && (
         <div className="rounded bg-slate-50 border border-slate-200 px-3 py-2 text-xs">
-          <div>Confidence: <span className="font-medium">{meta.uncertainty ?? "�"}</span> {meta.fallback ? <span className="rounded bg-amber-100 px-1.5 py-0.5 text-amber-800">fallback</span> : null}</div>
+          <div>Confidence: <span className="font-medium">{meta.uncertainty ?? "—"}</span> {meta.fallback ? <span className="rounded bg-amber-100 px-1.5 py-0.5 text-amber-800">fallback</span> : null}</div>
           {meta.missingInformation?.length ? <div className="mt-1">Missing: {meta.missingInformation.join("; ")}</div> : null}
           {meta.assumptions?.length ? <div className="mt-1">Assumptions: {meta.assumptions.join("; ")}</div> : null}
-          <div className="mt-1">Voice transcripts are saved as notes � confirm any numbers or units before using them.</div>
+          <div className="mt-1">Voice transcripts are saved as notes — confirm any numbers or units before using them.</div>
         </div>
       )}
       {findings.length > 0 ? (
         <div className="space-y-2">
           {findings.map((f, i) => (
             <div key={i} className="rounded-lg border border-slate-200 p-3">
-              <div className="flex items-center gap-2"><span className="text-sm font-medium">{f.title}</span>{f.severity ? <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs">{f.severity}</span> : null}<span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-800">{f.savedId ? "saved · needs review" : "draft � needs review"}</span></div>
+              <div className="flex items-center gap-2"><span className="text-sm font-medium">{f.title}</span>{f.severity ? <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs">{f.severity}</span> : null}<span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-800">{f.savedId ? "saved · needs review" : "draft — needs review"}</span></div>
               <textarea value={draftText[i] ?? f.description ?? ""} onChange={(e) => setDraftText((prev) => ({ ...prev, [i]: e.target.value }))} rows={2} className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
-              <p className="mt-1 text-xs text-slate-500">Uncertainty: {f.uncertainty ?? meta?.uncertainty ?? "�"}</p>
+              <p className="mt-1 text-xs text-slate-500">Uncertainty: {f.uncertainty ?? meta?.uncertainty ?? "—"}</p>
               <div className="mt-2 flex gap-2"><button onClick={() => saveFinding(i)} disabled={!!f.savedId} className="btn-primary text-xs">{f.savedId ? "Saved ✓" : "Save finding"}</button><button onClick={() => setFindings((prev) => prev.filter((_, idx) => idx !== i))} className="btn-secondary text-xs">Discard</button></div>
             </div>
           ))}
         </div>
       ) : (
-        <p className="text-xs text-slate-500">No drafts yet � request an analysis when you&apos;re ready. Drafts are editable before save and never overwrite your verified facts.</p>
+        <p className="text-xs text-slate-500">No drafts yet — request an analysis when you&apos;re ready. Drafts are editable before save and never overwrite your verified facts.</p>
       )}
     </div>
   );

@@ -1,7 +1,7 @@
 import { MaterialsList } from "../../../../components/MaterialsList";
 import { QuotationReview } from "../../../../components/QuotationReview";
 
-export default function InspectionMaterialsPage({ params, searchParams }: { params: { id: string }; searchParams?: { pack?: string } }) {
+export default function InspectionMaterialsPage({ params, searchParams }: { params: { id: string }; searchParams?: { pack?: string } }): JSX.Element {
   const id = params.id;
   const pack = searchParams?.pack === "cctv" ? "cctv" : "solar";
   return (

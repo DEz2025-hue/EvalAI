@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 
-export function PhotoCapture({ assessmentId, itemId, onUploaded }: { assessmentId: string; itemId?: string; onUploaded: (key: string) => void }) {
+export function PhotoCapture({ assessmentId, itemId, onUploaded }: { assessmentId: string; itemId?: string; onUploaded: (key: string) => void }): JSX.Element {
   const [preview, setPreview] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -24,7 +24,6 @@ export function PhotoCapture({ assessmentId, itemId, onUploaded }: { assessmentI
     setUploading(true);
     setError(null);
     try {
-      // Client uploads to server route which validates, stores to private bucket, creates signed URL
       const fd = new FormData();
       fd.append("file", file);
       if (assessmentId) fd.append("assessmentId", assessmentId);
@@ -50,7 +49,9 @@ export function PhotoCapture({ assessmentId, itemId, onUploaded }: { assessmentI
       const res = await fetch("/api/ai/analyze-image", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ imageBase64: base64, mimeType: file.type, assessmentId }) });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
-      setAnalyze(`${data.summary}\nLimitations: ${(data.limitations ?? []).join("; ")}\nUncertainty: ${data.uncertainty}`);
+      setAnalyze(`${data.summary}
+Limitations: ${(data.limitations ?? []).join("; ")}
+Confidence: ${data.uncertainty}`);
     } catch (e) {
       setAnalyze(`Analysis unavailable: ${e instanceof Error ? e.message : String(e)}`);
     }
@@ -62,11 +63,11 @@ export function PhotoCapture({ assessmentId, itemId, onUploaded }: { assessmentI
       <input data-photo-input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" onChange={onPick} className="mt-2 block w-full text-sm" />
       {preview && <img src={preview} alt="Preview" className="mt-3 max-h-64 rounded-lg border border-slate-200" />}
       <div className="mt-3 flex gap-2">
-        <button onClick={upload} disabled={!preview || uploading} className="btn-primary text-xs">{uploading ? "Uploading…" : "Upload to private storage"}</button>
-        <button onClick={requestAnalysis} disabled={!preview} className="btn-secondary text-xs">Request AI analysis</button>
-        <button onClick={() => setPreview(null)} className="btn-secondary text-xs">Remove preview</button>
+        <button onClick={upload} disabled={!preview || uploading} className="btn-primary text-xs">{uploading ? "Uploading…" : "Upload photo"}</button>
+        <button onClick={requestAnalysis} disabled={!preview} className="btn-secondary text-xs">Analyze photo</button>
+        <button onClick={() => setPreview(null)} className="btn-secondary text-xs">Remove</button>
       </div>
-      <p className="mt-2 text-xs text-slate-500">Private by default — short-lived signed URL only after authorization. AI visual output is a suggestion; never treat as verified dimension.</p>
+      <p className="mt-2 text-xs text-slate-500">Photos are stored privately and shared only with your workspace. AI image analysis is a suggestion — always confirm measurements yourself.</p>
       {error && <p className="mt-2 rounded bg-red-50 px-3 py-2 text-xs text-red-700">{error}</p>}
       {analyze && <pre className="mt-2 whitespace-pre-wrap rounded bg-amber-50 px-3 py-2 text-xs text-amber-900">{analyze}</pre>}
     </div>

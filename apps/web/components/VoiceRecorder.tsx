@@ -3,7 +3,7 @@ import { useRef, useState } from "react";
 
 type PermissionState = "unknown" | "granted" | "denied" | "prompt" | "unsupported";
 
-export function VoiceRecorder({ onTranscript, assessmentId, itemId }: { onTranscript: (t: string, audioId?: string) => void; assessmentId?: string; itemId?: string }) {
+export function VoiceRecorder({ onTranscript, assessmentId, itemId }: { onTranscript: (t: string, audioId?: string) => void; assessmentId?: string; itemId?: string }): JSX.Element {
   const [recording, setRecording] = useState(false);
   const [duration, setDuration] = useState(0);
   const [transcript, setTranscript] = useState("");
@@ -50,7 +50,7 @@ export function VoiceRecorder({ onTranscript, assessmentId, itemId }: { onTransc
         const blob = new Blob(chunksRef.current, { type: "audio/webm" });
         const url = URL.createObjectURL(blob);
         setAudioUrl(url);
-        // Preserve original audio — upload to private storage where supported
+        // Preserve original audio — upload to  where supported
         try {
           const fd = new FormData();
           fd.append("file", blob, `voice-${Date.now()}.webm`);
@@ -129,7 +129,7 @@ export function VoiceRecorder({ onTranscript, assessmentId, itemId }: { onTransc
       {perm === "unsupported" && <p className="mt-2 rounded bg-slate-50 border border-slate-200 px-3 py-2 text-xs text-slate-600">Recording not supported on this browser — type your observation to continue.</p>}
       {audioUrl && (
         <div className="mt-3">
-          <label className="text-xs font-medium text-slate-700">Original audio — preserved {audioKey ? `· ${audioKey}` : "(local preview, upload pending env)"}</label>
+          <label className="text-xs font-medium text-slate-700">Original audio {audioKey ? `· ${audioKey}` : "(local preview, upload pending env)"}</label>
           <audio controls src={audioUrl} className="mt-1 w-full" />
         </div>
       )}
