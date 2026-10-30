@@ -65,7 +65,7 @@ export function ChecklistEditorMobile({ items: initial, assessmentId }: { items:
       const putRes = await apiFetch("/api/checklist/items", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ assessmentId, items: items.map((it) => ({ title: it.title, required: it.required, category: it.category })) }),
+        body: JSON.stringify({ assessmentId, items: items.map((it) => ({ id: it.id, title: it.title, required: it.required, category: it.category })) }),
       });
       const putData = await putRes.json().catch(() => ({}));
       if (!putRes.ok) throw new Error((putData as { error?: string }).error ?? "Could not save checklist items");
