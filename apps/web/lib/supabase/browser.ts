@@ -9,3 +9,13 @@ export function createBrowserSupabase(): SupabaseClient | null {
   if (!url || !anon) return null;
   return createBrowserClient(url, anon);
 }
+
+/**
+ * Cookie-backed browser client. The session must live in cookies so middleware and server routes see the
+ * signed-in user — a plain supabase-js client keeps it in localStorage and every server check fails.
+ */
+export function browserSupabase(): SupabaseClient {
+  const client = createBrowserSupabase();
+  if (!client) throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL / ANON_KEY — see .env.example");
+  return client;
+}

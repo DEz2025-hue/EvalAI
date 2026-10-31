@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { displayName } from "@eval-ai/shared";
 import { getNotifPrefs, setNotifPrefs, type NotifPrefs } from "../../lib/prefs";
+import DeleteAccountSection from "../../components/DeleteAccountSection";
 
 type Workspace = { id: string; name: string; role: string; createdAt: string };
 type Member = { userId: string; role: string; createdAt: string };
@@ -10,6 +12,8 @@ type Member = { userId: string; role: string; createdAt: string };
 export default function SettingsPage(): JSX.Element {
   const [email, setEmail] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
+  const [name, setName] = useState("");
+  const [draftName, setDraftName] = useState<string | null>(null);
   const [workspaces, setWorkspaces] = useState<Workspace[] | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
@@ -22,10 +26,11 @@ export default function SettingsPage(): JSX.Element {
   useEffect(() => {
     (async () => {
       try {
-        const { createSupabaseBrowserClient } = await import("@eval-ai/supabase");
-        const { data } = await createSupabaseBrowserClient().auth.getUser();
+        const { browserSupabase } = await import("../../lib/supabase/browser");
+        const { data } = await browserSupabase().auth.getUser();
         setEmail(data.user?.email ?? null);
         setUserId(data.user?.id ?? null);
+        setName(displayName(data.user));
       } catch {}
       try {
         const [wsRes, teamRes] = await Promise.all([fetch("/api/workspaces"), fetch("/api/team")]);
@@ -87,6 +92,28 @@ export default function SettingsPage(): JSX.Element {
     }
   }
 
+  async function saveName() {
+    const next = (draftName ?? "").trim();
+    if (next.length < 2) {
+      setError("Enter at least 2 characters for your name.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const { browserSupabase } = await import("../../lib/supabase/browser");
+      const { error: updErr } = await browserSupabase().auth.updateUser({ data: { full_name: next } });
+      if (updErr) throw new Error(updErr.message);
+      setName(next);
+      setDraftName(null);
+      setMsg("Name updated.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const active = workspaces?.find((w) => w.id === activeId) ?? null;
 
   return (
@@ -101,6 +128,23 @@ export default function SettingsPage(): JSX.Element {
       <section aria-label="Account" className="card p-5">
         <h2 className="text-sm font-semibold">Account</h2>
         <dl className="mt-3 space-y-2 text-sm">
+          {email ? (
+            <div className="flex items-center justify-between gap-4">
+              <dt className="text-slate-500">Name</dt>
+              {draftName === null ? (
+                <dd className="flex items-center gap-2 font-medium">
+                  {name || "—"}
+                  <button onClick={() => setDraftName(name)} className="text-xs font-semibold text-teal-700 hover:text-teal-900">Edit</button>
+                </dd>
+              ) : (
+                <dd className="flex items-center gap-2">
+                  <input value={draftName} onChange={(e) => setDraftName(e.target.value)} autoComplete="name" className="w-48 px-2.5 py-1.5 text-sm" aria-label="Your name" />
+                  <button onClick={saveName} disabled={busy} className="btn-primary text-xs disabled:opacity-50">Save</button>
+                  <button onClick={() => setDraftName(null)} className="btn-secondary text-xs">Cancel</button>
+                </dd>
+              )}
+            </div>
+          ) : null}
           <div className="flex justify-between gap-4">
             <dt className="text-slate-500">Email</dt>
             <dd className="font-medium">{email ?? "Demo workspace (not signed in)"}</dd>
@@ -181,6 +225,8 @@ export default function SettingsPage(): JSX.Element {
           ))}
         </div>
       </section>
+
+      {email ? <DeleteAccountSection /> : null}
     </div>
   );
 }

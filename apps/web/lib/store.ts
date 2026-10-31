@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { PACK_TEMPLATES, buildReportHtml, type ReportNarrative, computeCompleteness, calculateMeasurement, quotationTotalAmount, type CompletenessResult, type FormulaId, type MeasurementInput } from "@eval-ai/shared";
+import { PACK_TEMPLATES, buildReportHtml, type ReportNarrative, computeCompleteness, calculateMeasurement, quotationTotalAmount, type CompletenessResult, type FormulaId, type MeasurementInput, type MeasurementSource, type ArCapture, type PhotoCapture, LENGTH_UNITS, type LengthUnit, isAcceptableArCapture, hasArInput, hasPhotoInput, verifyPhotoReading } from "@eval-ai/shared";
 import type { ReportSnapshot, ReportInput } from "@eval-ai/shared";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -580,7 +580,12 @@ export async function buildReportInputFromStoredFacts(
   // Recorded measurements: value + unit + the method that produced it (never an AI estimate).
   const recorded = await listMeasurementsLocal(assessmentId, ctx);
   for (const m of recorded) {
-    measurements.push({ name: m.name + (m.formula === "manual" ? " (manual entry)" : " (" + (m.method ?? m.formula) + ")"), value: m.value, unit: m.unit });
+    const ar = hasArInput(m.inputs);
+    const photo = hasPhotoInput(m.inputs);
+    const how = m.formula === "manual"
+      ? (ar ? "AR-assisted reading" : photo ? "photo estimate, not verified" : "manual entry")
+      : (m.method ?? m.formula) + (ar ? "; length(s) AR-assisted" : "") + (photo ? "; length(s) from a photo estimate, not verified" : "");
+    measurements.push({ name: m.name + " (" + how + ")", value: m.value, unit: m.unit });
   }
   // Materials + quotations
   let materials: ReportInput["materials"] | undefined = undefined;
@@ -1369,6 +1374,10 @@ export async function saveMeasurementLocal(input: {
   inputs?: Record<string, MeasurementInput>;
   value?: number;
   unit?: string;
+  /** Manual reading only: how the value was captured (AR readings are quality-checked like formula inputs). */
+  source?: MeasurementSource;
+  ar?: ArCapture;
+  photo?: PhotoCapture;
   note?: string;
   ctx?: StoreCtx;
 }): Promise<MeasurementRecord> {
@@ -1384,7 +1393,19 @@ export async function saveMeasurementLocal(input: {
     if (!input.unit?.trim()) throw new Error("Enter the unit for a manual measurement");
     value = input.value;
     unit = input.unit.trim();
-    method = "manual entry (value as measured on site)";
+    if (input.source === "ar") {
+      if (!isAcceptableArCapture(input.ar)) throw new Error("The AR reading was not steady enough — measure again or type the value");
+      method = "AR-assisted reading (confirmed by the person on site)";
+      inputs = { reading: { value, unit, source: "ar", ar: input.ar } };
+    } else if (input.source === "photo") {
+      if (!(LENGTH_UNITS as string[]).includes(unit)) throw new Error("A photo measurement needs a length unit (m, cm, mm, ft or in)");
+      const problem = verifyPhotoReading(value, unit as LengthUnit, input.photo);
+      if (problem) throw new Error(problem);
+      method = "photo estimate (scaled from a reference object; not verified)";
+      inputs = { reading: { value, unit, source: "photo", photo: input.photo } };
+    } else {
+      method = "manual entry (value as measured on site)";
+    }
   } else {
     // Computed here from the entered inputs — never taken from the client or from AI.
     const calc = calculateMeasurement(input.formula, input.inputs ?? {});

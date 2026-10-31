@@ -102,8 +102,8 @@ export default function DashboardPage(): JSX.Element {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e));
       }
       try {
-        const { createSupabaseBrowserClient } = await import("@eval-ai/supabase");
-        const { data } = await createSupabaseBrowserClient().auth.getUser();
+        const { browserSupabase } = await import("../lib/supabase/browser");
+        const { data } = await browserSupabase().auth.getUser();
         if (!cancelled) setUserName(nameFromEmail(data.user?.email ?? null));
       } catch {
         /* greeting falls back to a neutral welcome */

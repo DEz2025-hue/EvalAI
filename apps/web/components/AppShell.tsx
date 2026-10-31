@@ -7,6 +7,7 @@ import type { ReactNode } from "react";
 import SearchBox from "./SearchBox";
 import NotificationsBell from "./NotificationsBell";
 import WorkspaceSwitcher from "./WorkspaceSwitcher";
+import { displayName, initials } from "@eval-ai/shared";
 
 type NavItem = { href: string; label: string; icon: JSX.Element };
 
@@ -35,14 +36,6 @@ function isActive(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-function initialsOf(email: string | null): string {
-  if (!email) return "?";
-  const name = email.split("@")[0].replace(/[._-]+/g, " ").trim();
-  const parts = name.split(" ").filter(Boolean);
-  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
-  return name.slice(0, 2).toUpperCase() || "?";
-}
-
 export default function AppShell({ children }: { children: ReactNode }): JSX.Element {
   const pathname = usePathname();
   const router = useRouter();
@@ -50,15 +43,19 @@ export default function AppShell({ children }: { children: ReactNode }): JSX.Ele
   const [mobileOpen, setMobileOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [email, setEmail] = useState<string | null>(null);
+  const [name, setName] = useState("");
   const isAuthPage = pathname?.startsWith("/auth/") ?? false;
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const { createSupabaseBrowserClient } = await import("@eval-ai/supabase");
-        const { data } = await createSupabaseBrowserClient().auth.getUser();
-        if (!cancelled) setEmail(data.user?.email ?? null);
+        const { browserSupabase } = await import("../lib/supabase/browser");
+        const { data } = await browserSupabase().auth.getUser();
+        if (!cancelled) {
+          setEmail(data.user?.email ?? null);
+          setName(displayName(data.user));
+        }
       } catch {
         if (!cancelled) setEmail(null);
       }
@@ -76,8 +73,8 @@ export default function AppShell({ children }: { children: ReactNode }): JSX.Ele
   async function signOut() {
     setSigningOut(true);
     try {
-      const { createSupabaseBrowserClient } = await import("@eval-ai/supabase");
-      await createSupabaseBrowserClient().auth.signOut();
+      const { browserSupabase } = await import("../lib/supabase/browser");
+      await browserSupabase().auth.signOut();
     } catch {}
     router.push("/auth/sign-in");
   }
@@ -165,9 +162,9 @@ export default function AppShell({ children }: { children: ReactNode }): JSX.Ele
                 aria-label="Account menu"
               >
                 <span className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-900 text-xs font-semibold text-white" aria-hidden="true">
-                  {initialsOf(email)}
+                  {email ? initials(name || email) : "?"}
                 </span>
-                <span className="hidden max-w-40 truncate text-sm font-medium text-slate-700 sm:block">{email ?? "Account"}</span>
+                <span className="hidden max-w-40 truncate text-sm font-medium text-slate-700 sm:block">{email ? name || email : "Account"}</span>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" className="h-4 w-4 text-slate-500" aria-hidden="true">
                   <path d="M6 9l6 6 6-6" />
                 </svg>
@@ -178,7 +175,8 @@ export default function AppShell({ children }: { children: ReactNode }): JSX.Ele
                   <div role="menu" className="absolute right-0 z-50 mt-2 w-60 rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
                     <div className="px-3 py-2">
                       <div className="text-xs text-slate-500">Signed in as</div>
-                      <div className="truncate text-sm font-medium text-slate-900">{email ?? "Demo workspace"}</div>
+                      <div className="truncate text-sm font-medium text-slate-900">{email ? name || email : "Demo workspace"}</div>
+                      {email && name ? <div className="truncate text-xs text-slate-500">{email}</div> : null}
                     </div>
                     <button
                       role="menuitem"

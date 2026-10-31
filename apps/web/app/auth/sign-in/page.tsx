@@ -2,7 +2,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { createSupabaseBrowserClient } from "@eval-ai/supabase";
+import { browserSupabase } from "../../../lib/supabase/browser";
 import AuthShell from "../../../components/AuthShell";
 
 export default function WebSignIn(): JSX.Element {
@@ -27,7 +27,7 @@ export default function WebSignIn(): JSX.Element {
     }
     setLoading(true);
     try {
-      const supabase = createSupabaseBrowserClient();
+      const supabase = browserSupabase();
       const { error: authErr } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
       if (authErr) throw new Error(authErr.message);
       const next = new URLSearchParams(window.location.search).get("next");

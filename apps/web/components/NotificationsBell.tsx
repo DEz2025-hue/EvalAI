@@ -58,8 +58,8 @@ export default function NotificationsBell(): JSX.Element {
       ]);
       let email: string | null = null;
       try {
-        const { createSupabaseBrowserClient } = await import("@eval-ai/supabase");
-        const { data } = await createSupabaseBrowserClient().auth.getUser();
+        const { browserSupabase } = await import("../lib/supabase/browser");
+        const { data } = await browserSupabase().auth.getUser();
         email = data.user?.email ?? null;
       } catch {}
       const wsId = ((teamData as { workspaceId?: string }).workspaceId ?? null) as string | null;

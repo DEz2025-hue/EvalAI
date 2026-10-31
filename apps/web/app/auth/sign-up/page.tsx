@@ -2,12 +2,15 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { createSupabaseBrowserClient } from "@eval-ai/supabase";
+import { browserSupabase } from "../../../lib/supabase/browser";
 import AuthShell from "../../../components/AuthShell";
+import { nameFromEmail } from "@eval-ai/shared";
 
 export default function WebSignUp(): JSX.Element {
   const router = useRouter();
   const [email, setEmail] = useState("");
+  const [name, setName] = useState("");
+  const [nameEdited, setNameEdited] = useState(false);
   const [password, setPassword] = useState("");
   const [show, setShow] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -18,6 +21,10 @@ export default function WebSignUp(): JSX.Element {
     e.preventDefault();
     setError(null);
     setOk(null);
+    if (name.trim().length < 2) {
+      setError("Enter your name.");
+      return;
+    }
     if (!email.trim() || password.length < 6) {
       setError("Email and a password of at least 6 characters are required.");
       return;
@@ -28,8 +35,8 @@ export default function WebSignUp(): JSX.Element {
     }
     setLoading(true);
     try {
-      const supabase = createSupabaseBrowserClient();
-      const { error: signErr } = await supabase.auth.signUp({ email: email.trim(), password });
+      const supabase = browserSupabase();
+      const { error: signErr } = await supabase.auth.signUp({ email: email.trim(), password, options: { data: { full_name: name.trim() } } });
       if (signErr) throw new Error(signErr.message);
       setOk("Account created — check your email for a confirmation link if required, then sign in.");
       setTimeout(() => router.push("/auth/sign-in"), 1200);
@@ -45,7 +52,12 @@ export default function WebSignUp(): JSX.Element {
       <form onSubmit={submit} className="space-y-5 rounded-2xl border border-slate-200 bg-white p-6 shadow-lg shadow-slate-900/[0.04] sm:p-8">
         <label className="block space-y-1">
           <span className="text-sm font-medium text-slate-700">Email address</span>
-          <input type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" className="mt-1 w-full px-3.5 py-3 text-sm" />
+          <input type="email" autoComplete="email" value={email} onChange={(e) => { setEmail(e.target.value); if (!nameEdited) setName(nameFromEmail(e.target.value)); }} placeholder="you@example.com" className="mt-1 w-full px-3.5 py-3 text-sm" />
+        </label>
+        <label className="block space-y-1">
+          <span className="text-sm font-medium text-slate-700">Your name</span>
+          <input type="text" autoComplete="name" value={name} onChange={(e) => { setName(e.target.value); setNameEdited(true); }} placeholder="First and last name" className="mt-1 w-full px-3.5 py-3 text-sm" />
+          {!nameEdited && name ? <span className="block text-xs text-slate-500">Filled in from your email — change it if it&apos;s not right.</span> : null}
         </label>
         <label className="block space-y-1">
           <span className="text-sm font-medium text-slate-700">Password</span>

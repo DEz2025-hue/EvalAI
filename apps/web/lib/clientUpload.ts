@@ -1,4 +1,4 @@
-import { createSupabaseBrowserClient } from "@eval-ai/supabase";
+import { browserSupabase } from "./supabase/browser";
 
 export type UploadResult = { id: string; storageKey: string; itemId: string | null; sizeBytes: number; mimeType: string };
 
@@ -22,7 +22,7 @@ export async function uploadEvidence(file: Blob, opts: Opts): Promise<UploadResu
   if (prep.status === 501 && target.fallback) return legacyUpload(file, { ...opts, fileName, mimeType });
   if (!prep.ok || !target.storageKey || !target.token) throw new Error(target.error ?? "Could not prepare the upload");
 
-  const supabase = createSupabaseBrowserClient();
+  const supabase = browserSupabase();
   const { error: upErr } = await supabase.storage.from("evidence").uploadToSignedUrl(target.path ?? target.storageKey, target.token, file, { contentType: mimeType });
   if (upErr) throw new Error("Upload failed — " + upErr.message);
 

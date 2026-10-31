@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import Link from "next/link";
-import { createSupabaseBrowserClient } from "@eval-ai/supabase";
+import { browserSupabase } from "../../../lib/supabase/browser";
 import AuthShell from "../../../components/AuthShell";
 
 export default function WebRecovery(): JSX.Element {
@@ -23,7 +23,7 @@ export default function WebRecovery(): JSX.Element {
     }
     setLoading(true);
     try {
-      const supabase = createSupabaseBrowserClient();
+      const supabase = browserSupabase();
       const { error: err } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo: `${window.location.origin}/auth/callback?next=/auth/reset` });
       if (err) throw new Error(err.message);
       setSent(true);

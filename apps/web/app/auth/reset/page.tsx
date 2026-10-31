@@ -2,7 +2,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { createSupabaseBrowserClient } from "@eval-ai/supabase";
+import { browserSupabase } from "../../../lib/supabase/browser";
 import AuthShell from "../../../components/AuthShell";
 
 export default function WebResetPassword(): JSX.Element {
@@ -20,7 +20,7 @@ export default function WebResetPassword(): JSX.Element {
     if (password !== confirm) return setError("Passwords do not match.");
     setLoading(true);
     try {
-      const supabase = createSupabaseBrowserClient();
+      const supabase = browserSupabase();
       const { data } = await supabase.auth.getSession();
       if (!data.session) throw new Error("This reset link has expired. Request a new one.");
       const { error: err } = await supabase.auth.updateUser({ password });

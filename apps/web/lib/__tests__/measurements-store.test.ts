@@ -74,3 +74,85 @@ describe("recorded measurements", () => {
     expect(String(inserted[0].method)).toMatch(/manual entry/);
   });
 });
+
+describe("AR-assisted lengths", () => {
+  const good = { tracking: "tracking", hit: "depth", depth: true };
+
+  it("keeps the AR provenance with the inputs while the server still calculates the result", async () => {
+    const { client, inserted } = recordingClient();
+    await saveMeasurementLocal({
+      assessmentId: ASSESSMENT,
+      name: "Room",
+      formula: "area",
+      inputs: { length: { value: 4.2, unit: "m", source: "ar", ar: good }, width: { value: 3, unit: "m", source: "typed" } },
+      ctx: ctx(client),
+    });
+    expect(inserted[0].value).toBeCloseTo(12.6, 6);
+    const stored = inserted[0].inputs as Record<string, { source?: string; ar?: { hit: string } }>;
+    expect(stored.length.source).toBe("ar");
+    expect(stored.length.ar?.hit).toBe("depth");
+    expect(stored.width.source).toBe("typed");
+  });
+
+  it("rejects a shaky AR capture even if a modified client labels it as AR", async () => {
+    const { client, inserted } = recordingClient();
+    await expect(
+      saveMeasurementLocal({ assessmentId: ASSESSMENT, name: "Room", formula: "area", inputs: { length: { value: 4, unit: "m", source: "ar", ar: { tracking: "limited", hit: "plane", depth: false } }, width: { value: 3, unit: "m" } }, ctx: ctx(client) }),
+    ).rejects.toThrow(/not steady enough/);
+    await expect(
+      saveMeasurementLocal({ assessmentId: ASSESSMENT, name: "Room", formula: "area", inputs: { length: { value: 4, unit: "m", source: "ar", ar: { tracking: "tracking", hit: "estimate", depth: false } }, width: { value: 3, unit: "m" } }, ctx: ctx(client) }),
+    ).rejects.toThrow(/not steady enough/);
+    await expect(
+      saveMeasurementLocal({ assessmentId: ASSESSMENT, name: "Room", formula: "area", inputs: { length: { value: 4, unit: "m", source: "ar" }, width: { value: 3, unit: "m" } }, ctx: ctx(client) }),
+    ).rejects.toThrow(/not steady enough/);
+    expect(inserted).toHaveLength(0);
+  });
+
+  it("labels an AR manual reading and stores its capture details", async () => {
+    const { client, inserted } = recordingClient();
+    await saveMeasurementLocal({ assessmentId: ASSESSMENT, name: "Cable run", formula: "manual", value: 7.4, unit: "m", source: "ar", ar: good, ctx: ctx(client) });
+    expect(String(inserted[0].method)).toMatch(/AR-assisted/);
+    expect((inserted[0].inputs as { reading: { source: string } }).reading.source).toBe("ar");
+    await expect(saveMeasurementLocal({ assessmentId: ASSESSMENT, name: "Cable run", formula: "manual", value: 7.4, unit: "m", source: "ar", ctx: ctx(client) })).rejects.toThrow(/not steady enough/);
+  });
+});
+
+describe("photo-estimated lengths", () => {
+  // A4 portrait at 2 px per mm: 1000 px between the points is 500 mm.
+  const photo = { reference: "a4" as const, method: "manual" as const, imageW: 2000, imageH: 1500, refBox: { x1: 100, y1: 100, x2: 519, y2: 693 }, from: { x: 600, y: 900 }, to: { x: 1600, y: 900 } };
+
+  it("stores the capture with the inputs and keeps the calculation on the server", async () => {
+    const { client, inserted } = recordingClient();
+    await saveMeasurementLocal({
+      assessmentId: ASSESSMENT,
+      name: "Window frame",
+      formula: "area",
+      inputs: { length: { value: 0.5, unit: "m", source: "photo", photo }, width: { value: 1.2, unit: "m" } },
+      ctx: ctx(client),
+    });
+    expect(inserted[0].value).toBeCloseTo(0.6, 6);
+    const stored = inserted[0].inputs as Record<string, { source?: string; photo?: { method: string } }>;
+    expect(stored.length.source).toBe("photo");
+    expect(stored.length.photo?.method).toBe("manual");
+  });
+
+  it("rejects a value that does not match the recorded points, and a bad reference, before saving", async () => {
+    const { client, inserted } = recordingClient();
+    await expect(
+      saveMeasurementLocal({ assessmentId: ASSESSMENT, name: "x", formula: "area", inputs: { length: { value: 0.9, unit: "m", source: "photo", photo }, width: { value: 1, unit: "m" } }, ctx: ctx(client) }),
+    ).rejects.toThrow(/doesn't match/);
+    await expect(
+      saveMeasurementLocal({ assessmentId: ASSESSMENT, name: "x", formula: "area", inputs: { length: { value: 0.5, unit: "m", source: "photo", photo: { ...photo, refBox: { x1: 100, y1: 100, x2: 458, y2: 458 } } }, width: { value: 1, unit: "m" } }, ctx: ctx(client) }),
+    ).rejects.toThrow(/tilted or rotated/);
+    expect(inserted).toHaveLength(0);
+  });
+
+  it("labels a photo-estimated manual reading and verifies it too", async () => {
+    const { client, inserted } = recordingClient();
+    await saveMeasurementLocal({ assessmentId: ASSESSMENT, name: "Gap", formula: "manual", value: 50, unit: "cm", source: "photo", photo, ctx: ctx(client) });
+    expect(String(inserted[0].method)).toMatch(/photo estimate/);
+    expect((inserted[0].inputs as { reading: { source: string } }).reading.source).toBe("photo");
+    await expect(saveMeasurementLocal({ assessmentId: ASSESSMENT, name: "Gap", formula: "manual", value: 70, unit: "cm", source: "photo", photo, ctx: ctx(client) })).rejects.toThrow(/doesn't match/);
+    await expect(saveMeasurementLocal({ assessmentId: ASSESSMENT, name: "Gap", formula: "manual", value: 5, unit: "V", source: "photo", photo, ctx: ctx(client) })).rejects.toThrow(/length unit/);
+  });
+});

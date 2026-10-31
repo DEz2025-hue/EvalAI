@@ -1,9 +1,23 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireAuth, requireWriter, storeError } from "../../../lib/auth";
+import type { ArCapture, MeasurementInput, PhotoCapture } from "@eval-ai/shared";
 import { saveMeasurementLocal, listMeasurementsLocal, deleteMeasurementLocal, verifyAssessmentWorkspace } from "../../../lib/store";
 
-const Input = z.object({ value: z.number().finite(), unit: z.enum(["m", "cm", "mm", "ft", "in", "ratio"]) });
+const ArCapture = z.object({ tracking: z.string().max(40), hit: z.string().max(40), depth: z.boolean() });
+const Point = z.object({ x: z.number().finite(), y: z.number().finite() });
+/** Reference-object photo estimate: the server re-checks and recomputes the length from these numbers. */
+const PhotoCaptureSchema = z.object({
+  reference: z.enum(["a4", "letter", "card"]),
+  method: z.enum(["sam", "manual"]),
+  imageW: z.number().finite(),
+  imageH: z.number().finite(),
+  refBox: z.object({ x1: z.number().finite(), y1: z.number().finite(), x2: z.number().finite(), y2: z.number().finite() }),
+  confidence: z.number().finite().optional(),
+  from: Point,
+  to: Point,
+});
+const Input = z.object({ value: z.number().finite(), unit: z.enum(["m", "cm", "mm", "ft", "in", "ratio"]), source: z.enum(["typed", "ar", "photo"]).optional(), ar: ArCapture.optional(), photo: PhotoCaptureSchema.optional() });
 
 const Body = z.object({
   assessmentId: z.string().min(1).max(100),
@@ -13,6 +27,10 @@ const Body = z.object({
   inputs: z.record(Input).optional(),
   value: z.number().finite().optional(),
   unit: z.string().trim().max(20).optional(),
+  /** Manual reading only: how the value was captured. */
+  source: z.enum(["typed", "ar", "photo"]).optional(),
+  ar: ArCapture.optional(),
+  photo: PhotoCaptureSchema.optional(),
   note: z.string().max(1000).optional(),
 });
 
@@ -36,7 +54,7 @@ export async function POST(req: Request) {
   if (authErr) return authErr;
   try {
     const body = Body.parse(await req.json());
-    const measurement = await saveMeasurementLocal({ assessmentId: body.assessmentId, itemId: body.itemId ?? null, name: body.name, formula: body.formula, inputs: body.inputs as Record<string, { value: number; unit: "m" | "cm" | "mm" | "ft" | "in" | "ratio" }> | undefined, value: body.value, unit: body.unit, note: body.note, ctx: auth.ctx });
+    const measurement = await saveMeasurementLocal({ assessmentId: body.assessmentId, itemId: body.itemId ?? null, name: body.name, formula: body.formula, inputs: body.inputs as Record<string, MeasurementInput> | undefined, value: body.value, unit: body.unit, source: body.source, ar: body.ar as ArCapture | undefined, photo: body.photo as PhotoCapture | undefined, note: body.note, ctx: auth.ctx });
     return NextResponse.json({ ok: true, measurement });
   } catch (e) {
     return storeError(e);
