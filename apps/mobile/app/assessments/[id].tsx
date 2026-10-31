@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
-import { View, Text, ScrollView, Pressable, ActivityIndicator } from "react-native";
-import { useLocalSearchParams, Link, useFocusEffect } from "expo-router";
-import { PACK_TEMPLATES } from "@eval-ai/shared";
+import { View } from "react-native";
+import { useLocalSearchParams, Link, Stack, useFocusEffect } from "expo-router";
 import { getSupabase, hasSupabaseEnv } from "../../lib/supabase";
 import { apiFetch, apiBase } from "../../lib/api";
+import { capitalize, siteNameOf, timeAgo } from "../../lib/format";
+import { systemIcon, systemLabel } from "../../lib/packs";
+import { colors, radius, space, statusTone, tones } from "../../lib/theme";
 import { ChecklistEditorMobile } from "../../components/ChecklistEditorMobile";
 import { FieldCaptureMobile } from "../../components/FieldCaptureMobile";
 import { MeasurementsPanelMobile } from "../../components/MeasurementsPanelMobile";
 import { AiDraftPanelMobile } from "../../components/AiDraftPanelMobile";
+import { Banner, Button, Card, EmptyState, ErrorState, Icon, Loading, NavTile, Screen, SectionHeader, Text } from "../../components/ui";
 import type { AssessmentRow } from "../../lib/types";
 
 type State = { kind: "loading" } | { kind: "error"; message: string } | { kind: "ready"; row: AssessmentRow };
@@ -18,13 +21,14 @@ export default function AssessmentDetail() {
   const [storedItems, setStoredItems] = useState<Array<{ id: string; title: string; required: boolean; category?: string }> | null>(null);
   const [itemsState, setItemsState] = useState<"loading" | "ready" | "empty" | "error">("loading");
   const [itemsTick, setItemsTick] = useState(0);
+  const [itemsError, setItemsError] = useState<string | null>(null);
   const readyId = state.kind === "ready" ? state.row.id : null;
 
   const fetchDetail = useCallback(async () => {
     if (!id) return;
     if (!hasSupabaseEnv()) {
-      // No env — show minimal demo so UI is still walkable
-      setState({ kind: "ready", row: { id: String(id), workspace_id: "demo", site_id: null, mode: "assessment", pack: "solar", status: "draft", context: { siteName: String(id).slice(0, 8) }, created_at: new Date().toISOString(), updated_at: new Date().toISOString(), sites: { name: String(id).slice(0, 12), address: "Demo — no Supabase" } } as AssessmentRow });
+      // Not connected — show a sample job so the screen is still walkable
+      setState({ kind: "ready", row: { id: String(id), workspace_id: "demo", site_id: null, mode: "assessment", pack: "solar", status: "draft", context: { siteName: String(id).slice(0, 8) }, created_at: new Date().toISOString(), updated_at: new Date().toISOString(), sites: { name: String(id).slice(0, 12), address: "Sample job" } } as AssessmentRow });
       return;
     }
     const supabase = getSupabase()!;
@@ -51,67 +55,84 @@ export default function AssessmentDetail() {
         apiBase();
         const res = await apiFetch("/api/checklist/items?assessmentId=" + readyId);
         if (cancelled) return;
-        if (!res.ok) { setItemsState("error"); return; }
-        const data = await res.json().catch(() => ({}));
-        const list = (data as { items?: Array<{ id: string; title: string; required: boolean; category?: string }> }).items ?? [];
+        const data = (await res.json().catch(() => ({}))) as { items?: Array<{ id: string; title: string; required: boolean; category?: string }>; error?: string };
+        if (!res.ok) {
+          setItemsError(data.error ?? `The server answered with an error (${res.status}).`);
+          setItemsState("error");
+          return;
+        }
+        const list = data.items ?? [];
         setStoredItems(list);
         setItemsState(list.length > 0 ? "ready" : "empty");
-      } catch {
-        if (!cancelled) setItemsState("error");
+      } catch (e) {
+        if (cancelled) return;
+        setItemsError(e instanceof Error ? e.message : String(e));
+        setItemsState("error");
       }
     })();
     return () => { cancelled = true; };
   }, [readyId, itemsTick]);
 
-  if (state.kind === "loading") return <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 8, padding: 16 }}><ActivityIndicator /><Text style={{ color: "#64748b", fontSize: 12 }}>Loading assessment…</Text></View>;
-  if (state.kind === "error") return <View style={{ flex: 1, padding: 16, gap: 12 }}><Text style={{ color: "#dc2626", fontWeight: "700" }}>Couldn’t load assessment</Text><Text style={{ color: "#64748b", fontSize: 12 }}>{state.message}</Text><Pressable onPress={fetchDetail} style={{ backgroundColor: "#0f172a", padding: 12, borderRadius: 8, alignItems: "center" }}><Text style={{ color: "#fff", fontWeight: "700" }}>Retry</Text></Pressable></View>;
+  const reloadItems = () => {
+    setItemsState("loading");
+    setItemsError(null);
+    setItemsTick((n) => n + 1);
+  };
+
+  if (state.kind === "loading") return <Screen><Stack.Screen options={{ title: "Job" }} /><Loading label="Loading job…" /></Screen>;
+  if (state.kind === "error") return <Screen><Stack.Screen options={{ title: "Job" }} /><ErrorState title="Couldn't load this job" message={state.message} onRetry={fetchDetail} /></Screen>;
 
   const row = state.row;
-  const pack = PACK_TEMPLATES[row.pack];
+  const system = systemLabel(row.pack);
   const items = storedItems ?? [];
-  const siteName = row.sites?.name ?? (row.context as { siteName?: string })?.siteName ?? String(id).slice(0, 8);
+  const siteName = siteNameOf(row);
+  const status = statusTone(row.status);
+  const base = `/assessments/${row.id}`;
 
   return (
-    <ScrollView contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 32 }}>
-      <View style={{ backgroundColor: "#0f172a", borderRadius: 12, padding: 14 }}>
-        <Text style={{ color: "#94a3b8", fontSize: 11, fontWeight: "600", letterSpacing: 0.6 }}>{row.mode.toUpperCase()} · {row.pack.toUpperCase()} · {row.status}</Text>
-        <Text style={{ color: "#fff", fontSize: 18, fontWeight: "800", marginTop: 4 }}>{siteName}</Text>
-        <Text style={{ color: "#cbd5e1", fontSize: 12, marginTop: 4 }}>{row.id.slice(0, 8)} · {pack.label} — {pack.description}</Text>
-      </View>
+    <Screen>
+      <Stack.Screen options={{ title: capitalize(row.mode) }} />
 
-      <View style={{ flexDirection: "row", gap: 8 }}>
-        <Link href={`/assessments/${row.id}/report`} asChild><Pressable style={{ flex: 1, backgroundColor: "#0ea5e9", paddingVertical: 12, borderRadius: 10, alignItems: "center" }}><Text style={{ color: "#fff", fontWeight: "700" }}>Preview report</Text></Pressable></Link>
-        <Link href={`/assessments/${row.id}/findings` as never} asChild><Pressable style={{ flex: 1, backgroundColor: "#fff", borderWidth: 1, borderColor: "#e2e8f0", paddingVertical: 12, borderRadius: 10, alignItems: "center" }}><Text style={{ fontWeight: "700", color: "#0f172a" }}>Findings</Text></Pressable></Link>
-        <Link href={`/assessments/${row.id}/materials`} asChild><Pressable style={{ flex: 1, backgroundColor: "#fff", borderWidth: 1, borderColor: "#e2e8f0", paddingVertical: 12, borderRadius: 10, alignItems: "center" }}><Text style={{ fontWeight: "700", color: "#0f172a" }}>Materials & quotes</Text></Pressable></Link>
-      </View>
-
-      <View style={{ backgroundColor: "#fff", borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 12, padding: 12, gap: 6 }}>
-        <Text style={{ fontWeight: "700", fontSize: 13, color: "#0f172a" }}>Context</Text>
-        <Text style={{ fontSize: 12, color: "#64748b" }}>Site: {siteName}{row.sites?.address ? ` — ${row.sites.address}` : ""} · Pack: {row.pack} · Mode: {row.mode}</Text>
-        <Text style={{ fontSize: 11, color: "#94a3b8" }}>Draft — you can resume it anytime.</Text>
-      </View>
-
-      <View style={{ flexDirection: "row", gap: 8 }}>
-        <Link href={`/assessments/${row.id}/live` as never} asChild><Pressable style={{ flex: 1, backgroundColor: "#fef3c7", borderWidth: 1, borderColor: "#fde68a", paddingVertical: 10, borderRadius: 8, alignItems: "center" }}><Text style={{ fontWeight: "600", fontSize: 12, color: "#92400e" }}>Live camera</Text></Pressable></Link>
-        <Link href={`/assessments/${row.id}/checklist`} asChild><Pressable style={{ flex: 1, backgroundColor: "#fff", borderWidth: 1, borderColor: "#e2e8f0", paddingVertical: 10, borderRadius: 8, alignItems: "center" }}><Text style={{ fontWeight: "600", fontSize: 12, color: "#0f172a" }}>Checklist</Text></Pressable></Link>
-        <Link href={`/assessments/${row.id}/evidence`} asChild><Pressable style={{ flex: 1, backgroundColor: "#fff", borderWidth: 1, borderColor: "#e2e8f0", paddingVertical: 10, borderRadius: 8, alignItems: "center" }}><Text style={{ fontWeight: "600", fontSize: 12, color: "#0f172a" }}>Evidence</Text></Pressable></Link>
-        <Link href={`/assessments/${row.id}/completeness`} asChild><Pressable style={{ flex: 1, backgroundColor: "#fff", borderWidth: 1, borderColor: "#e2e8f0", paddingVertical: 10, borderRadius: 8, alignItems: "center" }}><Text style={{ fontWeight: "600", fontSize: 12, color: "#0f172a" }}>Completeness</Text></Pressable></Link>
-      </View>
-
-      <View style={{ backgroundColor: "#fff", borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 12, padding: 12 }}>
-        <Text style={{ fontWeight: "700", fontSize: 13, color: "#0f172a" }}>Checklist — editable · Not Checked ≠ Pass</Text>
-        <Text style={{ fontSize: 11, color: "#64748b", marginTop: 4 }}>Template from the {row.pack} pack — you can add, remove, or reorder items before you confirm.</Text>
-        <View style={{ marginTop: 12 }}>
-          {itemsState === "loading" ? <ActivityIndicator /> : null}
-          {itemsState === "error" ? <Text style={{ fontSize: 12, color: "#b91c1c" }}>Could not load the checklist. Check your connection and pull to reopen this screen.</Text> : null}
-          {itemsState === "empty" ? (
-            <Link href={`/assessments/${row.id}/checklist-builder` as never} asChild>
-              <Pressable style={{ backgroundColor: "#0ea5e9", paddingVertical: 10, borderRadius: 8, alignItems: "center" }}><Text style={{ color: "#fff", fontWeight: "700", fontSize: 12 }}>This job has no checklist yet — open the checklist builder</Text></Pressable>
-            </Link>
-          ) : null}
-          {itemsState === "ready" ? <ChecklistEditorMobile key={items.map((i) => i.id).join(",")} items={items} assessmentId={row.id} /> : null}
+      <View style={{ backgroundColor: colors.brand, borderRadius: radius.lg, padding: space.lg, gap: space.sm }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
+          <Icon name={systemIcon(row.pack)} size={16} color={colors.accent} />
+          <Text variant="overline" color={colors.textSubtle} style={{ flex: 1 }}>System: {system} · {capitalize(row.mode)}</Text>
+          <View style={{ backgroundColor: tones[status.tone].bg, paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.pill }}>
+            <Text style={{ fontSize: 11, fontWeight: "700", color: tones[status.tone].fg }}>{status.label}</Text>
+          </View>
         </View>
+        <Text variant="display" color={colors.textOnDark}>{siteName}</Text>
+        {row.sites?.address ? (
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+            <Icon name="location-outline" size={14} color={colors.textOnDarkMuted} />
+            <Text variant="caption" color={colors.textOnDarkMuted} style={{ flex: 1 }}>{row.sites.address}</Text>
+          </View>
+        ) : null}
+        <Text variant="caption" color={colors.textSubtle}>Updated {timeAgo(row.updated_at)}</Text>
       </View>
+
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm }}>
+        <Link href={`${base}/checklist` as never} asChild><NavTile icon="checkbox-outline" label="Checklist" badge={items.length ? `${items.length} items` : undefined} /></Link>
+        <Link href={`${base}/evidence` as never} asChild><NavTile icon="images-outline" label="Evidence" /></Link>
+        <Link href={`${base}/findings` as never} asChild><NavTile icon="flag-outline" label="Findings" /></Link>
+        <Link href={`${base}/materials` as never} asChild><NavTile icon="cube-outline" label="Materials" /></Link>
+        <Link href={`${base}/completeness` as never} asChild><NavTile icon="pie-chart-outline" label="Progress" /></Link>
+        <Link href={`${base}/report` as never} asChild><NavTile icon="document-text-outline" label="Report" /></Link>
+      </View>
+
+      <Card>
+        <SectionHeader
+          title="Checklist"
+          subtitle={`Started from the ${system} template — add, remove or reorder items as needed.`}
+          action={<Link href={`${base}/checklist-builder` as never} asChild><Button title="Edit" icon="create-outline" variant="secondary" size="sm" /></Link>}
+        />
+        {itemsState === "loading" ? <Loading /> : null}
+        {itemsState === "error" ? <ErrorState title="Couldn't load the checklist" message={itemsError ?? "Check your connection and try again."} onRetry={reloadItems} /> : null}
+        {itemsState === "empty" ? (
+          <EmptyState icon="list-outline" title="No checklist yet" message="Set up the items you'll check on site." action={<Link href={`${base}/checklist-builder` as never} asChild><Button title="Build checklist" icon="add" variant="accent" size="sm" /></Link>} />
+        ) : null}
+        {itemsState === "ready" ? <ChecklistEditorMobile key={items.map((i) => i.id).join(",")} items={items} assessmentId={row.id} /> : null}
+      </Card>
 
       <MeasurementsPanelMobile assessmentId={row.id} items={items.map((i) => ({ id: i.id, title: i.title }))} />
 
@@ -119,16 +140,14 @@ export default function AssessmentDetail() {
 
       <AiDraftPanelMobile assessmentId={row.id} pack={row.pack} mode={row.mode} />
 
-      <View style={{ backgroundColor: "#fff", borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 12, padding: 12, gap: 8 }}>
-        <Text style={{ fontWeight: "700", fontSize: 13, color: "#0f172a" }}>Report — versioned snapshot + PDF/HTML</Text>
-        <Text style={{ fontSize: 12, color: "#64748b" }}>Generate from stored facts + validated drafts. Finalize creates immutable snapshot. Later edits do not mutate finalized reports.</Text>
-        <Link href={`/assessments/${row.id}/report`} asChild><Pressable style={{ backgroundColor: "#f1f5f9", borderWidth: 1, borderColor: "#e2e8f0", paddingVertical: 10, borderRadius: 8, alignItems: "center" }}><Text style={{ fontWeight: "600", fontSize: 12, color: "#0ea5e9" }}>Open HTML preview</Text></Pressable></Link>
-      </View>
+      <Card>
+        <SectionHeader title="Report" subtitle="Built from your checklist, findings and photos. Finalizing locks a copy — later edits create a new version." />
+        <Link href={`${base}/report` as never} asChild><Button title="Preview report" icon="eye-outline" variant="accent" /></Link>
+      </Card>
 
-      <View style={{ backgroundColor: "#fef3c7", borderWidth: 1, borderColor: "#fde68a", borderRadius: 12, padding: 12 }}>
-        <Text style={{ fontWeight: "700", fontSize: 12, color: "#92400e" }}>Live Camera — Coming Soon</Text>
-        <Text style={{ fontSize: 11, color: "#78350f", marginTop: 2 }}>Not a working feature. No live stream, no background recording. Use photo capture per item.</Text>
-      </View>
-    </ScrollView>
+      <Link href={`${base}/live` as never} asChild>
+        <Button title="Live camera (coming soon)" icon="videocam-outline" variant="ghost" size="sm" />
+      </Link>
+    </Screen>
   );
 }

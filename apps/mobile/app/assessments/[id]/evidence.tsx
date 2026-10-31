@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
-import { View, Text, ScrollView, Pressable, ActivityIndicator, Alert, Image } from "react-native";
-import { useLocalSearchParams, useFocusEffect } from "expo-router";
-import { Audio } from "expo-av";
+import { Alert, Image, View } from "react-native";
+import { Stack, useLocalSearchParams, useFocusEffect } from "expo-router";
+import { createAudioPlayer, type AudioPlayer } from "expo-audio";
 import { apiFetch, apiBase } from "../../../lib/api";
+import { colors, radius } from "../../../lib/theme";
+import { Banner, Button, Card, Chip, EmptyState, IconButton, ListRow, Loading, Screen, SectionHeader } from "../../../components/ui";
 
 type Ev = { id: string; storage_key: string; mime_type?: string; item_id?: string; uploaded_at: string };
 
@@ -13,7 +15,7 @@ export default function MobileEvidenceGallery() {
   const [loading, setLoading] = useState(true);
   const [preview, setPreview] = useState<Ev | null>(null);
   const [signed, setSigned] = useState<string | null>(null);
-  const [sound, setSound] = useState<Audio.Sound | null>(null);
+  const [sound, setSound] = useState<AudioPlayer | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -47,7 +49,7 @@ export default function MobileEvidenceGallery() {
   }
 
   async function remove(ev: Ev) {
-    Alert.alert("Delete evidence?", `"${ev.storage_key.split("/").pop()}" will be removed.`, [
+    Alert.alert("Delete this file?", `"${ev.storage_key.split("/").pop()}" will be removed from the job.`, [
       { text: "Cancel", style: "cancel" },
       {
         text: "Delete",
@@ -69,13 +71,13 @@ export default function MobileEvidenceGallery() {
 
   async function playAudio(uri: string) {
     try {
-      const { sound: s } = await Audio.Sound.createAsync({ uri });
+      const s = createAudioPlayer({ uri });
       setSound(s);
-      await s.playAsync();
+      s.play();
     } catch (e) { Alert.alert("Playback failed", e instanceof Error ? e.message : String(e)); }
   }
 
-  useEffect(() => () => { sound?.unloadAsync().catch(() => {}); }, [sound]);
+  useEffect(() => () => { sound?.remove(); }, [sound]);
 
   const filtered = items.filter((it) => {
     if (filter === "all") return true;
@@ -84,43 +86,46 @@ export default function MobileEvidenceGallery() {
     return true;
   });
 
+  const isImage = (ev: Ev) => (ev.mime_type ?? "").startsWith("image/");
+
   return (
-    <ScrollView contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 32 }}>
-      <Text style={{ fontWeight: "800", fontSize: 16, color: "#0f172a" }}>W09 · Evidence Gallery — {String(id).slice(0, 8)}</Text>
-      <Text style={{ fontSize: 12, color: "#64748b" }}>Private storage, signed links only. Filter by type, preview, keyboard accessible labels.</Text>
-      <View style={{ flexDirection: "row", gap: 8 }}>
-        {(["all", "image", "audio"] as const).map((f) => (
-          <Pressable key={f} onPress={() => setFilter(f)} style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999, backgroundColor: filter === f ? "#0f172a" : "#fff", borderWidth: 1, borderColor: filter === f ? "#0f172a" : "#e2e8f0" }}>
-            <Text style={{ fontSize: 12, color: filter === f ? "#fff" : "#475569", fontWeight: "600" }}>{f}</Text>
-          </Pressable>
-        ))}
-        <Pressable onPress={load} style={{ borderWidth: 1, borderColor: "#e2e8f0", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999 }}><Text style={{ fontSize: 12, color: "#0f172a" }}>Refresh</Text></Pressable>
+    <Screen onRefresh={load} refreshing={false}>
+      <Stack.Screen options={{ title: "Evidence" }} />
+      <View style={{ flexDirection: "row", gap: 6 }}>
+        <Chip label="All" active={filter === "all"} onPress={() => setFilter("all")} />
+        <Chip label="Photos" icon="image-outline" active={filter === "image"} onPress={() => setFilter("image")} />
+        <Chip label="Audio" icon="mic-outline" active={filter === "audio"} onPress={() => setFilter("audio")} />
       </View>
-      {loading ? <View style={{ padding: 16, alignItems: "center" }}><ActivityIndicator /><Text style={{ fontSize: 12, color: "#64748b", marginTop: 8 }}>Loading…</Text></View> : null}
-      {filtered.length === 0 && !loading ? (
-        <View style={{ backgroundColor: "#fff", borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 12, padding: 20, alignItems: "center" }}><Text style={{ fontSize: 12, color: "#64748b" }}>No evidence — add via checklist → Photo/Voice. Upload is server-confirmed.</Text></View>
-      ) : (
-        filtered.map((ev) => (
-          <View key={ev.id} style={{ backgroundColor: "#fff", borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 12, padding: 12, gap: 4 }}>
-            <Pressable onPress={() => openPreview(ev)}>
-              <Text style={{ fontWeight: "600", fontSize: 12, color: "#0f172a" }}>{ev.storage_key.split("/").pop()}</Text>
-              <Text style={{ fontSize: 11, color: "#64748b" }}>{ev.mime_type ?? "—"} · {ev.item_id ? `item ${ev.item_id.slice(0, 8)}` : "assessment"} · {new Date(ev.uploaded_at).toLocaleString()}</Text>
-              <Text style={{ fontSize: 11, color: "#0ea5e9", fontWeight: "600" }}>Preview →</Text>
-            </Pressable>
-            <Pressable onPress={() => remove(ev)}><Text style={{ fontSize: 11, color: "#dc2626", fontWeight: "600" }}>Delete</Text></Pressable>
-          </View>
-        ))
-      )}
+
       {preview ? (
-        <View style={{ backgroundColor: "#fff", borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 12, padding: 12, gap: 8 }}>
-          <Text style={{ fontWeight: "700", fontSize: 13, color: "#0f172a" }}>{preview.storage_key}</Text>
-          <Text style={{ fontSize: 11, color: "#64748b" }}>{preview.mime_type} · linked {preview.item_id?.slice(0, 8) ?? "—"} — provenance</Text>
+        <Card>
+          <SectionHeader title={preview.storage_key.split("/").pop() ?? "File"} subtitle={preview.item_id ? "Linked to a checklist item" : "Linked to the job"} action={<IconButton icon="close" label="Close preview" onPress={() => setPreview(null)} />} />
           {signed ? (
-            preview.mime_type?.startsWith("image/") ? <Image source={{ uri: signed }} style={{ width: "100%", height: 200, borderRadius: 8, backgroundColor: "#f1f5f9" }} resizeMode="contain" /> : <Pressable onPress={() => playAudio(signed)} style={{ backgroundColor: "#0ea5e9", paddingVertical: 10, borderRadius: 8, alignItems: "center" }}><Text style={{ color: "#fff", fontWeight: "700" }}>Play audio</Text></Pressable>
-          ) : <Text style={{ fontSize: 12, color: "#64748b", backgroundColor: "#f8fafc", padding: 10, borderRadius: 8 }}>Signed URL expired/unauthorized — RLS. Private files never public.</Text>}
-          <Pressable onPress={() => setPreview(null)} style={{ borderWidth: 1, borderColor: "#e2e8f0", paddingVertical: 8, borderRadius: 8, alignItems: "center" }}><Text style={{ fontSize: 12, color: "#0f172a" }}>Close</Text></Pressable>
-        </View>
+            isImage(preview)
+              ? <Image source={{ uri: signed }} style={{ width: "100%", height: 240, borderRadius: radius.sm, backgroundColor: colors.surfaceMuted }} resizeMode="contain" />
+              : <Button title="Play audio" icon="play" variant="accent" onPress={() => playAudio(signed)} />
+          ) : <Banner tone="neutral" message="This file couldn't be opened. The link may have expired — close and tap it again." />}
+          <Button title="Delete" icon="trash-outline" variant="danger" size="sm" onPress={() => remove(preview)} style={{ alignSelf: "flex-start" }} />
+        </Card>
       ) : null}
-    </ScrollView>
+
+      {loading ? <Loading label="Loading files…" /> : null}
+      {filtered.length === 0 && !loading ? (
+        <EmptyState icon="images-outline" title="No photos or audio yet" message="Capture them from the job screen — each one is linked to the item it belongs to." />
+      ) : (
+        <Card padded={false}>
+          {filtered.map((ev, i, arr) => (
+            <ListRow
+              key={ev.id}
+              icon={isImage(ev) ? "image-outline" : "mic-outline"}
+              title={ev.storage_key.split("/").pop() ?? "File"}
+              subtitle={`${ev.item_id ? "Checklist item" : "Job"} · ${new Date(ev.uploaded_at).toLocaleString()}`}
+              onPress={() => openPreview(ev)}
+              last={i === arr.length - 1}
+            />
+          ))}
+        </Card>
+      )}
+    </Screen>
   );
 }

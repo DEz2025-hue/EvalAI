@@ -1,27 +1,19 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Pressable, Text, TextInput, View } from "react-native";
-import { FORMULAS, LENGTH_UNITS, calculateMeasurement, type FormulaId, type LengthUnit, type MeasurementInput } from "@eval-ai/shared";
+import { Pressable, ScrollView, View } from "react-native";
+import { FORMULAS, LENGTH_UNITS, calculateMeasurement, hasPhotoInput, toMetres, type FormulaId, type LengthUnit, type MeasurementInput, type PhotoCapture } from "@eval-ai/shared";
 import { apiFetch } from "../lib/api";
 import { useRole } from "../lib/role";
+import { colors, radius, space } from "../lib/theme";
 import { ItemChips, type ChipItem } from "./ItemChips";
+import { Badge, Banner, Button, Card, Chip, Field, Icon, IconButton, Loading, SectionHeader, Text } from "./ui";
+import { PhotoMeasureModal, type PhotoMeasureResult } from "./PhotoMeasureModal";
 
-type Saved = { id: string; name: string; formula: string; method?: string; inputs: Record<string, { value: number; unit: string }>; value: number; unit: string; itemId: string | null };
+type Saved = { id: string; name: string; formula: string; method?: string; inputs: Record<string, { value: number; unit: string; source?: string }>; value: number; unit: string; itemId: string | null };
 
 const fmt = (n: number) => (Number.isFinite(n) ? String(Math.round(n * 1e4) / 1e4) : "—");
-const box = { backgroundColor: "#fff", borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 12, padding: 12, gap: 10 } as const;
-const input = { borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 8, padding: 8, fontSize: 13, color: "#0f172a", backgroundColor: "#fff" } as const;
-
-function Chip({ text, active, onPress }: { text: string; active: boolean; onPress: () => void }) {
-  return (
-    <Pressable onPress={onPress} style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, borderWidth: 1, borderColor: active ? "#0ea5e9" : "#e2e8f0", backgroundColor: active ? "#e0f2fe" : "#fff" }}>
-      <Text style={{ fontSize: 11, fontWeight: active ? "700" : "500", color: active ? "#0369a1" : "#334155" }}>{text}</Text>
-    </Pressable>
-  );
-}
-
 /**
  * Recorded measurements: formula, inputs (with units) and result are saved; the server computes the result.
- * Manual tape/meter readings are stored as "manual entry". Nothing here comes from AI or from a photo.
+ * Lengths are typed from a tape or meter, or estimated from a photo with a reference object (always labelled an estimate).
  */
 export function MeasurementsPanelMobile({ assessmentId, items = [] }: { assessmentId: string; items?: ChipItem[] }) {
   const { canWrite, loaded } = useRole();
@@ -34,8 +26,13 @@ export function MeasurementsPanelMobile({ assessmentId, items = [] }: { assessme
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
+  /** Which field the photo screen is open for ("manual" for the manual value), and each field's photo capture. */
+  const [photoFor, setPhotoFor] = useState<string | null>(null);
+  const [captures, setCaptures] = useState<Record<string, PhotoCapture | undefined>>({});
+  const dropCapture = (key: string) => setCaptures((c) => (c[key] ? { ...c, [key]: undefined } : c));
 
   const load = useCallback(async () => {
+    setError(null);
     try {
       const res = await apiFetch("/api/measurements?assessmentId=" + assessmentId);
       const data = (await res.json().catch(() => ({}))) as { measurements?: Saved[]; error?: string };
@@ -61,9 +58,14 @@ export function MeasurementsPanelMobile({ assessmentId, items = [] }: { assessme
       const v = values[spec.key];
       const raw = v?.value;
       out[spec.key] = { value: raw === undefined || raw === "" ? (spec.kind === "ratio" ? spec.defaultValue ?? NaN : NaN) : Number(raw.replace(",", ".")), unit: v?.unit ?? spec.defaultUnit };
+      const photo = captures[spec.key];
+      if (photo) {
+        out[spec.key].source = "photo";
+        out[spec.key].photo = photo;
+      }
     }
     return out;
-  }, [def, values]);
+  }, [def, values, captures]);
 
   const preview = useMemo(() => {
     if (!def || !inputs) return { ok: false as const, text: "" };
@@ -84,13 +86,14 @@ export function MeasurementsPanelMobile({ assessmentId, items = [] }: { assessme
     try {
       const body =
         formula === "manual"
-          ? { assessmentId, name: name.trim(), formula, itemId: itemId || null, value: manualValue, unit: manual.unit.trim() }
+          ? { assessmentId, name: name.trim(), formula, itemId: itemId || null, value: manualValue, unit: manual.unit.trim(), ...(captures.manual ? { source: "photo" as const, photo: captures.manual } : {}) }
           : { assessmentId, name: name.trim(), formula, itemId: itemId || null, inputs };
       const res = await apiFetch("/api/measurements", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const data = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) throw new Error(data.error ?? "Could not save measurement");
       setName("");
       setValues({});
+      setCaptures({});
       setManual({ value: "", unit: "" });
       await load();
     } catch (e) {
@@ -100,6 +103,27 @@ export function MeasurementsPanelMobile({ assessmentId, items = [] }: { assessme
     }
   }
 
+  /** Put a photo-estimated length into the field it was opened for, in that field's unit, and remember how it was made. */
+  function applyPhoto(r: PhotoMeasureResult) {
+    const key = photoFor;
+    setPhotoFor(null);
+    if (!key) return;
+    if (key === "manual") {
+      setManual({ value: String(Math.round(r.valueM * 1e4) / 1e4), unit: "m" });
+    } else {
+      const current = values[key]?.unit ?? def?.inputs.find((i) => i.key === key)?.defaultUnit;
+      const unit: LengthUnit = current && current !== "ratio" ? current : "m";
+      setValues((v) => ({ ...v, [key]: { value: String(Math.round((r.valueM / toMetres(1, unit)) * 1e4) / 1e4), unit } }));
+    }
+    setCaptures((c) => ({ ...c, [key]: r.capture }));
+  }
+
+  const cameraButton = (key: string, what: string) => (
+    <Pressable onPress={() => setPhotoFor(key)} hitSlop={8} accessibilityRole="button" accessibilityLabel={`Measure ${what} from a photo`} style={{ paddingHorizontal: space.md, alignSelf: "center" }}>
+      <Icon name="camera-outline" size={22} color={colors.accent} />
+    </Pressable>
+  );
+
   async function remove(id: string) {
     setError(null);
     const res = await apiFetch("/api/measurements?assessmentId=" + assessmentId + "&id=" + id, { method: "DELETE" });
@@ -108,69 +132,83 @@ export function MeasurementsPanelMobile({ assessmentId, items = [] }: { assessme
   }
 
   return (
-    <View style={box}>
-      <Text style={{ fontWeight: "700", fontSize: 13, color: "#0f172a" }}>Measurements & calculations</Text>
-      <Text style={{ fontSize: 11, color: "#64748b" }}>Each measurement keeps its formula, inputs and units. Results are calculated — never by AI or from a photo.</Text>
-      {error ? <View style={{ backgroundColor: "#fef2f2", borderRadius: 8, padding: 8 }}><Text style={{ fontSize: 12, color: "#b91c1c" }}>{error}</Text></View> : null}
+    <Card>
+      <SectionHeader title="Measurements" subtitle="Each one keeps its formula, inputs and units. Results are calculated on the server. The camera button estimates a length from a photo and is always labelled as an estimate." />
+      {error ? <Banner tone="danger" message={error} action={<Button title="Try again" icon="refresh" size="sm" variant="danger" onPress={() => { setLoading(true); void load(); }} />} /> : null}
 
       {loaded && !canWrite ? (
-        <Text style={{ fontSize: 12, color: "#64748b" }}>Your role is read-only — you can view saved measurements.</Text>
+        <Text variant="caption">You have view-only access — you can see saved measurements.</Text>
       ) : (
-        <View style={{ gap: 10 }}>
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
-            {Object.values(FORMULAS).map((f) => <Chip key={f.id} text={f.label.split(" (")[0]} active={formula === f.id} onPress={() => { setFormula(f.id); setValues({}); }} />)}
-            <Chip text="Manual reading" active={formula === "manual"} onPress={() => { setFormula("manual"); setValues({}); }} />
-          </View>
-          <TextInput value={name} onChangeText={setName} placeholder="Name, e.g. North roof area" placeholderTextColor="#94a3b8" maxLength={200} style={input} />
+        <View style={{ gap: space.md }}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
+            {Object.values(FORMULAS).map((f) => <Chip key={f.id} label={f.label.split(" (")[0]} tone="accent" active={formula === f.id} onPress={() => { setFormula(f.id); setValues({}); setCaptures({}); }} />)}
+            <Chip label="Manual reading" icon="speedometer-outline" tone="accent" active={formula === "manual"} onPress={() => { setFormula("manual"); setValues({}); setCaptures({}); }} />
+          </ScrollView>
+          <Field label="Name" value={name} onChangeText={setName} placeholder="e.g. North roof area" maxLength={200} />
 
           {def ? (
             def.inputs.map((spec) => (
-              <View key={spec.key} style={{ gap: 4 }}>
-                <Text style={{ fontSize: 11, fontWeight: "600", color: "#0f172a" }}>{spec.label}</Text>
-                <TextInput keyboardType="decimal-pad" value={values[spec.key]?.value ?? (spec.kind === "ratio" ? String(spec.defaultValue ?? "") : "")}
-                  onChangeText={(t) => setValues((v) => ({ ...v, [spec.key]: { value: t, unit: v[spec.key]?.unit ?? spec.defaultUnit } }))} style={input} />
+              <View key={spec.key} style={{ gap: 6 }}>
+                <Field
+                  label={spec.label}
+                  keyboardType="decimal-pad"
+                  value={values[spec.key]?.value ?? (spec.kind === "ratio" ? String(spec.defaultValue ?? "") : "")}
+                  onChangeText={(t) => {
+                    dropCapture(spec.key);
+                    setValues((v) => ({ ...v, [spec.key]: { value: t, unit: v[spec.key]?.unit ?? spec.defaultUnit } }));
+                  }}
+                  right={spec.kind === "length" ? cameraButton(spec.key, spec.label.toLowerCase()) : undefined}
+                />
+                {captures[spec.key] ? <Badge label="Photo estimate · not verified" tone="warning" /> : null}
                 {spec.kind === "length" ? (
                   <View style={{ flexDirection: "row", gap: 6 }}>
-                    {LENGTH_UNITS.map((u) => <Chip key={u} text={u} active={(values[spec.key]?.unit ?? spec.defaultUnit) === u} onPress={() => setValues((v) => ({ ...v, [spec.key]: { value: v[spec.key]?.value ?? "", unit: u } }))} />)}
+                    {LENGTH_UNITS.map((u) => <Chip key={u} label={u} active={(values[spec.key]?.unit ?? spec.defaultUnit) === u} onPress={() => { dropCapture(spec.key); setValues((v) => ({ ...v, [spec.key]: { value: v[spec.key]?.value ?? "", unit: u } })); }} />)}
                   </View>
                 ) : null}
               </View>
             ))
           ) : (
-            <View style={{ flexDirection: "row", gap: 8 }}>
-              <TextInput keyboardType="decimal-pad" value={manual.value} onChangeText={(t) => setManual({ ...manual, value: t })} placeholder="Value" placeholderTextColor="#94a3b8" style={[input, { flex: 1 }]} />
-              <TextInput value={manual.unit} onChangeText={(t) => setManual({ ...manual, unit: t })} placeholder="Unit (V, A, kW…)" placeholderTextColor="#94a3b8" maxLength={20} style={[input, { flex: 1 }]} />
+            <View style={{ flexDirection: "row", gap: space.sm }}>
+              <View style={{ flex: 2, gap: 6 }}>
+                <Field label="Value" keyboardType="decimal-pad" value={manual.value} onChangeText={(t) => { dropCapture("manual"); setManual({ ...manual, value: t }); }} placeholder="0.0" right={cameraButton("manual", "this value")} />
+                {captures.manual ? <Badge label="Photo estimate · not verified" tone="warning" /> : null}
+              </View>
+              <View style={{ flex: 1 }}><Field label="Unit" value={manual.unit} onChangeText={(t) => { dropCapture("manual"); setManual({ ...manual, unit: t }); }} placeholder="V, A, kW" maxLength={20} /></View>
             </View>
           )}
 
           {def ? (
-            <View style={{ backgroundColor: preview.ok ? "#f8fafc" : "#fffbeb", borderWidth: 1, borderColor: preview.ok ? "#e2e8f0" : "#fde68a", borderRadius: 8, padding: 8 }}>
-              <Text style={{ fontSize: 12, color: preview.ok ? "#0f172a" : "#92400e" }}>{preview.ok ? "Result: " + preview.text : preview.text || "Enter the values above"}</Text>
-              {preview.ok ? <Text style={{ fontSize: 10, color: "#64748b" }}>{preview.method}</Text> : null}
-            </View>
+            preview.ok ? (
+              <View style={{ backgroundColor: colors.accentSoft, borderRadius: radius.sm, padding: space.md, gap: 2 }}>
+                <Text variant="overline" color={colors.accentText}>Result</Text>
+                <Text variant="title" color={colors.accentText}>{preview.text}</Text>
+                <Text variant="caption">{preview.method}</Text>
+              </View>
+            ) : <Banner tone="warning" message={preview.text || "Enter the values above"} />
           ) : null}
 
           <ItemChips label="Checklist item (optional)" items={items} value={itemId} onChange={setItemId} />
-          <Pressable onPress={save} disabled={!canSave} style={{ backgroundColor: canSave ? "#0ea5e9" : "#94a3b8", paddingVertical: 10, borderRadius: 10, alignItems: "center" }}>
-            <Text style={{ color: "#fff", fontWeight: "700", fontSize: 12 }}>{busy ? "Saving…" : "Save measurement"}</Text>
-          </Pressable>
+          <Button title={busy ? "Saving…" : "Save measurement"} icon="save-outline" variant="accent" onPress={save} loading={busy} disabled={!canSave} />
         </View>
       )}
 
-      <View style={{ gap: 6 }}>
-        {loading ? <ActivityIndicator /> : null}
-        {!loading && saved.length === 0 ? <Text style={{ fontSize: 12, color: "#64748b" }}>No measurements recorded yet.</Text> : null}
+      <View style={{ gap: space.sm }}>
+        {loading ? <Loading /> : null}
+        {!loading && saved.length === 0 ? <Text variant="caption">No measurements recorded yet.</Text> : null}
         {saved.map((m) => (
-          <View key={m.id} style={{ borderTopWidth: 1, borderTopColor: "#f1f5f9", paddingTop: 6, flexDirection: "row", justifyContent: "space-between", gap: 8 }}>
-            <View style={{ flex: 1 }}>
-              <Text style={{ fontSize: 13, fontWeight: "600", color: "#0f172a" }}>{m.name}: {fmt(m.value)} {m.unit}</Text>
-              <Text style={{ fontSize: 10, color: "#64748b" }}>{m.method ?? m.formula}</Text>
-              {m.formula !== "manual" ? <Text style={{ fontSize: 10, color: "#94a3b8" }}>{Object.entries(m.inputs ?? {}).map(([k, v]) => k + ": " + v.value + (v.unit === "ratio" ? "" : " " + v.unit)).join(" · ")}</Text> : null}
+          <View key={m.id} style={{ borderTopWidth: 1, borderTopColor: colors.divider, paddingTop: space.sm, flexDirection: "row", alignItems: "center", gap: space.sm }}>
+            <View style={{ flex: 1, gap: 2 }}>
+              <Text variant="bodyStrong">{m.name}: {fmt(m.value)} {m.unit}</Text>
+              <Text variant="caption">{m.method ?? m.formula}</Text>
+              {hasPhotoInput(m.inputs) || (m.method ?? "").startsWith("photo estimate") ? <Badge label="Photo estimate · not verified" tone="warning" /> : null}
+              {m.formula !== "manual" ? <Text style={{ fontSize: 11, color: colors.textSubtle }}>{Object.entries(m.inputs ?? {}).map(([k, v]) => k + ": " + v.value + (v.unit === "ratio" ? "" : " " + v.unit)).join(" · ")}</Text> : null}
             </View>
-            {canWrite ? <Pressable onPress={() => void remove(m.id)}><Text style={{ fontSize: 11, color: "#dc2626" }}>Delete</Text></Pressable> : null}
+            {canWrite ? <IconButton icon="trash-outline" label={`Delete ${m.name}`} tone="danger" onPress={() => void remove(m.id)} /> : null}
           </View>
         ))}
       </View>
-    </View>
+
+      <PhotoMeasureModal visible={photoFor !== null} assessmentId={assessmentId} onClose={() => setPhotoFor(null)} onUse={applyPhoto} />
+    </Card>
   );
 }

@@ -29,7 +29,7 @@ export async function uploadEvidence(opts: Opts): Promise<UploadResult> {
   if (!prep.ok || !target.storageKey || !target.token) throw new Error(target.error ?? "Could not prepare the upload");
 
   const supabase = getSupabase();
-  if (!supabase) throw new Error("App is not connected to Supabase");
+  if (!supabase) throw new Error("You're not signed in — sign in and try again.");
   const { error: upErr } = await supabase.storage.from("evidence").uploadToSignedUrl(target.path ?? target.storageKey, target.token, bytes, { contentType: mimeType });
   if (upErr) throw new Error("Upload failed — " + upErr.message);
 

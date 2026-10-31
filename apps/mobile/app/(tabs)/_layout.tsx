@@ -1,62 +1,34 @@
 import { Tabs } from "expo-router";
-import { Text } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import type { ComponentProps } from "react";
+import type { ColorValue } from "react-native";
+import { colors, headerOptions } from "../../lib/theme";
 
-function TabIcon({ label }: { label: string }) {
-  return <Text style={{ fontSize: 16 }}>{label}</Text>;
+type IconName = ComponentProps<typeof Ionicons>["name"];
+
+/** Filled icon when the tab is active, outline otherwise. */
+function tabIcon(name: string) {
+  return ({ color, size, focused }: { color: ColorValue; size: number; focused: boolean }) => (
+    <Ionicons name={(focused ? name : `${name}-outline`) as IconName} size={size} color={color as string} />
+  );
 }
 
 export default function TabsLayout() {
   return (
     <Tabs
       screenOptions={{
-        headerStyle: { backgroundColor: "#0f172a" },
-        headerTintColor: "#fff",
-        headerTitleStyle: { fontWeight: "700" },
-        tabBarActiveTintColor: "#0ea5e9",
-        tabBarInactiveTintColor: "#64748b",
-        tabBarStyle: { backgroundColor: "#fff", borderTopColor: "#e2e8f0" },
+        ...headerOptions,
+        tabBarActiveTintColor: colors.accent,
+        tabBarInactiveTintColor: colors.textMuted,
+        tabBarStyle: { backgroundColor: colors.surface, borderTopColor: colors.border },
+        tabBarLabelStyle: { fontSize: 11, fontWeight: "600" },
       }}
     >
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: "Home",
-          headerTitle: "EvalAI",
-          tabBarIcon: () => <TabIcon label="⌂" />,
-        }}
-      />
-      <Tabs.Screen
-        name="jobs"
-        options={{
-          title: "Jobs",
-          headerTitle: "Jobs",
-          tabBarIcon: () => <TabIcon label="▦" />,
-        }}
-      />
-      <Tabs.Screen
-        name="create"
-        options={{
-          title: "Create",
-          headerTitle: "Create",
-          tabBarIcon: () => <TabIcon label="＋" />,
-        }}
-      />
-      <Tabs.Screen
-        name="reports"
-        options={{
-          title: "Reports",
-          headerTitle: "Reports",
-          tabBarIcon: () => <TabIcon label="▤" />,
-        }}
-      />
-      <Tabs.Screen
-        name="profile"
-        options={{
-          title: "Profile",
-          headerTitle: "Profile",
-          tabBarIcon: () => <TabIcon label="◉" />,
-        }}
-      />
+      <Tabs.Screen name="index" options={{ title: "Home", headerTitle: "EvalAI", tabBarIcon: tabIcon("home") }} />
+      <Tabs.Screen name="jobs" options={{ title: "Jobs", tabBarIcon: tabIcon("briefcase") }} />
+      <Tabs.Screen name="create" options={{ title: "New job", tabBarIcon: tabIcon("add-circle") }} />
+      <Tabs.Screen name="reports" options={{ title: "Reports", tabBarIcon: tabIcon("document-text") }} />
+      <Tabs.Screen name="profile" options={{ title: "Profile", tabBarIcon: tabIcon("person-circle") }} />
     </Tabs>
   );
 }

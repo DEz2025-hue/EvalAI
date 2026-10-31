@@ -1,8 +1,10 @@
 import { useState } from "react";
-import { View, Text, Pressable, Image, ActivityIndicator, Alert } from "react-native";
+import { View, Image, Alert } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { uploadEvidence } from "../lib/upload";
 import { apiFetch, apiBase } from "../lib/api";
+import { colors, radius, space } from "../lib/theme";
+import { Banner, Button, IconButton, Text } from "./ui";
 
 const ALLOWED = ["image/jpeg", "image/png", "image/webp"];
 const MAX_BYTES = 15 * 1024 * 1024;
@@ -19,21 +21,21 @@ export function PhotoCaptureMobile({ assessmentId, itemId, onUploaded }: { asses
     setAnalysis(null);
     const perm = which === "camera" ? await ImagePicker.requestCameraPermissionsAsync() : await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (perm.status !== "granted") {
-      Alert.alert("Permission needed", "Allow access in settings to capture/select photos. Photos are linked to the correct job/item and stored privately.");
+      Alert.alert("Permission needed", "Allow camera or photo access in Settings to add photos to this job.");
       return;
     }
     const res =
       which === "camera"
-        ? await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8, allowsEditing: false })
-        : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8, allowsEditing: false });
+        ? await ImagePicker.launchCameraAsync({ mediaTypes: ["images"], quality: 0.8, allowsEditing: false })
+        : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.8, allowsEditing: false });
     if (res.canceled) return;
     const asset = res.assets[0];
     if (asset.mimeType && !ALLOWED.includes(asset.mimeType)) {
-      setError(`Only JPEG/PNG/WebP allowed — got ${asset.mimeType}`);
+      setError("Only JPEG, PNG or WebP photos are supported.");
       return;
     }
     if ((asset.fileSize ?? 0) > MAX_BYTES) {
-      setError("Image too large (>15MB)");
+      setError("That photo is too large (over 15 MB).");
       return;
     }
     setFile(asset);
@@ -50,7 +52,7 @@ export function PhotoCaptureMobile({ assessmentId, itemId, onUploaded }: { asses
         apiBase();
       } catch {
         setError(null);
-        Alert.alert("Upload pending", "Photo captured locally — set EXPO_PUBLIC_APP_URL to your web to upload. Preview stored locally for now.");
+        Alert.alert("Upload pending", "Photo saved on this phone. It will need to be uploaded once you're connected.");
         onUploaded?.(file.uri);
         return;
       }
@@ -65,15 +67,15 @@ export function PhotoCaptureMobile({ assessmentId, itemId, onUploaded }: { asses
 
   async function requestAnalysis() {
     if (!file || !preview) return;
-    setAnalysis("Analyzing — suggestion only, not a verified measurement...");
+    setAnalysis("Analyzing…");
     try {
       try {
         apiBase();
       } catch {
-        setAnalysis("Analysis unavailable: set EXPO_PUBLIC_APP_URL to enable AI image analysis (server validates provider image support).");
+        setAnalysis("AI photo analysis isn't available right now.");
         return;
       }
-      // Convert to base64 via fetch blob — for demo, skip if too large
+      // Convert to base64 via fetch blob
       const resp = await fetch(file.uri);
       const blob = await resp.blob();
       const b64 = await new Promise<string>((resolve, reject) => {
@@ -93,45 +95,40 @@ export function PhotoCaptureMobile({ assessmentId, itemId, onUploaded }: { asses
       const data = await res.json();
       if (!res.ok) throw new Error((data as { error?: string }).error ?? "Analysis failed");
       const d = data as { summary: string; limitations?: string[]; uncertainty?: string };
-      setAnalysis(`${d.summary}\nLimitations: ${(d.limitations ?? []).join("; ")}\nUncertainty: ${d.uncertainty}`);
+      setAnalysis([d.summary, d.limitations?.length ? `Limitations: ${d.limitations.join("; ")}` : "", d.uncertainty ? `Confidence: ${d.uncertainty}` : ""].filter(Boolean).join("\n"));
     } catch (e) {
       setAnalysis(`Analysis unavailable: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 
+  const clear = () => { setPreview(null); setFile(null); setError(null); setAnalysis(null); };
+
   return (
-    <View style={{ borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 12, backgroundColor: "#fff", padding: 12, gap: 10 }}>
-      <Text style={{ fontWeight: "700", fontSize: 13, color: "#0f172a" }}>Photo — linked to {itemId ? "checklist item" : "assessment"}</Text>
-      <Text style={{ fontSize: 11, color: "#64748b" }}>Capture or pick, preview, then upload to . Ask AI only when you need it — result is suggestion with uncertainty.</Text>
+    <View style={{ gap: space.md }}>
+      {preview ? (
+        <View>
+          <Image source={{ uri: preview }} style={{ width: "100%", height: 200, borderRadius: radius.md, backgroundColor: colors.surfaceMuted }} resizeMode="cover" />
+          <View style={{ position: "absolute", top: space.sm, right: space.sm }}>
+            <IconButton icon="close" label="Remove photo" onPress={clear} />
+          </View>
+        </View>
+      ) : (
+        <View style={{ flexDirection: "row", gap: space.sm }}>
+          <Button title="Take photo" icon="camera" onPress={() => pick("camera")} style={{ flex: 1 }} />
+          <Button title="Choose" icon="images-outline" variant="secondary" onPress={() => pick("library")} style={{ flex: 1 }} />
+        </View>
+      )}
 
-      <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
-        <Pressable onPress={() => pick("camera")} style={{ flex: 1, minWidth: 120, backgroundColor: "#0f172a", paddingVertical: 10, borderRadius: 10, alignItems: "center" }}>
-          <Text style={{ color: "#fff", fontWeight: "700", fontSize: 12 }}>Capture Photo</Text>
-        </Pressable>
-        <Pressable onPress={() => pick("library")} style={{ flex: 1, minWidth: 120, backgroundColor: "#fff", borderWidth: 1, borderColor: "#e2e8f0", paddingVertical: 10, borderRadius: 10, alignItems: "center" }}>
-          <Text style={{ fontWeight: "700", fontSize: 12, color: "#0f172a" }}>Pick from Library</Text>
-        </Pressable>
-      </View>
+      {preview ? (
+        <View style={{ flexDirection: "row", gap: space.sm }}>
+          <Button title={uploading ? "Uploading…" : "Upload"} icon="cloud-upload-outline" variant="accent" onPress={upload} loading={uploading} style={{ flex: 1 }} />
+          <Button title="Ask AI" icon="sparkles-outline" variant="secondary" onPress={requestAnalysis} style={{ flex: 1 }} />
+        </View>
+      ) : null}
 
-      {preview ? <Image source={{ uri: preview }} style={{ width: "100%", height: 180, borderRadius: 10, backgroundColor: "#f1f5f9" }} resizeMode="cover" /> : null}
-
-      <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
-        <Pressable onPress={upload} disabled={!preview || uploading} style={{ backgroundColor: !preview || uploading ? "#94a3b8" : "#16a34a", paddingHorizontal: 14, paddingVertical: 9, borderRadius: 8, flexDirection: "row", alignItems: "center", gap: 6 }}>
-          {uploading ? <ActivityIndicator color="#fff" size="small" /> : null}
-          <Text style={{ color: "#fff", fontWeight: "700", fontSize: 12 }}>{uploading ? "Uploading…" : "Upload photo"}</Text>
-        </Pressable>
-        <Pressable onPress={requestAnalysis} disabled={!preview} style={{ backgroundColor: "#fff", borderWidth: 1, borderColor: "#e2e8f0", paddingHorizontal: 14, paddingVertical: 9, borderRadius: 8 }}>
-          <Text style={{ fontWeight: "700", fontSize: 12, color: "#0f172a" }}>Request AI analysis</Text>
-        </Pressable>
-        <Pressable onPress={() => { setPreview(null); setFile(null); setError(null); setAnalysis(null); }} style={{ paddingHorizontal: 14, paddingVertical: 9 }}>
-          <Text style={{ fontSize: 12, color: "#64748b" }}>Remove preview</Text>
-        </Pressable>
-      </View>
-
-      <Text style={{ fontSize: 11, color: "#64748b" }}>Private by default — short-lived signed URL only after authorization. AI visual output is a suggestion; never treat as verified dimension.</Text>
-
-      {error ? <View style={{ backgroundColor: "#fef2f2", borderWidth: 1, borderColor: "#fecaca", borderRadius: 8, padding: 10 }}><Text style={{ fontSize: 12, color: "#dc2626" }}>{error}</Text></View> : null}
-      {analysis ? <View style={{ backgroundColor: "#fef3c7", borderWidth: 1, borderColor: "#fde68a", borderRadius: 8, padding: 10 }}><Text style={{ fontSize: 12, color: "#78350f" }}>{analysis}</Text></View> : null}
+      {error ? <Banner tone="danger" message={error} /> : null}
+      {analysis ? <Banner tone="warning" title="AI suggestion — not a verified measurement" message={analysis} /> : null}
+      <Text style={{ fontSize: 11, color: colors.textSubtle }}>Photos are stored privately and only shared with people in your workspace.</Text>
     </View>
   );
 }

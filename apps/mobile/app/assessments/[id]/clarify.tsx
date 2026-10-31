@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
-import { View, Text, ScrollView, Pressable, TextInput, ActivityIndicator, Alert } from "react-native";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { Alert, View } from "react-native";
+import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { apiFetch, apiBase } from "../../../lib/api";
+import { colors, space } from "../../../lib/theme";
+import { Banner, Button, Card, Field, Loading, Screen, Text } from "../../../components/ui";
 
 type Q = { id: string; question: string; type?: string; options?: string[]; required?: boolean };
 
@@ -27,11 +29,11 @@ export default function MobileClarify() {
         }
         // Clarify runs on request only — no auto AI call on mount. Manual questions first.
         setQuestions([
-          { id: "q1", question: "Primary goal / scope? (Unknown if not available)", type: "text" },
-          { id: "q2", question: "Existing equipment — what do you know? (Unknown if not available)", type: "text" },
-          { id: "q3", question: "Access constraints or follow-up checks needed?", type: "text" },
+          { id: "q1", question: "What's the main goal or scope of this job?", type: "text" },
+          { id: "q2", question: "What do you already know about the existing equipment?", type: "text" },
+          { id: "q3", question: "Any access constraints or follow-up checks needed?", type: "text" },
         ]);
-        if (!configured) setError("Set EXPO_PUBLIC_APP_URL to enable AI clarification — using manual questions.");
+        if (!configured) setError("AI questions aren't available right now — showing the standard questions.");
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
       } finally {
@@ -48,7 +50,7 @@ export default function MobileClarify() {
         apiBase();
       } catch {
         if (next === "builder") router.push(`/assessments/${String(id)}/checklist-builder` as never);
-        else Alert.alert("Kept on this screen only", "Set EXPO_PUBLIC_APP_URL to persist answers server-side.");
+        else Alert.alert("Not saved", "You're offline from the server — this stays on this screen until you reconnect.");
         return;
       }
       const res = await apiFetch(`/api/assessments/${String(id)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ context: { clarificationAnswers: answers } }) });
@@ -57,7 +59,7 @@ export default function MobileClarify() {
         throw new Error((data as { error?: string }).error ?? "Save failed");
       }
       if (next === "builder") router.push(`/assessments/${String(id)}/checklist-builder` as never);
-      else Alert.alert("Saved", "Clarification answers saved.");
+      else Alert.alert("Saved", "Your answers are saved.");
     } catch (e) {
       Alert.alert("Save failed", e instanceof Error ? e.message : String(e));
     } finally {
@@ -65,23 +67,24 @@ export default function MobileClarify() {
     }
   }
 
-  if (loading) return <View style={{ flex: 1, padding: 16, alignItems: "center", justifyContent: "center" }}><ActivityIndicator /><Text style={{ fontSize: 12, color: "#64748b", marginTop: 8 }}>Loading clarification…</Text></View>;
+  if (loading) return <Screen><Stack.Screen options={{ title: "Questions" }} /><Loading /></Screen>;
   return (
-    <ScrollView contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 32 }}>
-      <Text style={{ fontWeight: "800", fontSize: 16, color: "#0f172a" }}>M09 · Clarification</Text>
-      <Text style={{ fontSize: 12, color: "#64748b" }}>{String(id).slice(0, 8)} · {questions.length} questions — Unknown preserved, not invented</Text>
-      {error ? <View style={{ backgroundColor: "#fef3c7", borderWidth: 1, borderColor: "#fde68a", borderRadius: 8, padding: 10 }}><Text style={{ fontSize: 12, color: "#92400e" }}>{error}</Text></View> : null}
-      {questions.map((q) => (
-        <View key={q.id} style={{ backgroundColor: "#fff", borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 12, padding: 12, gap: 8 }}>
-          <Text style={{ fontWeight: "600", fontSize: 13, color: "#0f172a" }}>{q.question} {q.required ? <Text style={{ color: "#dc2626" }}>*</Text> : <Text style={{ fontSize: 11, color: "#64748b" }}> (Unknown allowed)</Text>}</Text>
-          <TextInput value={answers[q.id] ?? ""} onChangeText={(v) => setAnswers((a) => ({ ...a, [q.id]: v }))} placeholder={q.type === "number" ? "Number or Unknown" : "Answer or Unknown"} placeholderTextColor="#94a3b8" style={{ borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 8, padding: 10, fontSize: 13, color: "#0f172a", backgroundColor: "#fff" }} />
+    <>
+      <Stack.Screen options={{ title: "Questions" }} />
+      <Screen>
+        <Text variant="caption">A few questions to fill in the gaps. If you don't know, write "Unknown" — nothing gets guessed for you.</Text>
+        {error ? <Banner tone="warning" message={error} /> : null}
+        <Card style={{ gap: space.lg }}>
+          {questions.map((q) => (
+            <Field key={q.id} label={q.question} required={q.required} value={answers[q.id] ?? ""} onChangeText={(v) => setAnswers((a) => ({ ...a, [q.id]: v }))} placeholder={q.type === "number" ? "Number or Unknown" : "Your answer, or Unknown"} multiline />
+          ))}
+        </Card>
+        <Button title="Save & set up checklist" icon="arrow-forward" variant="accent" size="lg" onPress={() => save("builder")} loading={saving} />
+        <View style={{ flexDirection: "row", gap: space.sm }}>
+          <Button title="Save" variant="secondary" onPress={() => save("stay")} disabled={saving} style={{ flex: 1 }} />
+          <Button title="Back to job" variant="ghost" onPress={() => router.replace(`/assessments/${String(id)}` as never)} style={{ flex: 1 }} />
         </View>
-      ))}
-      <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
-        <Pressable onPress={() => save("stay")} disabled={saving} style={{ backgroundColor: "#fff", borderWidth: 1, borderColor: "#e2e8f0", paddingHorizontal: 14, paddingVertical: 10, borderRadius: 8 }}><Text style={{ fontWeight: "600", fontSize: 12, color: "#0f172a" }}>{saving ? "Saving…" : "Save"}</Text></Pressable>
-        <Pressable onPress={() => save("builder")} disabled={saving} style={{ backgroundColor: saving ? "#94a3b8" : "#0ea5e9", paddingHorizontal: 14, paddingVertical: 10, borderRadius: 8 }}><Text style={{ color: "#fff", fontWeight: "700", fontSize: 12 }}>Save → Checklist Builder</Text></Pressable>
-        <Pressable onPress={() => router.replace(`/assessments/${String(id)}` as never)} style={{ paddingHorizontal: 12, paddingVertical: 10 }}><Text style={{ fontSize: 12, color: "#64748b" }}>Back</Text></Pressable>
-      </View>
-    </ScrollView>
+      </Screen>
+    </>
   );
 }

@@ -1,10 +1,10 @@
 import { useState } from "react";
-import { Text, View } from "react-native";
 import { apiFetch } from "../lib/api";
 import { useRole } from "../lib/role";
 import { PhotoCaptureMobile } from "./PhotoCaptureMobile";
 import { VoiceRecorderMobile } from "./VoiceRecorderMobile";
 import { ItemChips, type ChipItem } from "./ItemChips";
+import { Banner, Card, SectionHeader } from "./ui";
 
 type Resp = { itemId: string; status: string; notes?: string; measuredValue?: number; measuredUnit?: string };
 
@@ -36,35 +36,33 @@ export function FieldCaptureMobile({ assessmentId, items }: { assessmentId: stri
       });
       const data = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) throw new Error(data.error ?? "Could not save the note");
-      setMessage({ kind: "ok", text: "Voice note saved to the checklist item. Numbers and units still need your verification." });
+      setMessage({ kind: "ok", text: "Voice note saved to the checklist item. Double-check any numbers and units." });
     } catch (e) {
       setMessage({ kind: "error", text: e instanceof Error ? e.message : String(e) });
     }
   }
 
   if (loaded && !canWrite) {
-    return (
-      <View style={{ backgroundColor: "#f8fafc", borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 12, padding: 12 }}>
-        <Text style={{ fontSize: 12, color: "#64748b" }}>Your role is read-only — photo and voice capture are for members, admins and owners.</Text>
-      </View>
-    );
+    return <Banner tone="neutral" message="You have view-only access — photo and voice capture are for members, admins and owners." />;
   }
 
   return (
-    <View style={{ gap: 12 }}>
-      <ItemChips label="Link the next photo to" items={items} value={photoItem} onChange={setPhotoItem} />
-      <PhotoCaptureMobile
-        assessmentId={assessmentId}
-        itemId={photoItem || undefined}
-        onUploaded={() => setMessage({ kind: "ok", text: photoItem ? "Photo saved and linked to the checklist item." : "Photo saved to the job." })}
-      />
-      <ItemChips label="Attach the next voice note to" items={items} value={noteItem} onChange={setNoteItem} allowNone={false} />
-      <VoiceRecorderMobile assessmentId={assessmentId} itemId={noteItem || undefined} onTranscript={(t, uri) => void saveTranscriptAsNote(t, uri)} />
-      {message ? (
-        <View style={{ backgroundColor: message.kind === "ok" ? "#f0fdf4" : "#fef2f2", borderRadius: 8, padding: 10 }}>
-          <Text style={{ fontSize: 12, color: message.kind === "ok" ? "#166534" : "#b91c1c" }}>{message.text}</Text>
-        </View>
-      ) : null}
-    </View>
+    <>
+      <Card>
+        <SectionHeader title="Photos" subtitle="Take or choose a photo and link it to an item." />
+        <ItemChips label="Link the next photo to" items={items} value={photoItem} onChange={setPhotoItem} />
+        <PhotoCaptureMobile
+          assessmentId={assessmentId}
+          itemId={photoItem || undefined}
+          onUploaded={() => setMessage({ kind: "ok", text: photoItem ? "Photo saved and linked to the checklist item." : "Photo saved to the job." })}
+        />
+      </Card>
+      <Card>
+        <SectionHeader title="Voice notes" subtitle="Record, check the transcript, then attach it to an item." />
+        <ItemChips label="Attach the next voice note to" items={items} value={noteItem} onChange={setNoteItem} allowNone={false} />
+        <VoiceRecorderMobile assessmentId={assessmentId} itemId={noteItem || undefined} onTranscript={(t, uri) => void saveTranscriptAsNote(t, uri)} />
+      </Card>
+      {message ? <Banner tone={message.kind === "ok" ? "success" : "danger"} message={message.text} /> : null}
+    </>
   );
 }

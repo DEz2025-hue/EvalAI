@@ -11,8 +11,6 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
-    "ignoreDeprecations": "5.0",
-    "baseUrl": ".",
     "paths": {
       "@eval-ai/shared": ["../../packages/shared/src"],
       "@eval-ai/supabase": ["../../packages/supabase/src"],

@@ -1,18 +1,13 @@
 import { useEffect, useState } from "react";
-import { View, Text, Pressable, TextInput, Alert } from "react-native";
+import { View, TextInput, Alert } from "react-native";
 import { ChecklistStatus } from "@eval-ai/shared";
 import { apiFetch, apiBase } from "../lib/api";
+import { CHECK_STATUSES, colors, radius, space } from "../lib/theme";
+import { useKeyboardReveal } from "./keyboard";
+import { Badge, Button, Chip, Field, Text } from "./ui";
 
 type Item = { id: string; title: string; instructions?: string; required: boolean; category?: string };
 type Response = { itemId: string; status: (typeof ChecklistStatus._type); notes?: string; measuredValue?: number; measuredUnit?: string };
-
-const STATUSES = [
-  { v: "not_checked", label: "Not Checked" },
-  { v: "pass", label: "Pass" },
-  { v: "fail", label: "Issue / Fail" },
-  { v: "needs_attention", label: "Needs Attention" },
-  { v: "not_applicable", label: "N/A" },
-] as const;
 
 export function ChecklistEditorMobile({ items: initial, assessmentId }: { items: Item[]; assessmentId: string }) {
   const [items, setItems] = useState<Item[]>(initial);
@@ -20,6 +15,7 @@ export function ChecklistEditorMobile({ items: initial, assessmentId }: { items:
     Object.fromEntries(initial.map((it) => [it.id, { itemId: it.id, status: "not_checked" as const }]))
   );
   const [saving, setSaving] = useState(false);
+  const reveal = useKeyboardReveal();
 
   function updateStatus(id: string, status: Response["status"]) {
     setResponses((r) => ({ ...r, [id]: { ...r[id], status } }));
@@ -58,7 +54,7 @@ export function ChecklistEditorMobile({ items: initial, assessmentId }: { items:
         base = "";
       }
       if (!base) {
-        Alert.alert("Kept on this screen only", "Responses are staged in memory and will be lost if you leave. Set EXPO_PUBLIC_APP_URL to persist them server-side. Not Checked ≠ Pass.");
+        Alert.alert("Not saved", "Can't reach the server. Your answers stay on this screen but will be lost if you leave.");
         return;
       }
       // Step 1: persist the item list itself so new/edited items get real ids.
@@ -70,7 +66,7 @@ export function ChecklistEditorMobile({ items: initial, assessmentId }: { items:
       const putData = await putRes.json().catch(() => ({}));
       if (!putRes.ok) throw new Error((putData as { error?: string }).error ?? "Could not save checklist items");
       const rows = ((putData as { items?: Item[] }).items ?? []) as Item[];
-      if (rows.length !== items.length) throw new Error("Item mapping mismatched — reload before editing further.");
+      if (rows.length !== items.length) throw new Error("The checklist changed somewhere else — reopen this job before editing further.");
       setItems(rows);
       const rekeyed: Record<string, Response> = {};
       items.forEach((old, i) => {
@@ -85,7 +81,7 @@ export function ChecklistEditorMobile({ items: initial, assessmentId }: { items:
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error((data as { error?: string }).error ?? "Save failed");
-      Alert.alert("Saved", `Checklist responses saved${(data as { persisted?: boolean }).persisted ? " to Supabase" : " to server fallback"} — server-side. Not Checked ≠ Pass.`);
+      Alert.alert("Saved", "Your checklist answers are saved.");
     } catch (e) {
       Alert.alert("Save failed", e instanceof Error ? e.message : String(e));
     } finally {
@@ -112,58 +108,50 @@ export function ChecklistEditorMobile({ items: initial, assessmentId }: { items:
     }
   }
 
+  const setResp = (id: string, patch: Partial<Response>) => setResponses((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }));
+
   return (
-    <View style={{ gap: 10 }}>
-      {items.map((it) => {
+    <View style={{ gap: space.md }}>
+      {items.map((it, idx) => {
         const r = responses[it.id] ?? { itemId: it.id, status: "not_checked" as const };
         return (
-          <View key={it.id} style={{ backgroundColor: "#fff", borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 12, padding: 12, gap: 8 }}>
-            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
-              <View style={{ flex: 1, gap: 4 }}>
-                {it.id.startsWith("tmp-") ? (
-                  <TextInput value={it.title} onChangeText={(v) => updateTitle(it.id, v)} placeholder="Item title" style={{ borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 8, padding: 8, fontSize: 13, fontWeight: "700", color: "#0f172a", backgroundColor: "#fff" }} />
-                ) : (
-                  <Text style={{ fontWeight: "700", fontSize: 13, color: "#0f172a" }}>{it.title}</Text>
-                )}
-                {it.required ? <Text style={{ fontSize: 10, color: "#dc2626", backgroundColor: "#fef2f2", paddingHorizontal: 4 }}>required</Text> : null}
-                {it.instructions ? <Text style={{ fontSize: 11, color: "#64748b" }}>{it.instructions}</Text> : null}
-                {it.category ? <Text style={{ fontSize: 10, color: "#475569", backgroundColor: "#f1f5f9", alignSelf: "flex-start", paddingHorizontal: 6, paddingVertical: 2, borderRadius: 999 }}>{it.category}</Text> : null}
-              </View>
+          <View key={it.id} style={{ gap: space.sm, paddingTop: idx === 0 ? 0 : space.md, borderTopWidth: idx === 0 ? 0 : 1, borderTopColor: colors.divider }}>
+            <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap" }}>
+              {it.required ? <Badge label="Required" tone="danger" /> : null}
+              {it.category ? <Badge label={it.category} /> : null}
             </View>
+            {it.id.startsWith("tmp-") ? (
+              <TextInput onFocus={reveal} value={it.title} onChangeText={(v) => updateTitle(it.id, v)} placeholder="Item title" style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingHorizontal: space.md, paddingVertical: 10, fontSize: 15, fontWeight: "600", color: colors.text, backgroundColor: colors.surface }} />
+            ) : (
+              <Text variant="bodyStrong">{it.title}</Text>
+            )}
+            {it.instructions ? <Text variant="caption">{it.instructions}</Text> : null}
 
             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
-              {STATUSES.map((s) => {
-                const active = r.status === s.v;
-                return (
-                  <Pressable key={s.v} onPress={() => updateStatus(it.id, s.v as Response["status"])} style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: active ? "#0f172a" : "#fff", borderWidth: 1, borderColor: active ? "#0f172a" : "#e2e8f0" }}>
-                    <Text style={{ fontSize: 11, fontWeight: "600", color: active ? "#fff" : "#475569" }}>{s.label}</Text>
-                  </Pressable>
-                );
-              })}
+              {CHECK_STATUSES.map((s) => (
+                <Chip key={s.value} label={s.label} icon={s.icon} tone={s.tone} active={r.status === s.value} onPress={() => updateStatus(it.id, s.value as Response["status"])} />
+              ))}
             </View>
 
-            <TextInput placeholder="Observation / notes" value={r.notes ?? ""} onChangeText={(v) => setResponses((prev) => ({ ...prev, [it.id]: { ...prev[it.id], notes: v } }))} multiline style={{ borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 8, padding: 8, fontSize: 13, minHeight: 56, color: "#0f172a", backgroundColor: "#fff" }} />
+            <Field placeholder="Notes" value={r.notes ?? ""} onChangeText={(v) => setResp(it.id, { notes: v })} multiline />
 
-            <View style={{ flexDirection: "row", gap: 8 }}>
-              <TextInput keyboardType="numeric" placeholder="Measured value" value={r.measuredValue !== undefined ? String(r.measuredValue) : ""} onChangeText={(v) => setResponses((prev) => ({ ...prev, [it.id]: { ...prev[it.id], measuredValue: v && Number.isFinite(Number(v.replace(",", "."))) ? Number(v.replace(",", ".")) : undefined } }))} style={{ flex: 1, borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 8, padding: 8, fontSize: 13, color: "#0f172a", backgroundColor: "#fff" }} />
-              <TextInput placeholder="Unit (m, kW)" value={r.measuredUnit ?? ""} onChangeText={(v) => setResponses((prev) => ({ ...prev, [it.id]: { ...prev[it.id], measuredUnit: v } }))} style={{ flex: 1, borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 8, padding: 8, fontSize: 13, color: "#0f172a", backgroundColor: "#fff" }} />
+            <View style={{ flexDirection: "row", gap: space.sm }}>
+              <View style={{ flex: 2 }}>
+                <Field keyboardType="numeric" placeholder="Measurement" value={r.measuredValue !== undefined ? String(r.measuredValue) : ""} onChangeText={(v) => setResp(it.id, { measuredValue: v && Number.isFinite(Number(v.replace(",", "."))) ? Number(v.replace(",", ".")) : undefined })} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Field placeholder="Unit" value={r.measuredUnit ?? ""} onChangeText={(v) => setResp(it.id, { measuredUnit: v })} />
+              </View>
             </View>
-
-            <Text style={{ fontSize: 10, color: "#64748b" }}>Not Checked ≠ Pass. Pass requires actual check + supporting evidence.</Text>
           </View>
         );
       })}
 
-      <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
-        <Pressable onPress={addItem} style={{ borderWidth: 1, borderColor: "#e2e8f0", backgroundColor: "#fff", paddingHorizontal: 14, paddingVertical: 9, borderRadius: 8 }}>
-          <Text style={{ fontWeight: "600", fontSize: 13, color: "#0f172a" }}>Add item</Text>
-        </Pressable>
-        <Pressable onPress={save} disabled={saving} style={{ backgroundColor: saving ? "#94a3b8" : "#0f172a", paddingHorizontal: 14, paddingVertical: 9, borderRadius: 8 }}>
-          <Text style={{ color: "#fff", fontWeight: "700", fontSize: 13 }}>{saving ? "Saving…" : "Save checklist responses"}</Text>
-        </Pressable>
+      <View style={{ flexDirection: "row", gap: space.sm }}>
+        <Button title="Add item" icon="add" variant="secondary" onPress={addItem} style={{ flex: 1 }} />
+        <Button title={saving ? "Saving…" : "Save answers"} icon="save-outline" onPress={save} loading={saving} style={{ flex: 1 }} />
       </View>
-
-      <Text style={{ fontSize: 11, color: "#64748b" }}>Edits are versioned per assessment. AI suggestions remain drafts until you accept. Calculations stay deterministic.</Text>
+      <Text variant="caption" color={colors.textSubtle}>Items you haven't checked never count as passed. Only mark Pass after you've actually checked it.</Text>
     </View>
   );
 }

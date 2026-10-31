@@ -3,9 +3,19 @@
     "name": "EvalAI",
     "slug": "eval-ai",
     "scheme": "eval-ai",
-    "platforms": ["ios", "android", "web"],
+    "platforms": [
+      "ios",
+      "android",
+      "web"
+    ],
     "plugins": [
       "expo-router",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Allow $(PRODUCT_NAME) to use the microphone — voice notes are stored privately and transcribed only when you request it."
+        }
+      ],
       [
         "expo-image-picker",
         {
@@ -14,8 +24,12 @@
         }
       ]
     ],
-    "experiments": { "typedRoutes": true },
-    "extra": { "router": {} },
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "router": {}
+    },
     "ios": {
       "infoPlist": {
         "NSCameraUsageDescription": "Allow EvalAI to use the camera — photos are linked to the correct job/item and stored privately.",
@@ -24,7 +38,10 @@
       }
     },
     "android": {
-      "permissions": ["android.permission.CAMERA", "android.permission.RECORD_AUDIO"],
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
+      ],
       "package": "com.evalai.mobile"
     }
   }

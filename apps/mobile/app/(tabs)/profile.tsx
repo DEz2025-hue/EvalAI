@@ -1,13 +1,21 @@
 import { useCallback, useState } from "react";
-import { View, Text, ScrollView, Pressable, ActivityIndicator, Alert } from "react-native";
+import { Alert, View } from "react-native";
 import { Link, useRouter, useFocusEffect } from "expo-router";
+import { initials } from "@eval-ai/shared";
 import { getSupabase, hasSupabaseEnv } from "../../lib/supabase";
+import { loadWorkspaces } from "../../lib/myWorkspaces";
+import { colors, space } from "../../lib/theme";
+import { Button, Card, Field, IconButton, ListRow, Screen, Text } from "../../components/ui";
 
 export default function ProfileScreen() {
   const router = useRouter();
   const [email, setEmail] = useState<string | null>(null);
+  const [name, setName] = useState("");
   const [workspaceName, setWorkspaceName] = useState<string | null>(null);
   const [signingOut, setSigningOut] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [draftName, setDraftName] = useState("");
+  const [savingName, setSavingName] = useState(false);
 
   const load = useCallback(async () => {
     if (!hasSupabaseEnv()) {
@@ -15,16 +23,33 @@ export default function ProfileScreen() {
       return;
     }
     try {
-      const supabase = getSupabase()!;
-      const { data } = await supabase.auth.getUser();
-      setEmail(data.user?.email ?? null);
-      const { data: memberships } = await supabase.from("workspace_memberships").select("workspace_id, workspaces(name)").limit(1);
-      const name = (memberships as unknown as Array<{ workspaces: { name: string } | null }> | null)?.[0]?.workspaces?.name ?? null;
-      setWorkspaceName(name);
+      const { active, email: signedInAs, name: shownName } = await loadWorkspaces();
+      setEmail(signedInAs);
+      setName(shownName);
+      setWorkspaceName(active ? `${active.name} · ${active.role}` : null);
     } catch {}
   }, []);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
+
+  async function saveName() {
+    const next = draftName.trim();
+    if (next.length < 2) {
+      Alert.alert("Name too short", "Enter at least 2 characters.");
+      return;
+    }
+    setSavingName(true);
+    try {
+      const { error } = await getSupabase()!.auth.updateUser({ data: { full_name: next } });
+      if (error) throw new Error(error.message);
+      setName(next);
+      setEditing(false);
+    } catch (e) {
+      Alert.alert("Couldn't save your name", e instanceof Error ? e.message : String(e));
+    } finally {
+      setSavingName(false);
+    }
+  }
 
   async function signOut() {
     Alert.alert("Sign out?", "You will need your email and password to sign back in.", [
@@ -45,47 +70,55 @@ export default function ProfileScreen() {
   }
 
   return (
-    <ScrollView contentContainerStyle={{ padding: 16, gap: 12 }}>
-      <View style={{ backgroundColor: "#fff", borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 12, padding: 16, gap: 6 }}>
-        <Text style={{ fontWeight: "700", color: "#0f172a" }}>Profile</Text>
-        <Text style={{ fontSize: 12, color: "#64748b" }}>{email ?? "Not signed in — your workspace data stays private."}</Text>
-        {workspaceName ? <Text style={{ fontSize: 12, color: "#64748b" }}>Workspace: {workspaceName}</Text> : null}
-      </View>
+    <Screen>
+      <Card>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: space.md }}>
+          <View style={{ width: 52, height: 52, borderRadius: 26, backgroundColor: colors.brand, alignItems: "center", justifyContent: "center" }}>
+            <Text variant="title" color={colors.textOnDark}>{initials(name || email || "")}</Text>
+          </View>
+          <View style={{ flex: 1, gap: 2 }}>
+            <Text variant="heading" numberOfLines={1}>{email ? name || email : "Not signed in"}</Text>
+            {email ? <Text variant="caption" numberOfLines={1}>{email}</Text> : null}
+            <Text variant="caption" numberOfLines={1}>{workspaceName ?? "No workspace selected"}</Text>
+          </View>
+          {email && !editing ? <IconButton icon="create-outline" label="Edit name" onPress={() => { setDraftName(name); setEditing(true); }} /> : null}
+        </View>
+        {editing ? (
+          <View style={{ gap: space.sm }}>
+            <Field label="Your name" value={draftName} onChangeText={setDraftName} autoCapitalize="words" textContentType="name" autoComplete="name" autoFocus onSubmitEditing={saveName} returnKeyType="done" />
+            <View style={{ flexDirection: "row", gap: space.sm }}>
+              <Button title="Cancel" variant="secondary" size="sm" onPress={() => setEditing(false)} style={{ flex: 1 }} />
+              <Button title={savingName ? "Saving…" : "Save"} size="sm" onPress={saveName} loading={savingName} style={{ flex: 1 }} />
+            </View>
+          </View>
+        ) : null}
+      </Card>
 
-      <View style={{ backgroundColor: "#fff", borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 12, padding: 8, gap: 2 }}>
+      <Text variant="overline" style={{ marginTop: space.sm }}>Workspace</Text>
+      <Card padded={false}>
         <Link href="/workspace/select" asChild>
-          <Pressable style={{ paddingVertical: 12, paddingHorizontal: 8, borderBottomWidth: 1, borderBottomColor: "#f1f5f9" }}>
-            <Text style={{ fontSize: 13, fontWeight: "600", color: "#0f172a" }}>Switch workspace →</Text>
-          </Pressable>
+          <ListRow icon="swap-horizontal-outline" title="Switch workspace" subtitle={workspaceName ?? undefined} />
         </Link>
         <Link href="/(tabs)/jobs" asChild>
-          <Pressable style={{ paddingVertical: 12, paddingHorizontal: 8, borderBottomWidth: 1, borderBottomColor: "#f1f5f9" }}>
-            <Text style={{ fontSize: 13, fontWeight: "600", color: "#0f172a" }}>My jobs →</Text>
-          </Pressable>
+          <ListRow icon="briefcase-outline" title="My jobs" last />
         </Link>
+      </Card>
+
+      <Text variant="overline" style={{ marginTop: space.sm }}>Account</Text>
+      <Card padded={false}>
         {email ? (
-          <Pressable onPress={signOut} disabled={signingOut} style={{ paddingVertical: 12, paddingHorizontal: 8, flexDirection: "row", alignItems: "center", gap: 8 }}>
-            {signingOut ? <ActivityIndicator size="small" color="#dc2626" /> : null}
-            <Text style={{ fontSize: 13, fontWeight: "600", color: "#dc2626" }}>{signingOut ? "Signing out…" : "Sign out"}</Text>
-          </Pressable>
+          <>
+            <ListRow icon="log-out-outline" title={signingOut ? "Signing out…" : "Sign out"} onPress={signOut} chevron={false} />
+            <Link href={"/account/delete" as never} asChild>
+              <ListRow icon="trash-outline" title="Delete account" destructive last />
+            </Link>
+          </>
         ) : (
           <Link href="/auth/sign-in" asChild>
-            <Pressable style={{ paddingVertical: 12, paddingHorizontal: 8 }}>
-              <Text style={{ fontSize: 13, fontWeight: "600", color: "#0ea5e9" }}>Sign in →</Text>
-            </Pressable>
+            <ListRow icon="log-in-outline" title="Sign in" last />
           </Link>
         )}
-      </View>
-
-      <View style={{ backgroundColor: "#fef3c7", borderWidth: 1, borderColor: "#fde68a", borderRadius: 12, padding: 12 }}>
-        <Text style={{ fontWeight: "700", fontSize: 12, color: "#92400e" }}>Live Camera — manual frames only</Text>
-        <Text style={{ fontSize: 12, color: "#78350f", marginTop: 2 }}>No continuous guidance and no in-app viewfinder on mobile yet. Open a job → Live camera for the capability status and the still-photo alternative.</Text>
-        <Link href="/(tabs)/jobs" asChild>
-          <Pressable style={{ marginTop: 8, paddingVertical: 8 }}>
-            <Text style={{ fontSize: 12, fontWeight: "600", color: "#92400e" }}>Open a job →</Text>
-          </Pressable>
-        </Link>
-      </View>
-    </ScrollView>
+      </Card>
+    </Screen>
   );
 }

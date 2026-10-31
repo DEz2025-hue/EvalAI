@@ -1,14 +1,17 @@
 import { useEffect, useRef, useState } from "react";
-import { View, Text, Pressable, TextInput, ActivityIndicator, Alert } from "react-native";
-import { Audio } from "expo-av";
+import { View, Alert } from "react-native";
+import { RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync, useAudioRecorder } from "expo-audio";
 import { apiFetch, apiBase } from "../lib/api";
 import { uploadEvidence } from "../lib/upload";
+import { colors, radius, space } from "../lib/theme";
+import { Badge, Banner, Button, Field, IconButton, Loading, Text } from "./ui";
 
 type PermState = "unknown" | "granted" | "denied" | "unsupported";
 
 export function VoiceRecorderMobile({ assessmentId, itemId, onTranscript }: { assessmentId?: string; itemId?: string; onTranscript?: (t: string, audioUri?: string) => void }) {
   const [perm, setPerm] = useState<PermState>("unknown");
-  const [recording, setRecording] = useState<Audio.Recording | null>(null);
+  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const [recording, setRecording] = useState(false);
   const [duration, setDuration] = useState(0);
   const [transcript, setTranscript] = useState("");
   const [confirmed, setConfirmed] = useState(false);
@@ -18,16 +21,14 @@ export function VoiceRecorderMobile({ assessmentId, itemId, onTranscript }: { as
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startAtRef = useRef<number>(0);
 
-  useEffect(() => {
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-      recording?.stopAndUnloadAsync().catch(() => {});
-    };
-  }, [recording]);
+  // The recorder itself is released by useAudioRecorder on unmount.
+  useEffect(() => () => {
+    if (timerRef.current) clearInterval(timerRef.current);
+  }, []);
 
   async function checkPerm(): Promise<PermState> {
     try {
-      const { status } = await Audio.requestPermissionsAsync();
+      const { status } = await requestRecordingPermissionsAsync();
       if (status === "granted") return "granted";
       if (status === "denied") return "denied";
       return "unknown";
@@ -44,17 +45,16 @@ export function VoiceRecorderMobile({ assessmentId, itemId, onTranscript }: { as
     const p = await checkPerm();
     setPerm(p);
     if (p !== "granted") {
-      if (p === "denied") setError("Microphone permission denied — enable in Settings, or type below.");
-      else if (p === "unsupported") setError("Recording not supported on this device — type your observation below.");
-      else setError("Microphone permission needed — allow when prompted, or type below.");
+      if (p === "denied") setError("Microphone access is off — turn it on in Settings.");
+      else if (p === "unsupported") setError("Recording isn't supported on this device.");
+      else setError("Allow microphone access when asked to record.");
       return;
     }
     try {
-      await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
-      const rec = new Audio.Recording();
-      await rec.prepareToRecordAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
-      await rec.startAsync();
-      setRecording(rec);
+      await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
+      await recorder.prepareToRecordAsync();
+      recorder.record();
+      setRecording(true);
       startAtRef.current = Date.now();
       setDuration(0);
       timerRef.current = setInterval(() => setDuration(Math.floor((Date.now() - startAtRef.current) / 1000)), 200);
@@ -66,16 +66,16 @@ export function VoiceRecorderMobile({ assessmentId, itemId, onTranscript }: { as
   async function stop() {
     if (!recording) return;
     try {
-      await recording.stopAndUnloadAsync();
-      const uri = recording.getURI();
+      await recorder.stop();
+      const uri = recorder.uri;
       setAudioUri(uri ?? null);
-      setRecording(null);
+      setRecording(false);
       if (timerRef.current) clearInterval(timerRef.current);
       if (!uri) return;
       try {
         apiBase();
       } catch {
-        setError("Transcription needs EXPO_PUBLIC_APP_URL set to your web app. The original audio is kept on this phone.");
+        setError("Transcription isn't available right now. Your recording is kept on this phone.");
         return;
       }
       // Keep the original audio privately (linked to the job/item), then transcribe it by reference —
@@ -123,77 +123,68 @@ export function VoiceRecorderMobile({ assessmentId, itemId, onTranscript }: { as
 
   function cancel() {
     if (timerRef.current) clearInterval(timerRef.current);
-    recording?.stopAndUnloadAsync().catch(() => {});
-    setRecording(null);
+    if (recording) recorder.stop().catch(() => {});
+    setRecording(false);
     setTranscript("");
     setConfirmed(false);
     setAudioUri(null);
     setError(null);
   }
 
-  const isRecording = !!recording;
+  const isRecording = recording;
+  const canAttach = confirmed && transcript.trim().length >= 2;
 
   return (
-    <View style={{ borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 12, backgroundColor: "#fff", padding: 12, gap: 10 }}>
-      <Text style={{ fontWeight: "700", fontSize: 13, color: "#0f172a" }}>Voice — linked to {itemId ? "item" : assessmentId ? "assessment" : "note"}</Text>
+    <View style={{ gap: space.md }}>
+      {!isRecording ? (
+        <Button title="Record" icon="mic" onPress={start} />
+      ) : (
+        <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
+          <View style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: colors.dangerSoft, borderWidth: 1, borderColor: colors.dangerBorder, borderRadius: radius.sm, paddingHorizontal: space.md, paddingVertical: 10 }}>
+            <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: colors.danger }} />
+            <Text variant="bodyStrong" color={colors.danger}>Recording · {duration}s</Text>
+          </View>
+          <Button title="Stop" icon="stop" variant="accent" onPress={stop} />
+          <IconButton icon="close" label="Cancel recording" onPress={cancel} />
+        </View>
+      )}
+      <Text style={{ fontSize: 11, color: colors.textSubtle }}>The microphone is only used while you're recording.</Text>
 
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-        {!isRecording ? (
-          <Pressable onPress={start} style={{ backgroundColor: "#0f172a", paddingHorizontal: 14, paddingVertical: 9, borderRadius: 8 }}>
-            <Text style={{ color: "#fff", fontWeight: "700", fontSize: 12 }}>● Record</Text>
-          </Pressable>
-        ) : (
-          <>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "#fef2f2", paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, borderWidth: 1, borderColor: "#fecaca" }}>
-              <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: "#dc2626" }} />
-              <Text style={{ fontSize: 12, fontWeight: "700", color: "#dc2626" }}>{duration}s recording</Text>
-            </View>
-            <Pressable onPress={stop} style={{ backgroundColor: "#e0f2fe", paddingHorizontal: 14, paddingVertical: 9, borderRadius: 8 }}>
-              <Text style={{ fontWeight: "700", fontSize: 12, color: "#0369a1" }}>Stop</Text>
-            </Pressable>
-            <Pressable onPress={cancel} style={{ borderWidth: 1, borderColor: "#e2e8f0", paddingHorizontal: 14, paddingVertical: 9, borderRadius: 8 }}>
-              <Text style={{ fontSize: 12, color: "#475569" }}>Cancel</Text>
-            </Pressable>
-          </>
-        )}
-        <Text style={{ fontSize: 11, color: "#64748b", flex: 1 }}>Mic asked only on Record. No background recording.</Text>
-      </View>
-
-      {perm === "denied" ? <View style={{ backgroundColor: "#fef3c7", borderWidth: 1, borderColor: "#fde68a", borderRadius: 8, padding: 10 }}><Text style={{ fontSize: 12, color: "#92400e" }}>Permission denied — enable mic in Settings or type below.</Text></View> : null}
+      {perm === "denied" ? <Banner tone="warning" message="Microphone access is off — turn it on in Settings, or type your note below." /> : null}
+      {transcribing ? <Loading label="Transcribing… you can edit it afterwards." /> : null}
 
       {transcript ? (
-        <View style={{ gap: 8, backgroundColor: confirmed ? "#f0fdf4" : "#fefce8", borderWidth: 1, borderColor: confirmed ? "#bbf7d0" : "#fde68a", borderRadius: 10, padding: 10 }}>
-          <Text style={{ fontSize: 12, fontWeight: "600", color: "#0f172a" }}>
-            Transcript — <Text style={{ color: confirmed ? "#15803d" : "#92400e" }}>{confirmed ? "confirmed" : "unconfirmed until you confirm"}</Text>
-          </Text>
-          <TextInput value={transcript} onChangeText={(t) => { setTranscript(t); setConfirmed(false); }} multiline style={{ minHeight: 60, borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 8, padding: 8, fontSize: 13, color: "#0f172a", backgroundColor: "#fff" }} />
-          <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-            {!confirmed ? (
-              <Pressable onPress={() => setConfirmed(true)} style={{ backgroundColor: "#0f172a", paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8 }}>
-                <Text style={{ color: "#fff", fontWeight: "700", fontSize: 12 }}>Confirm transcript</Text>
-              </Pressable>
-            ) : (
-              <Text style={{ fontSize: 12, color: "#15803d", fontWeight: "600" }}>✓ Confirmed — will attach on Save</Text>
-            )}
-            <Pressable onPress={() => { if (!confirmed || transcript.trim().length < 2) { Alert.alert("Confirm first", "Confirm the transcript before attaching it. Numbers and units must be checked by you."); return; } onTranscript?.(transcript, audioUri ?? undefined); }} style={{ backgroundColor: confirmed && transcript.trim().length >= 2 ? "#0ea5e9" : "#94a3b8", paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8 }}>
-              <Text style={{ color: "#fff", fontWeight: "700", fontSize: 12 }}>Attach to {itemId ? "item" : "assessment"}</Text>
-            </Pressable>
-            <Pressable onPress={() => { setTranscript(""); setConfirmed(false); }} style={{ paddingHorizontal: 10, paddingVertical: 8 }}>
-              <Text style={{ fontSize: 12, color: "#64748b" }}>Discard</Text>
-            </Pressable>
+        <View style={{ gap: space.sm, backgroundColor: confirmed ? colors.successSoft : colors.warningSoft, borderRadius: radius.sm, padding: space.md }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+            <Text variant="label" color={colors.text} style={{ flex: 1 }}>Transcript</Text>
+            <Badge label={confirmed ? "Confirmed" : "Check before confirming"} tone={confirmed ? "success" : "warning"} />
           </View>
-          <Text style={{ fontSize: 11, color: "#64748b" }}>Do not auto-convert ambiguous speech to precise values — confirm numbers/units.</Text>
+          <Field value={transcript} onChangeText={(t) => { setTranscript(t); setConfirmed(false); }} multiline />
+          <Text variant="caption">Check numbers and units carefully — speech can be misheard.</Text>
+          <View style={{ flexDirection: "row", gap: space.sm, flexWrap: "wrap" }}>
+            {!confirmed ? <Button title="Confirm" icon="checkmark" size="sm" onPress={() => setConfirmed(true)} /> : null}
+            <Button
+              title={`Attach to ${itemId ? "item" : "job"}`}
+              icon="attach"
+              variant="accent"
+              size="sm"
+              disabled={!canAttach}
+              onPress={() => { if (!canAttach) { Alert.alert("Confirm first", "Check and confirm the transcript before attaching it."); return; } onTranscript?.(transcript, audioUri ?? undefined); }}
+            />
+            <Button title="Discard" variant="ghost" size="sm" onPress={() => { setTranscript(""); setConfirmed(false); }} />
+          </View>
         </View>
       ) : null}
 
-      {audioUri ? <Text style={{ fontSize: 11, color: "#64748b" }}>Original audio preserved: {audioUri.slice(0, 60)}…</Text> : null}
-      {transcribing ? <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}><ActivityIndicator /><Text style={{ fontSize: 12, color: "#64748b" }}>Transcribing… editable after, unconfirmed until you confirm</Text></View> : null}
-      {error ? <View style={{ backgroundColor: "#fef2f2", borderWidth: 1, borderColor: "#fecaca", borderRadius: 8, padding: 10 }}><Text style={{ fontSize: 12, color: "#dc2626" }}>{error} — you can type in the notes field instead.</Text></View> : null}
+      {audioUri && !transcript && !transcribing ? <Text variant="caption">Your recording is kept on this phone.</Text> : null}
+      {error ? <Banner tone="danger" message={`${error} You can type your note below instead.`} /> : null}
 
-      <View style={{ borderTopWidth: 1, borderTopColor: "#f1f5f9", paddingTop: 10, gap: 6 }}>
-        <Text style={{ fontSize: 12, fontWeight: "600", color: "#475569" }}>Or type observation manually (fallback)</Text>
-        <TextInput placeholder="Type observation here if recording fails" multiline style={{ borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 8, padding: 8, fontSize: 13, minHeight: 44, color: "#0f172a", backgroundColor: "#fff" }} onEndEditing={(e) => { const t = e.nativeEvent.text; if (t) { setTranscript(t); setConfirmed(false); } }} />
-      </View>
+      <Field
+        label="Or type a note"
+        placeholder="Type your observation if recording isn't working"
+        multiline
+        onEndEditing={(e) => { const t = e.nativeEvent.text; if (t) { setTranscript(t); setConfirmed(false); } }}
+      />
     </View>
   );
 }

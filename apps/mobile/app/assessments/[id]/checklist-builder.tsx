@@ -1,20 +1,24 @@
 import { useEffect, useState } from "react";
-import { View, Text, ScrollView, Pressable, TextInput, ActivityIndicator, Alert } from "react-native";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { Alert, TextInput, View } from "react-native";
+import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { apiFetch, apiBase } from "../../../lib/api";
+import { colors, radius, space, type Tone } from "../../../lib/theme";
+import { useKeyboardReveal } from "../../../components/keyboard";
+import { Badge, Banner, Button, Card, IconButton, Loading, Screen, Text } from "../../../components/ui";
 
 type Source = "established" | "user" | "ai_suggested";
 type Item = { id: string; title: string; required: boolean; category?: string; source: Source; rationale?: string };
 
-const SOURCE_STYLE: Record<Source, { label: string; bg: string; fg: string }> = {
-  established: { label: "Pack requirement", bg: "#f8fafc", fg: "#475569" },
-  user: { label: "Added by you", bg: "#f0f9ff", fg: "#075985" },
-  ai_suggested: { label: "AI suggestion — review", bg: "#fef3c7", fg: "#92400e" },
+const SOURCE_BADGE: Record<Source, { label: string; tone: Tone }> = {
+  established: { label: "Template", tone: "neutral" },
+  user: { label: "Added by you", tone: "accent" },
+  ai_suggested: { label: "AI suggestion — review", tone: "warning" },
 };
 
 export default function MobileChecklistBuilder() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const reveal = useKeyboardReveal();
   const [items, setItems] = useState<Item[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -45,7 +49,7 @@ export default function MobileChecklistBuilder() {
       try {
         apiBase();
       } catch {
-        setError("Set EXPO_PUBLIC_APP_URL to persist builder edits — navigating without saving.");
+        setError("Can't reach the server — your edits weren't saved.");
         router.replace(`/assessments/${String(id)}/checklist` as never);
         return;
       }
@@ -68,7 +72,7 @@ export default function MobileChecklistBuilder() {
   function updateTitle(idx: number, title: string) { setItems((prev) => prev.map((it, i) => (i === idx ? { ...it, title, source: it.source === "established" ? "user" as const : it.source } : it))); }
   function removeAt(idx: number) {
     const it = items[idx];
-    if (it.required) Alert.alert("Required item", `Removing "${it.title}" — confirm?`, [{ text: "Cancel", style: "cancel" }, { text: "Remove", style: "destructive", onPress: () => setItems((prev) => prev.filter((_, i) => i !== idx)) }]);
+    if (it.required) Alert.alert("Remove a required item?", `"${it.title}" is required by the template.`, [{ text: "Cancel", style: "cancel" }, { text: "Remove", style: "destructive", onPress: () => setItems((prev) => prev.filter((_, i) => i !== idx)) }]);
     else setItems((prev) => prev.filter((_, i) => i !== idx));
   }
   function move(idx: number, dir: -1 | 1) {
@@ -81,33 +85,41 @@ export default function MobileChecklistBuilder() {
     setItems((prev) => [...prev, it]);
   }
 
-  if (loading) return <View style={{ flex: 1, padding: 16, alignItems: "center", justifyContent: "center" }}><ActivityIndicator /><Text style={{ fontSize: 12, color: "#64748b", marginTop: 8 }}>Loading builder…</Text></View>;
+  if (loading) return <Screen><Stack.Screen options={{ title: "Edit checklist" }} /><Loading label="Loading checklist…" /></Screen>;
   return (
-    <ScrollView contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 32 }}>
-      <Text style={{ fontWeight: "800", fontSize: 16, color: "#0f172a" }}>M10 · Checklist Builder</Text>
-      <Text style={{ fontSize: 12, color: "#64748b" }}>{String(id).slice(0, 8)} · {items.length} items · grouped — edit, add/remove/reorder, required warns</Text>
-      {error ? <View style={{ backgroundColor: "#fef3c7", borderWidth: 1, borderColor: "#fde68a", borderRadius: 8, padding: 10 }}><Text style={{ fontSize: 12, color: "#92400e" }}>{error}</Text></View> : null}
-      <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
-        <Pressable onPress={addItem} style={{ borderWidth: 1, borderColor: "#e2e8f0", backgroundColor: "#fff", paddingHorizontal: 14, paddingVertical: 10, borderRadius: 8 }}><Text style={{ fontWeight: "600", fontSize: 12, color: "#0f172a" }}>Add item</Text></Pressable>
-        <Pressable onPress={confirm} disabled={saving} style={{ backgroundColor: "#0ea5e9", paddingHorizontal: 14, paddingVertical: 10, borderRadius: 8 }}><Text style={{ color: "#fff", fontWeight: "700", fontSize: 12 }}>{saving ? "Saving…" : "Confirm → Checklist"}</Text></Pressable>
-        <Pressable onPress={() => router.push(`/assessments/${String(id)}/clarify` as never)} style={{ paddingHorizontal: 12, paddingVertical: 10 }}><Text style={{ fontSize: 12, color: "#64748b" }}>Back</Text></Pressable>
-      </View>
-      {items.map((it, idx) => (
-        <View key={it.id} style={{ backgroundColor: "#fff", borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 12, padding: 12, gap: 8 }}>
-          <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap" }}>
-            <Text style={{ fontSize: 10, fontWeight: "700", backgroundColor: it.required ? "#fef2f2" : "#f1f5f9", color: it.required ? "#dc2626" : "#475569", paddingHorizontal: 6, paddingVertical: 2, borderRadius: 999 }}>{it.required ? "required" : "optional"}</Text>
-            <Text style={{ fontSize: 10, backgroundColor: SOURCE_STYLE[it.source].bg, color: SOURCE_STYLE[it.source].fg, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 999 }}>{SOURCE_STYLE[it.source].label}</Text>
-            {it.category ? <Text style={{ fontSize: 10, backgroundColor: "#f1f5f9", paddingHorizontal: 6, paddingVertical: 2, borderRadius: 999 }}>{it.category}</Text> : null}
-          </View>
-          <TextInput value={it.title} onChangeText={(v) => updateTitle(idx, v)} style={{ borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 8, padding: 8, fontSize: 13, color: "#0f172a", backgroundColor: "#fff" }} />
-          {it.rationale ? <Text style={{ fontSize: 11, color: "#64748b" }}>Rationale: {it.rationale}</Text> : null}
-          <View style={{ flexDirection: "row", gap: 6 }}>
-            <Pressable onPress={() => move(idx, -1)} style={{ borderWidth: 1, borderColor: "#e2e8f0", paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 }}><Text>↑</Text></Pressable>
-            <Pressable onPress={() => move(idx, 1)} style={{ borderWidth: 1, borderColor: "#e2e8f0", paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 }}><Text>↓</Text></Pressable>
-            <Pressable onPress={() => removeAt(idx)} style={{ backgroundColor: "#fef2f2", borderWidth: 1, borderColor: "#fecaca", paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 }}><Text style={{ color: "#dc2626", fontWeight: "600" }}>Remove</Text></Pressable>
-          </View>
-        </View>
-      ))}
-    </ScrollView>
+    <>
+      <Stack.Screen options={{ title: "Edit checklist" }} />
+      <Screen>
+        <Text variant="caption">{items.length} items · rename, reorder, add or remove before you start checking.</Text>
+        {error ? <Banner tone="warning" message={error} /> : null}
+
+        {items.map((it, idx) => (
+          <Card key={it.id} style={{ gap: space.sm }}>
+            <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap" }}>
+              <Badge label={it.required ? "Required" : "Optional"} tone={it.required ? "danger" : "neutral"} />
+              <Badge label={SOURCE_BADGE[it.source].label} tone={SOURCE_BADGE[it.source].tone} />
+              {it.category ? <Badge label={it.category} /> : null}
+            </View>
+            <TextInput onFocus={reveal}
+              value={it.title}
+              onChangeText={(v) => updateTitle(idx, v)}
+              multiline
+              style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingHorizontal: space.md, paddingVertical: 10, fontSize: 15, color: colors.text, backgroundColor: colors.surface }}
+            />
+            {it.rationale ? <Text variant="caption">Why: {it.rationale}</Text> : null}
+            <View style={{ flexDirection: "row", gap: 6 }}>
+              <IconButton icon="arrow-up" label="Move up" onPress={() => move(idx, -1)} disabled={idx === 0} />
+              <IconButton icon="arrow-down" label="Move down" onPress={() => move(idx, 1)} disabled={idx === items.length - 1} />
+              <View style={{ flex: 1 }} />
+              <IconButton icon="trash-outline" label="Remove item" tone="danger" onPress={() => removeAt(idx)} />
+            </View>
+          </Card>
+        ))}
+
+        <Button title="Add item" icon="add" variant="secondary" onPress={addItem} />
+        <Button title={saving ? "Saving…" : "Save & start checking"} icon="checkmark" variant="accent" size="lg" onPress={confirm} loading={saving} />
+        <Button title="Back to questions" variant="ghost" size="sm" onPress={() => router.push(`/assessments/${String(id)}/clarify` as never)} />
+      </Screen>
+    </>
   );
 }

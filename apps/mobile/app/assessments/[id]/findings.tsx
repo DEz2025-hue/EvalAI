@@ -1,27 +1,20 @@
 import { useCallback, useEffect, useState } from "react";
-import { View, Text, ScrollView, Pressable, ActivityIndicator, TextInput } from "react-native";
-import { useLocalSearchParams, useFocusEffect, Link } from "expo-router";
+import { View } from "react-native";
+import { Stack, useLocalSearchParams, useFocusEffect, Link } from "expo-router";
 import { apiFetch, apiBase } from "../../../lib/api";
 import { useRole } from "../../../lib/role";
+import { colors, space, type Tone } from "../../../lib/theme";
+import { Badge, Banner, Button, Card, Chip, EmptyState, Field, Loading, Screen, Text } from "../../../components/ui";
 
 type Finding = { id: string; title: string; description?: string; severity?: "low" | "medium" | "high"; status: string; evidenceRefs: string[]; uncertainty?: string; missingInputs?: string[]; reviewedAt?: string; createdAt: string };
 type Evidence = { id: string; storage_key: string };
 
-const card = { backgroundColor: "#fff", borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 12, padding: 12, gap: 6 } as const;
-const input = { borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 8, padding: 8, fontSize: 13, color: "#0f172a", backgroundColor: "#fff" } as const;
-const STATUS_COLOR: Record<string, { bg: string; fg: string }> = {
-  confirmed: { bg: "#dcfce7", fg: "#166534" },
-  rejected: { bg: "#e2e8f0", fg: "#475569" },
-  needs_review: { bg: "#fef3c7", fg: "#92400e" },
+const STATUS_BADGE: Record<string, { label: string; tone: Tone }> = {
+  confirmed: { label: "Confirmed", tone: "success" },
+  rejected: { label: "Rejected", tone: "neutral" },
+  needs_review: { label: "Needs review", tone: "warning" },
 };
-
-function Chip({ text, active, onPress }: { text: string; active: boolean; onPress: () => void }) {
-  return (
-    <Pressable onPress={onPress} style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, borderWidth: 1, borderColor: active ? "#0ea5e9" : "#e2e8f0", backgroundColor: active ? "#e0f2fe" : "#fff" }}>
-      <Text style={{ fontSize: 11, color: active ? "#0369a1" : "#334155", fontWeight: active ? "700" : "500" }}>{text}</Text>
-    </Pressable>
-  );
-}
+const SEVERITY_TONE: Record<string, Tone> = { low: "info", medium: "warning", high: "danger" };
 
 export default function MobileFindings() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -90,74 +83,80 @@ export default function MobileFindings() {
   const toggleRef = (evId: string) => setForm((f) => ({ ...f, refs: f.refs.includes(evId) ? f.refs.filter((r) => r !== evId) : [...f.refs, evId] }));
   const unreviewed = findings.filter((f) => f.status === "needs_review").length;
 
-  if (loading) return <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}><ActivityIndicator /></View>;
+  if (loading) return <Screen><Stack.Screen options={{ title: "Findings" }} /><Loading label="Loading findings…" /></Screen>;
 
   return (
-    <ScrollView contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 32 }}>
-      <Text style={{ fontWeight: "800", fontSize: 18, color: "#0f172a" }}>Findings · {findings.length}{unreviewed ? " · " + unreviewed + " to review" : ""}</Text>
-      <Text style={{ fontSize: 12, color: "#64748b" }}>Every finding stays traceable to its evidence and is unconfirmed until a person reviews it. You can add findings yourself — AI is optional.</Text>
-      {error ? <View style={{ backgroundColor: "#fef2f2", borderRadius: 8, padding: 10 }}><Text style={{ fontSize: 12, color: "#b91c1c" }}>{error}</Text></View> : null}
-      {loaded && !canWrite ? <View style={{ backgroundColor: "#f8fafc", borderRadius: 8, padding: 10 }}><Text style={{ fontSize: 12, color: "#64748b" }}>Your role is read-only in this workspace.</Text></View> : null}
+    <Screen>
+      <Stack.Screen options={{ title: "Findings" }} />
+      <Text variant="caption">Each finding links back to its evidence and stays unconfirmed until someone reviews it.{unreviewed ? ` ${unreviewed} waiting for review.` : ""}</Text>
+      {error ? <Banner tone="danger" message={error} /> : null}
+      {loaded && !canWrite ? <Banner tone="neutral" message="You have view-only access in this workspace." /> : null}
 
       {canWrite ? (
         adding ? (
-          <View style={[card, { gap: 10 }]}>
-            <TextInput value={form.title} onChangeText={(t) => setForm({ ...form, title: t })} placeholder="Title *" placeholderTextColor="#94a3b8" maxLength={300} style={input} />
-            <TextInput value={form.description} onChangeText={(t) => setForm({ ...form, description: t })} placeholder="Description" placeholderTextColor="#94a3b8" multiline maxLength={5000} style={[input, { minHeight: 70, textAlignVertical: "top" }]} />
-            <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap" }}>
-              {(["", "low", "medium", "high"] as const).map((s) => <Chip key={s || "none"} text={s ? s : "Not rated"} active={form.severity === s} onPress={() => setForm({ ...form, severity: s })} />)}
-            </View>
-            <TextInput value={form.uncertainty} onChangeText={(t) => setForm({ ...form, uncertainty: t })} placeholder="Uncertainty / what is unknown" placeholderTextColor="#94a3b8" maxLength={500} style={input} />
-            <Text style={{ fontSize: 11, fontWeight: "600", color: "#0f172a" }}>Supporting evidence</Text>
-            {evidence.length === 0 ? <Text style={{ fontSize: 11, color: "#64748b" }}>No evidence uploaded yet — add photos first to link them.</Text> : (
-              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
-                {evidence.map((ev) => <Chip key={ev.id} text={(ev.storage_key.split("/").pop() ?? ev.id).slice(0, 26)} active={form.refs.includes(ev.id)} onPress={() => toggleRef(ev.id)} />)}
+          <Card style={{ gap: space.lg }}>
+            <Text variant="heading">New finding</Text>
+            <Field label="Title" required value={form.title} onChangeText={(t) => setForm({ ...form, title: t })} placeholder="What's the issue?" maxLength={300} />
+            <Field label="Description" value={form.description} onChangeText={(t) => setForm({ ...form, description: t })} placeholder="Details, location, impact" multiline maxLength={5000} />
+            <View style={{ gap: space.sm }}>
+              <Text variant="label" color={colors.text}>Severity</Text>
+              <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap" }}>
+                {(["", "low", "medium", "high"] as const).map((s) => <Chip key={s || "none"} label={s ? s[0].toUpperCase() + s.slice(1) : "Not rated"} tone={s ? SEVERITY_TONE[s] : undefined} active={form.severity === s} onPress={() => setForm({ ...form, severity: s })} />)}
               </View>
-            )}
-            <View style={{ flexDirection: "row", gap: 8 }}>
-              <Pressable onPress={addFinding} disabled={saving || form.title.trim().length < 3} style={{ flex: 1, backgroundColor: saving || form.title.trim().length < 3 ? "#94a3b8" : "#0ea5e9", paddingVertical: 10, borderRadius: 10, alignItems: "center" }}><Text style={{ color: "#fff", fontWeight: "700", fontSize: 12 }}>{saving ? "Saving…" : "Save finding"}</Text></Pressable>
-              <Pressable onPress={() => setAdding(false)} style={{ flex: 1, backgroundColor: "#fff", borderWidth: 1, borderColor: "#e2e8f0", paddingVertical: 10, borderRadius: 10, alignItems: "center" }}><Text style={{ color: "#0f172a", fontWeight: "700", fontSize: 12 }}>Cancel</Text></Pressable>
             </View>
-          </View>
+            <Field label="What's uncertain?" value={form.uncertainty} onChangeText={(t) => setForm({ ...form, uncertainty: t })} placeholder="Anything you couldn't confirm" maxLength={500} />
+            <View style={{ gap: space.sm }}>
+              <Text variant="label" color={colors.text}>Supporting photos and audio</Text>
+              {evidence.length === 0 ? <Text variant="caption">Nothing uploaded yet — capture photos on the job first to link them.</Text> : (
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+                  {evidence.map((ev) => <Chip key={ev.id} icon="attach" label={(ev.storage_key.split("/").pop() ?? ev.id).slice(0, 26)} tone="accent" active={form.refs.includes(ev.id)} onPress={() => toggleRef(ev.id)} />)}
+                </View>
+              )}
+            </View>
+            <View style={{ flexDirection: "row", gap: space.sm }}>
+              <Button title="Cancel" variant="secondary" onPress={() => setAdding(false)} style={{ flex: 1 }} />
+              <Button title={saving ? "Saving…" : "Save finding"} variant="accent" onPress={addFinding} loading={saving} disabled={form.title.trim().length < 3} style={{ flex: 1 }} />
+            </View>
+          </Card>
         ) : (
-          <Pressable onPress={() => setAdding(true)} style={{ backgroundColor: "#fff", borderWidth: 1, borderColor: "#e2e8f0", paddingVertical: 10, borderRadius: 10, alignItems: "center" }}><Text style={{ color: "#0f172a", fontWeight: "700", fontSize: 12 }}>+ Add finding</Text></Pressable>
+          <Button title="Add finding" icon="add" variant="secondary" onPress={() => setAdding(true)} />
         )
       ) : null}
 
       {findings.length === 0 ? (
-        <View style={[card, { alignItems: "center", padding: 20 }]}><Text style={{ fontSize: 12, color: "#64748b", textAlign: "center" }}>No findings yet. Add one yourself, or request an AI analysis on the job screen and save the drafts you agree with.</Text></View>
+        <EmptyState icon="flag-outline" title="No findings yet" message="Add one yourself, or run an AI analysis on the job and keep the drafts you agree with." />
       ) : findings.map((f) => {
-        const c = STATUS_COLOR[f.status] ?? { bg: "#f1f5f9", fg: "#334155" };
+        const st = STATUS_BADGE[f.status] ?? { label: f.status.replace("_", " "), tone: "neutral" as Tone };
         return (
-          <View key={f.id} style={card}>
-            <View style={{ flexDirection: "row", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-              <Text style={{ fontWeight: "700", fontSize: 13, color: "#0f172a", flexShrink: 1 }}>{f.title}</Text>
-              {f.severity ? <Text style={{ fontSize: 10, backgroundColor: "#f1f5f9", paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 }}>{f.severity}</Text> : null}
-              <Text style={{ fontSize: 10, backgroundColor: c.bg, color: c.fg, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 }}>{f.status.replace("_", " ")}</Text>
+          <Card key={f.id} style={{ gap: space.sm }}>
+            <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap" }}>
+              <Badge label={st.label} tone={st.tone} />
+              {f.severity ? <Badge label={`${f.severity[0].toUpperCase()}${f.severity.slice(1)} severity`} tone={SEVERITY_TONE[f.severity]} /> : null}
             </View>
-            {f.description ? <Text style={{ fontSize: 12, color: "#475569" }}>{f.description}</Text> : null}
-            {f.uncertainty ? <Text style={{ fontSize: 11, color: "#92400e" }}>Uncertainty: {f.uncertainty}</Text> : null}
-            {f.missingInputs && f.missingInputs.length > 0 ? <Text style={{ fontSize: 11, color: "#64748b" }}>Missing: {f.missingInputs.join("; ")}</Text> : null}
-            <Text style={{ fontSize: 10, color: "#94a3b8" }}>Evidence linked: {f.evidenceRefs.length} · {new Date(f.createdAt).toLocaleString()}{f.reviewedAt ? " · reviewed " + new Date(f.reviewedAt).toLocaleString() : ""}</Text>
+            <Text variant="heading">{f.title}</Text>
+            {f.description ? <Text variant="body" color={colors.textMuted}>{f.description}</Text> : null}
+            {f.uncertainty ? <Text variant="caption" color={colors.warning}>Uncertain: {f.uncertainty}</Text> : null}
+            {f.missingInputs && f.missingInputs.length > 0 ? <Text variant="caption">Missing: {f.missingInputs.join("; ")}</Text> : null}
+            <Text style={{ fontSize: 11, color: colors.textSubtle }}>{f.evidenceRefs.length} linked file{f.evidenceRefs.length === 1 ? "" : "s"} · {new Date(f.createdAt).toLocaleDateString()}{f.reviewedAt ? " · reviewed " + new Date(f.reviewedAt).toLocaleDateString() : ""}</Text>
             {canWrite ? (
-              <View style={{ flexDirection: "row", gap: 8, marginTop: 4 }}>
+              <View style={{ flexDirection: "row", gap: space.sm, marginTop: space.xs }}>
                 {f.status === "needs_review" ? (
                   <>
-                    <Pressable onPress={() => void review(f.id, "confirmed")} style={{ backgroundColor: "#0ea5e9", paddingVertical: 8, paddingHorizontal: 14, borderRadius: 8 }}><Text style={{ color: "#fff", fontWeight: "700", fontSize: 12 }}>Confirm</Text></Pressable>
-                    <Pressable onPress={() => void review(f.id, "rejected")} style={{ backgroundColor: "#fff", borderWidth: 1, borderColor: "#e2e8f0", paddingVertical: 8, paddingHorizontal: 14, borderRadius: 8 }}><Text style={{ color: "#0f172a", fontWeight: "700", fontSize: 12 }}>Reject</Text></Pressable>
+                    <Button title="Confirm" icon="checkmark" variant="accent" size="sm" onPress={() => void review(f.id, "confirmed")} />
+                    <Button title="Reject" icon="close" variant="secondary" size="sm" onPress={() => void review(f.id, "rejected")} />
                   </>
                 ) : (
-                  <Pressable onPress={() => void review(f.id, "needs_review")} style={{ backgroundColor: "#fff", borderWidth: 1, borderColor: "#e2e8f0", paddingVertical: 8, paddingHorizontal: 14, borderRadius: 8 }}><Text style={{ color: "#0f172a", fontWeight: "700", fontSize: 12 }}>Reopen review</Text></Pressable>
+                  <Button title="Reopen review" icon="refresh" variant="secondary" size="sm" onPress={() => void review(f.id, "needs_review")} />
                 )}
               </View>
             ) : null}
-          </View>
+          </Card>
         );
       })}
 
       <Link href={("/assessments/" + jobId + "/completeness") as never} asChild>
-        <Pressable style={{ backgroundColor: "#fff", borderWidth: 1, borderColor: "#e2e8f0", paddingVertical: 12, borderRadius: 10, alignItems: "center" }}><Text style={{ color: "#0f172a", fontWeight: "700", fontSize: 12 }}>Completeness review →</Text></Pressable>
+        <Button title="Check progress" icon="pie-chart-outline" variant="ghost" />
       </Link>
-    </ScrollView>
+    </Screen>
   );
 }
