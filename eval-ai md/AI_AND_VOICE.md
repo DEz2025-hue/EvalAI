@@ -84,7 +84,10 @@ working.
 AI must not claim to see details that are not visible, infer hidden
 wiring conditions, or present a visual estimate as a verified
 measurement. Any photo-assisted measurement feature requires separate
-validation before it can be treated as trusted.
+validation before it can be treated as trusted. The mobile "Measure from a
+photo" feature (DECISIONS.md D-014) scales from a reference object of known
+size, is always labelled a photo estimate, and its accuracy has not been
+validated.
 
 ## 6. Live camera status
 

@@ -12,7 +12,8 @@ export type { AiRunRecord, RunHook, CallOptions, ContentPart, JsonSchema } from 
 export { clarifyContext, proposeChecklist, analyzeAssessment, draftReportNarrative, SYSTEM_GUARD, compact } from "./text";
 export { analyzeImage } from "./image";
 export { voiceTranscribe, transcribeWav, inspectWav, buildTranscribeRequest, MAX_AUDIO_BYTES, MAX_AUDIO_SECONDS } from "./voice";
-export { samSegment, SamSegmentInput } from "./sam";
+export { samSegment, SamSegmentInput, parseSamBoxes, extractSamText } from "./sam";
+export type { SamBox } from "./sam";
 
 // Backwards-compatible names used by the web routes.
 export { clarifyContext as sparkClarifyContext, proposeChecklist as sparkProposeChecklist, analyzeAssessment as wonderAnalyzeAssessment } from "./text";

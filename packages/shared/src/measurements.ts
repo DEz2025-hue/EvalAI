@@ -1,3 +1,4 @@
+import { checkPhotoCapture, type PhotoCapture } from "./photoMeasure";
 // Deterministic calculations — never use AI output as source of truth
 export function areaM2(lengthM: number, widthM: number): number {
   if (!Number.isFinite(lengthM) || !Number.isFinite(widthM)) throw new Error("Invalid dimensions");
@@ -30,7 +31,56 @@ export function toMetres(value: number, unit: LengthUnit): number {
 
 export type FormulaId = "area" | "volume" | "cable_with_sag";
 
-export type MeasurementInput = { value: number; unit: LengthUnit | "ratio" };
+/** How a length was obtained. Untagged inputs are treated as typed by the person. */
+export type MeasurementSource = "typed" | "ar" | "photo";
+
+/**
+ * Quality details recorded with a device-assisted (AR) length. The value is still confirmed by a person;
+ * these fields only say how it was captured so a reader can judge it. Never survey-grade.
+ */
+export type ArCapture = {
+  /** ARCore tracking state at capture, e.g. "tracking" / "limited". Only "tracking" is accepted. */
+  tracking: string;
+  /** What the two end points hit: a detected "plane", a "depth" point, or an "estimate" (rejected). */
+  hit: string;
+  /** Whether the Depth API contributed to the hit. */
+  depth: boolean;
+};
+
+export type MeasurementInput = { value: number; unit: LengthUnit | "ratio"; source?: MeasurementSource; ar?: ArCapture; photo?: PhotoCapture };
+
+/**
+ * Error message when a photo-estimated length can't be accepted, else null. The server recomputes the length from the
+ * recorded reference box and end points, so the stored number always traces back to them.
+ */
+export function verifyPhotoReading(value: number, unit: LengthUnit, photo: PhotoCapture | undefined): string | null {
+  const check = checkPhotoCapture(photo);
+  if ("reason" in check) return check.reason;
+  const claimedM = toMetres(value, unit);
+  const computedM = check.lengthMm / 1000;
+  // Allow for the phone rounding the value to the field's unit.
+  if (Math.abs(claimedM - computedM) > Math.max(0.005 * computedM, 0.001)) return "The value doesn't match the photo measurement — measure again or type the value.";
+  return null;
+}
+
+/** True when any recorded input is a photo estimate (used to label the line in reports). */
+export function hasPhotoInput(inputs: Record<string, unknown> | null | undefined): boolean {
+  return Object.values(inputs ?? {}).some((i) => (i as { source?: string } | null)?.source === "photo");
+}
+
+/** Tracking and hit types that may be recorded as an AR measurement; anything else must be re-measured or typed. */
+export const AR_ACCEPTED_TRACKING = "tracking";
+export const AR_ACCEPTED_HITS: readonly string[] = ["plane", "depth"];
+
+/** True when any recorded input was captured with AR (used to label the line in reports). */
+export function hasArInput(inputs: Record<string, unknown> | null | undefined): boolean {
+  return Object.values(inputs ?? {}).some((i) => (i as { source?: string } | null)?.source === "ar");
+}
+
+/** True when the capture details are good enough to label a length "AR-assisted". */
+export function isAcceptableArCapture(ar: ArCapture | undefined): boolean {
+  return !!ar && ar.tracking === AR_ACCEPTED_TRACKING && AR_ACCEPTED_HITS.includes(ar.hit);
+}
 
 export type FormulaDef = {
   id: FormulaId;
@@ -93,12 +143,19 @@ export function calculateMeasurement(formula: FormulaId, inputs: Record<string, 
     const given = inputs[spec.key];
     if (!given) throw new Error(`${spec.label} is required`);
     if (!Number.isFinite(given.value)) throw new Error(`${spec.label} must be a number`);
+    // The server re-checks the capture quality, so a modified client cannot label a shaky reading as AR-assisted.
+    if (given.source === "ar" && !isAcceptableArCapture(given.ar)) throw new Error(`${spec.label}: the AR reading was not steady enough — measure again or type the value`);
     if (spec.kind === "ratio") {
+      if (given.source === "ar" || given.source === "photo") throw new Error(`${spec.label} can't be measured with the camera`);
       if (given.value < 1 || given.value > 2) throw new Error(`${spec.label} must be between 1.00 and 2.00`);
       metres[spec.key] = given.value;
     } else {
       if (given.value <= 0) throw new Error(`${spec.label} must be greater than zero`);
       if (given.unit === "ratio") throw new Error(`${spec.label} needs a length unit`);
+      if (given.source === "photo") {
+        const problem = verifyPhotoReading(given.value, given.unit, given.photo);
+        if (problem) throw new Error(`${spec.label}: ${problem}`);
+      }
       metres[spec.key] = toMetres(given.value, given.unit);
     }
   }

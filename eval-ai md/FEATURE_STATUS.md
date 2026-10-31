@@ -146,6 +146,11 @@ audit; they do not prove implementation is complete.
                                                  checklist.test.ts + manual node    deterministic checks PASS
                                                  tsc + build green
 
+  Photo length estimate          Implemented     PhotoMeasureModal (mobile),        Unit-tested; UI checked on web with a
+  (reference object, SAM-assisted)               /api/ai/segment, shared             synthetic photo. NOT checked on a phone,
+                                                 photoMeasure.ts, D-014              against a live SAM response, or for real
+                                                                                     accuracy. Always labelled an estimate.
+
   Live camera guidance           Coming Soon     Labelled as Coming Soon in UI       Not implemented per D-005
   ----------------------------------------------------------------------------------------------------------------
 

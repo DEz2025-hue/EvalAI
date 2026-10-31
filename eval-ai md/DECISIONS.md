@@ -113,6 +113,16 @@ unknown/provisional.
 -   **Consequences:** Build `packages/ai-adapter` with `clarifyContext`, `proposeChecklist`, `analyzeAssessment`, `draftFinding`, `transcribeAudio`, `analyzeImage`, `generateSpeech` (if verified), with timeouts/rate limits/validation; verify against live Meta API with synthetic data before marking verified.
 -   **Documents updated:** AI_AND_VOICE.md, SECURITY.md, ENVIRONMENT_AND_SECRETS.md, TEST_PLAN.md.
 
+### D-014 --- Measuring from a photo with a reference object (estimate only)
+
+-   **Status:** Confirmed — 2026-10-30
+-   **Decision:** Mobile can estimate a length from a photo. A flat object of known size (A4, US Letter, bank/ID card) in the same plane gives the scale; the person taps both ends of what they want to measure. SAM 3.1 only proposes the reference object's outline (the person confirms it); a hand-marked outline works when AI is unavailable. The length is computed from recorded pixel geometry, never by an AI model. Every such value is labelled "photo estimate, not verified".
+-   **Context and evidence:** No Meta model measures: the Meta model list and SAM docs describe only pixel-space boxes and masks, with no depth, 3D or real-world size. AI_AND_VOICE.md requires separate validation before any photo-assisted measurement is treated as trusted. AR (ARCore) measuring is planned separately as the primary device-assisted option.
+-   **Alternatives considered:** Asking Muse Spark for dimensions (rejected: a guess); AR only (needs a development build and a physical-device accuracy test first).
+-   **Security/privacy impact:** The segmentation prompt is chosen on the server from the reference type; photos are sent inline (no file storage) through the existing AI guard (rate limit, daily cap, usage log). The server re-verifies the capture and recomputes the length before saving.
+-   **Consequences:** Gates (starting values, NOT yet validated on real photos): reference sides must agree within 5% (catches tilt and rotation), reference at least 8% of the photo's long side, AI confidence at least 0.5, measured length at most 10x the reference's long side. Accuracy has not been measured; do not quote one. The SAM response format comes from Meta's docs and has not been checked against a live response (provider billing was not set up); the parser fails safe to "no outlines".
+-   **Documents updated:** AI_AND_VOICE.md, FEATURE_STATUS.md.
+
 ## Open decisions
 
 Remaining to resolve through provider verification and implementation: - Exact authentication and role/permission matrix details. - Exact Meta model IDs and verified image/audio/streaming capabilities per model. - Which voice capabilities deliver reliably per platform (web vs Expo). - Report export layout and PDF rendering choice. - Offline/sync scope. - Data retention and deletion periods. - Whether corrective-action assignment is in initial release.
