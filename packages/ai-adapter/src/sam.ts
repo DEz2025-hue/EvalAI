@@ -8,18 +8,18 @@ import { estimateSamImageCostUsd } from "./pricing";
 // https://dev.meta.ai/docs/sam/segmenting
 // Masks and boxes are NOT measurements: they are outlines in pixels. The documented output is a stream of text records,
 // e.g. <0f>0<|box;x1=181;y1=365;x2=556;y2=486;w=1516;h=1600;c=0.96|><|mask;...|> (corners inclusive, w/h = source size).
-// Only the boxes are parsed. The format comes from the docs; it has NOT been checked against a live response yet
-// (the provider account needed billing when this was written), so the parser fails safe: anything unexpected yields no boxes.
+// Only the boxes are parsed. Checked against live responses on 2026-11-03. Records are separated by commas, and the frame marker may lead only the first
+// one, so it is optional here. The parser fails safe: anything unexpected yields no boxes.
 
 export type SamBox = { ordinal: number; x1: number; y1: number; x2: number; y2: number; w: number; h: number; c?: number };
 
 /** Pull the box records (frame 0 only) out of SAM text output. Masks are ignored; malformed records are skipped. */
 export function parseSamBoxes(text: string): SamBox[] {
   const out: SamBox[] = [];
-  const re = /<(\d+)f>(\d+)<\|box;([^|]*)\|>/g;
+  const re = /(?:<(\d+)f>)?(\d+)<\|box;([^|]*)\|>/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) {
-    if (m[1] !== "0") continue;
+    if (m[1] !== undefined && m[1] !== "0") continue;
     const f: Record<string, number> = {};
     for (const part of m[3].split(";")) {
       const [k, v] = part.split("=");

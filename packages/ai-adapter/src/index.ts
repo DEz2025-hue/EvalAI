@@ -25,7 +25,7 @@ export { analyzeImage, IMAGE_ANALYST_PROMPT } from "./image";
 export { lensesFor, lensText, LENSES, type LensTopic } from "./photoLens";
 export { liveFrame, LiveFrameInput } from "./live";
 export { siteIntake, SiteIntakeInput, INTAKE_MAX_IMAGES } from "./siteIntake";
-export { photoReview, PhotoReviewInput, PHOTO_REVIEW_BATCH, PHOTO_REVIEW_VERSION } from "./photoReview";
+export { photoReview, samPhrase, PhotoReviewInput, PHOTO_REVIEW_BATCH, PHOTO_REVIEW_VERSION } from "./photoReview";
 export type { PhotoReviewItem, PhotoReviewOutput } from "./photoReview";
 export type { SiteIntakeOutput } from "./siteIntake";
 export type { LiveFrameOutput } from "./live";

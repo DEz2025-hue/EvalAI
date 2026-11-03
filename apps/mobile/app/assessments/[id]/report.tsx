@@ -191,6 +191,15 @@ export default function MobileReport() {
       setStepsDone((s) => [...s, "choose"]);
 
       setPreparing("draft");
+      // Outline the possible issues on the added photos (D-041). The draft is still made if this fails.
+      try {
+        for (let i = 0; i < 4; i++) {
+          const m = (await post("/api/ai/photo-highlights", { assessmentId: jobId })) as { done?: number; remaining?: number };
+          if (!m.remaining || !m.done) break;
+        }
+      } catch (e) {
+        notes.push("The photos could not be marked: " + (e instanceof Error ? e.message : String(e)));
+      }
       const d = (await post("/api/reports/snapshot", { assessmentId: jobId, includeMaterials })) as { snapshot?: Snap; picturesMissing?: number };
       if (!d.snapshot) throw new Error("The report draft could not be created");
       if (d.picturesMissing) notes.push(d.picturesMissing + " photo(s) could not be added as pictures, so they show text only. Create the draft again to retry.");

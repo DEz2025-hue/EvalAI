@@ -176,7 +176,7 @@ appears to be new analysis; - record redacted diagnostics.
 |---|---|---|
 | Clarify, checklist suggestions, analysis, photo analysis, report draft | `muse-spark-1.3` | Reasoning level and token budget set per operation (`packages/ai-adapter/src/config.ts`) |
 | Voice notes | `muse-voice-transcribe-1.0` | WAV only (mono 16-bit, 16/24 kHz, 10 min, 32 MB); the server converts webm/m4a |
-| Optional segmentation | `sam-3.1` | Raw records only; masks are never measurements |
+| Marks on report photos (D-041), and the reference object for photo measuring | `sam-3.1` | Boxes only; never findings or measurements |
 | Senior review and project plan (D-039) | `muse-wonder-1.0` | Falls back to Spark on 429 or 503; `AI_MODEL_PLAN`, `AI_EFFORT_PLAN` (default low), `AI_MAX_TOKENS_PLAN`, 55 s |
 | Not used | Muse Image, any `*-contributor` model | Contributor models let Meta train on content and forbid personal data — refused by the app |
 

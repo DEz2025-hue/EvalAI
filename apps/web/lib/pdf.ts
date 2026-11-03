@@ -1,5 +1,5 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
-import { DORI_LABEL, SYSTEM_RANGES, cameraFix, cctvSizedEquipment, cctvSizing, CAMERA_TYPE_LABEL, DECISION_BASIS_LABEL, LOAD_SOURCE_LABEL, SIZING_RANGES, SYSTEM_TYPE_LABEL, designCounts, kilo, sizedEquipment, solarSizing, DEFAULT_ACCENT, PRIORITY_LABEL, REPORT_DISCLAIMER, resolveTemplate, type SectionId, checklistGlance, glanceSentence, groupByCategory, keyFindingsFor, photoNumbers, projectPlanNote, recommendedActions, reportLayout, scenarioFor, scenarioLabel, siteBriefLines, statusLabel, type ReportChecklistRow, type ReportInput, type ReportPhoto, type ReportSnapshot } from "@eval-ai/shared";
+import { HIGHLIGHT_NOTE, highlightGroups, DORI_LABEL, SYSTEM_RANGES, cameraFix, cctvSizedEquipment, cctvSizing, CAMERA_TYPE_LABEL, DECISION_BASIS_LABEL, LOAD_SOURCE_LABEL, SIZING_RANGES, SYSTEM_TYPE_LABEL, designCounts, kilo, sizedEquipment, solarSizing, DEFAULT_ACCENT, PRIORITY_LABEL, REPORT_DISCLAIMER, resolveTemplate, type SectionId, checklistGlance, glanceSentence, groupByCategory, keyFindingsFor, photoNumbers, projectPlanNote, recommendedActions, reportLayout, scenarioFor, scenarioLabel, siteBriefLines, statusLabel, type ReportChecklistRow, type ReportInput, type ReportPhoto, type ReportSnapshot } from "@eval-ai/shared";
 
 // Deterministic PDF from a versioned snapshot — no AI regeneration at export.
 // Uses saved facts + snapshot versions only; later edits create new snapshots.
@@ -171,18 +171,37 @@ export async function buildReportPdf(snapshot: ReportSnapshot, input: ReportInpu
   const drawPhoto = async (p: ReportPhoto, n: number, box: { w: number; h: number }) => {
     draw(`Photo ${n}${p.itemTitle ? " - " + p.itemTitle : ""}`, { size: 9, bold: true, indent: 10 });
     const m = typeof p.thumbnail === "string" ? /^data:image\/jpeg;base64,([A-Za-z0-9+/=]+)$/.exec(p.thumbnail) : null;
+    const groups = m ? highlightGroups(p) : [];
+    let drawn = false;
     if (m) {
       try {
         const img = await pdf.embedJpg(Buffer.from(m[1], "base64"));
-        const scale = Math.min(box.w / img.width, box.h / img.height, 1);
+        // A photo with outlines is printed larger, so the outlines can be read.
+        const fit = groups.length ? { w: 340, h: 260 } : box;
+        const scale = Math.min(fit.w / img.width, fit.h / img.height, groups.length ? 2 : 1);
         const w = img.width * scale;
         const h = img.height * scale;
         if (y - h < BOTTOM) newPage();
         page.drawImage(img, { x: MARGIN + 10, y: y - h, width: w, height: h });
+        const RED = rgb(0.86, 0.15, 0.15);
+        for (const g of groups) {
+          for (const a of g.areas) {
+            const left = MARGIN + 10 + a.x * w;
+            const top = y - a.y * h;
+            page.drawRectangle({ x: left, y: top - a.h * h, width: a.w * w, height: a.h * h, borderColor: RED, borderWidth: 1.5 });
+            page.drawRectangle({ x: left, y: top - 10, width: 10, height: 10, color: RED });
+            page.drawText(g.letter, { x: left + 2, y: top - 8, size: 8, font: bold, color: rgb(1, 1, 1) });
+          }
+        }
+        drawn = true;
         y -= h + 6;
       } catch {
         draw("(The picture could not be shown.)", { size: 7, indent: 10, color: MUTED });
       }
+    }
+    if (drawn && groups.length) {
+      draw(HIGHLIGHT_NOTE, { size: 7, indent: 10, color: MUTED });
+      for (const g of groups) draw(`${g.letter}: ${g.label}`, { size: 8, indent: 10 });
     }
     if (p.caption) draw(`${p.caption} [AI description, not verified]`, { size: 8, indent: 10 });
     for (const o of p.observations) draw(`- ${o}`, { size: 8, indent: 14 });

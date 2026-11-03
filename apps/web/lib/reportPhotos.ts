@@ -7,7 +7,7 @@ import { ffmpegBinary } from "./audio";
 import { isOwnKey } from "./directUpload";
 import { createServiceRoleClient } from "./supabase/service";
 import type { EvidenceRecord } from "./store";
-import type { ReportPhoto } from "@eval-ai/shared";
+import { cleanHighlights, type ReportPhoto } from "@eval-ai/shared";
 
 // Photos for the report (decision D-022): the job's pictures are shrunk twice, a larger copy for the AI to look at and a
 // small copy that is kept inside the report. The originals are never changed.
@@ -118,13 +118,16 @@ export type SavedPhotoReview = {
   evidenceId: string;
   caption: string;
   observations: string[];
-  possibleIssues: Array<{ text: string; confidence: "low" | "medium" | "high" }>;
+  possibleIssues: Array<{ text: string; confidence: "low" | "medium" | "high"; find?: string }>;
   cannotTell: string[];
   itemId: string | null;
   at: string;
   /** The PHOTO_REVIEW_VERSION that made this review. Missing on reviews made before versions existed (treated as 1). */
   v?: number;
 };
+
+/** What is remembered per photo under assessments.context.photoHighlights (written by /api/ai/photo-highlights). `reviewAt` is the review they were made from. */
+export type SavedPhotoHighlights = { reviewAt: string; items: unknown[] };
 
 /** The person's answer per photo: true = add to the report, false = leave out. A photo with no answer is NOT in the report. */
 export type PhotoChoices = Record<string, boolean>;
@@ -145,7 +148,7 @@ export async function buildReportPhotos(
   titleByItemId: Map<string, string>,
   choices?: PhotoChoices,
   /** `thumbnails: false` skips reading and shrinking the pictures: enough when only the notes are needed (the AI write-up). */
-  opts: { thumbnails?: boolean } = {},
+  opts: { thumbnails?: boolean; highlights?: Record<string, SavedPhotoHighlights> } = {},
 ): Promise<ReportPhoto[]> {
   if (!review) return [];
   const { chosen } = selectReportPhotos(evidence);
@@ -156,14 +159,17 @@ export async function buildReportPhotos(
   return withReview.map((id) => {
     const r = review[id];
     const itemId = r.itemId ?? evidence.find((e) => e.id === id)?.itemId ?? null;
+    // Outlines made from an older review may point at something the review no longer says.
+    const highlights = opts.highlights?.[id]?.reviewAt === r.at ? cleanHighlights(opts.highlights[id].items) : [];
     return {
       evidenceId: id,
       caption: r.caption,
       itemTitle: itemId ? titleByItemId.get(itemId) : undefined,
       observations: r.observations,
-      possibleIssues: r.possibleIssues,
+      possibleIssues: r.possibleIssues.map(({ text, confidence }) => ({ text, confidence })),
       cannotTell: r.cannotTell,
       thumbnail: thumbs.get(id) || undefined,
+      ...(highlights.length ? { highlights } : {}),
     };
   });
 }

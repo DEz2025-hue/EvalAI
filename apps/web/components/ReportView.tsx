@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { NARRATIVE_SECTIONS, type NarrativeTextKey, downloadGate, hasWriteUp, photoNumbers, previewKey, type DesignProposal, type ProjectPlan, type ReportKeyFinding, type ReportNarrative, type SolarDesign } from "@eval-ai/shared";
+import { NARRATIVE_SECTIONS, type NarrativeTextKey, downloadGate, hasWriteUp, highlightGroups, photoNumbers, previewKey, type DesignProposal, type PhotoHighlight, type ProjectPlan, type ReportKeyFinding, type ReportNarrative, type SolarDesign } from "@eval-ai/shared";
 import { useRole } from "./useRole";
 import { KeyFindingsEditor } from "./KeyFindingsEditor";
 import { DesignEditor } from "./DesignEditor";
@@ -26,7 +26,7 @@ type Snapshot = {
   htmlPreview?: string;
   /** From the list: no HTML copy or pictures yet. */
   light?: boolean;
-  payload?: { narrative?: Narrative; photos?: Array<{ evidenceId: string }>; findings?: unknown[] };
+  payload?: { narrative?: Narrative; photos?: Array<{ evidenceId: string; highlights?: PhotoHighlight[] }>; findings?: unknown[] };
   reviewedByLabel?: string | null;
   reviewedAt?: string | null;
   reviewNote?: string | null;
@@ -203,6 +203,42 @@ export function ReportView({ id, basePath }: { id: string; basePath: "/assessmen
     }
   }
 
+  /** Outline the possible issues on the added photos (D-041). A draft is still made if this fails, with the reason in the message. */
+  async function markPhotos(): Promise<string> {
+    try {
+      let outlined = 0;
+      // Each request handles a few photos; a request that gets nothing done stops the loop.
+      for (let i = 0; i < 4; i++) {
+        const res = await fetch("/api/ai/photo-highlights", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ assessmentId: id }) });
+        const data = (await res.json().catch(() => ({}))) as { done?: number; outlined?: number; remaining?: number; error?: string };
+        if (!res.ok) throw new Error(data.error ?? "AI suggestions are unavailable");
+        outlined += data.outlined ?? 0;
+        if (!data.remaining || !data.done) break;
+      }
+      return outlined ? ` ${outlined} possible problem area${outlined === 1 ? " was" : "s were"} marked on the photos. Check them against the pictures.` : "";
+    } catch (e) {
+      return ` The photos could not be marked (${e instanceof Error ? e.message : String(e)}).`;
+    }
+  }
+
+  async function removeHighlight(evidenceId: string, label: string) {
+    if (!selected) return;
+    setBusy("highlight");
+    setError(null);
+    setMsg(null);
+    try {
+      const res = await fetch("/api/reports/snapshot", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ snapshotId: selected.id, removeHighlight: { evidenceId, label } }) });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Could not remove the mark");
+      await load();
+      setMsg("The mark was removed from this draft.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function createDraft() {
     if (photosWaiting > 0) {
       setError(`${photosWaiting} photo${photosWaiting === 1 ? " is" : "s are"} waiting for your answer. Open "Photos for the report" and choose Add to report or Leave out for each, then save your choices.`);
@@ -213,6 +249,7 @@ export function ReportView({ id, basePath }: { id: string; basePath: "/assessmen
     setMsg(null);
     setDraftNotes(null);
     try {
+      const marked = await markPhotos();
       const res = await fetch("/api/reports/snapshot", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ assessmentId: id, includeMaterials }) });
       const data = (await res.json().catch(() => ({}))) as { snapshot?: Snapshot; picturesMissing?: number; error?: string };
       if (!res.ok || !data.snapshot) throw new Error(data.error ?? "Could not create the draft");
@@ -242,7 +279,7 @@ export function ReportView({ id, basePath }: { id: string; basePath: "/assessmen
       await load(false);
       setSelectedId(snapshotId);
       const missing = data.picturesMissing ?? 0;
-      setMsg(`New draft created. ${note}${missing ? ` ${missing} photo${missing === 1 ? "'s picture" : "s' pictures"} could not be added, so ${missing === 1 ? "it shows" : "they show"} text only. Create the draft again to retry.` : ""}`);
+      setMsg(`New draft created. ${note}${marked}${missing ? ` ${missing} photo${missing === 1 ? "'s picture" : "s' pictures"} could not be added, so ${missing === 1 ? "it shows" : "they show"} text only. Create the draft again to retry.` : ""}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -422,6 +459,20 @@ export function ReportView({ id, basePath }: { id: string; basePath: "/assessmen
           ) : (
             <KeyFindingsEditor value={narrative.keyFindings ?? []} onChange={(keyFindings) => setNarrative((n) => ({ ...n, keyFindings }))} photoNumber={photoNumbers({ photos: selected?.payload?.photos as never })} />
           )}
+          {(selected?.payload?.photos ?? []).some((p) => p.highlights?.length) ? (
+            <div className="space-y-1 rounded-lg border border-slate-200 p-3">
+              <div className="text-sm font-semibold">Marks on the photos</div>
+              <p className="text-xs text-slate-500">An AI marked these areas to show where to look. Remove any that point at the wrong thing.</p>
+              {(selected?.payload?.photos ?? []).flatMap((p, i) =>
+                highlightGroups(p).map((g) => (
+                  <div key={p.evidenceId + g.letter} className="flex items-start justify-between gap-2 text-xs">
+                    <span><strong>Photo {i + 1}, {g.letter}:</strong> {g.label}</span>
+                    <button type="button" onClick={() => removeHighlight(p.evidenceId, g.label)} disabled={busy !== null} className="btn-secondary shrink-0 text-xs">Remove</button>
+                  </div>
+                )),
+              )}
+            </div>
+          ) : null}
           {narrative.projectPlan ? <ProjectPlanEditor value={narrative.projectPlan} onChange={(projectPlan) => setNarrative((n) => ({ ...n, projectPlan }))} /> : null}
           {(["recommendations", "openItems", "notes"] as const).map((k) => sectionField(k))}
           {NARRATIVE_SECTIONS.filter((s) => s.legacy && narrative[s.key]?.trim()).map((s) => sectionField(s.key))}

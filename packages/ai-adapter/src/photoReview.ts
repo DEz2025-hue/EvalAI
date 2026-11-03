@@ -16,8 +16,9 @@ export const PHOTO_REVIEW_BATCH = 4;
  * Which way of reading photos made a saved review. Raise it whenever the prompt or what is sent changes enough that older reviews
  * should be redone: a saved review with a lower version is looked at again the next time the report photos are prepared.
  * 2 = read for the linked item, with topic lenses, label readings and suggestions (D-035).
+ * 3 = each possible issue also names the visible thing, for SAM to outline (D-041).
  */
-export const PHOTO_REVIEW_VERSION = 2;
+export const PHOTO_REVIEW_VERSION = 3;
 // Enough room to describe a photo properly (what, how it is installed, apparent condition, surroundings, readable labels).
 const MAX_OBSERVATIONS = 10;
 const MAX_ISSUES = 6;
@@ -63,7 +64,7 @@ export type PhotoReviewItem = {
   evidenceId: string;
   caption: string;
   observations: string[];
-  possibleIssues: Array<{ text: string; confidence: "low" | "medium" | "high" }>;
+  possibleIssues: Array<{ text: string; confidence: "low" | "medium" | "high"; find?: string }>;
   cannotTell: string[];
 };
 
@@ -76,6 +77,11 @@ export type PhotoReviewOutput = {
 
 const text = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
 const strings = (v: unknown, max: number, n: number) => (Array.isArray(v) ? v : []).map((x) => text(x, max)).filter(Boolean).slice(0, n);
+/** SAM takes one short noun phrase per call; lists, negation and questions give unreliable results, so a phrase like that is not used. */
+export function samPhrase(v: unknown): string {
+  const s = text(v, 60);
+  return /[,;+?]|\b(and|or|not|no|without)\b/i.test(s) ? "" : s;
+}
 const level = (v: unknown): "low" | "medium" | "high" => (v === "low" || v === "medium" || v === "high" ? v : "low");
 
 export async function photoReview(input: unknown, options?: CallOptions): Promise<PhotoReviewOutput> {
@@ -121,7 +127,7 @@ export async function photoReview(input: unknown, options?: CallOptions): Promis
         "and any label or text you can actually read, quoted exactly. Describe what you can see, not what you assume, and use qualitative words such as 'appears' and 'looks'. " +
         "readings: text printed on a nameplate, rating label, breaker, meter or display that you can actually read, as label and value exactly as printed with its unit. They are readings of printed text, not verified measurements; never guess an unreadable digit. " +
         "suggestions: what the photo suggests for the job, to confirm on site (for example which part of the roof looks best for panels and why, where a camera should go). " +
-        "possible_issues: things a person should check, phrased as possibilities from what is visible (for example 'The cable insulation looks cracked near the clamp'), never as confirmed faults. " +
+        "possible_issues: things a person should check, phrased as possibilities from what is visible (for example 'The cable insulation looks cracked near the clamp'), never as confirmed faults. For each, find names the visible object to outline on the picture, in one to three common everyday words, for example 'palm tree', 'rusted roof', 'electrical panel', 'wires' or 'cardboard box'. Trade terms and fine detail ('changeover switch', 'damp wall stain') are often not found, so name the plain object they are on. One concept with no list, negation or position. Leave find empty when the issue is about something that cannot be pointed at. " +
         "cannot_tell: what this photo cannot show (hidden wiring, ratings, performance, anything out of frame). " +
         "Use the checklist answers and notes only as context; do not change or contradict them, and say if a photo seems to disagree with a note. " +
         "Never give dimensions, areas, angles, ages or capacities from your own estimate (values printed on a label are allowed as readings), never say anything passes, fails or is compliant, and never invent details that are not visible. If a photo is dark, blurry or unclear, say so in cannot_tell. " +
@@ -132,7 +138,7 @@ export async function photoReview(input: unknown, options?: CallOptions): Promis
     },
     options,
   );
-  const raw = data as { photos?: Array<{ evidence_id?: unknown; caption?: unknown; observations?: unknown; readings?: Array<{ label?: unknown; value?: unknown }>; suggestions?: unknown; possible_issues?: Array<{ text?: unknown; confidence?: unknown }>; cannot_tell?: unknown }> };
+  const raw = data as { photos?: Array<{ evidence_id?: unknown; caption?: unknown; observations?: unknown; readings?: Array<{ label?: unknown; value?: unknown }>; suggestions?: unknown; possible_issues?: Array<{ text?: unknown; confidence?: unknown; find?: unknown }>; cannot_tell?: unknown }> };
   const sent = new Set(v.photos.map((p) => p.evidenceId));
   const byId = new Map<string, PhotoReviewItem>();
   for (const p of Array.isArray(raw.photos) ? raw.photos : []) {
@@ -148,7 +154,10 @@ export async function photoReview(input: unknown, options?: CallOptions): Promis
     const suggestions = strings(p.suggestions, PHOTO_LIMITS.observation, 3).map((x) => "Suggestion, to confirm on site: " + x);
     const observations = [...strings(p.observations, PHOTO_LIMITS.observation, MAX_OBSERVATIONS), ...readings.slice(0, 6).map((r) => r.slice(0, PHOTO_LIMITS.observation)), ...suggestions].slice(0, MAX_OBSERVATIONS + 6);
     const possibleIssues = (Array.isArray(p.possible_issues) ? p.possible_issues : [])
-      .map((i) => ({ text: text(i?.text, PHOTO_LIMITS.issue), confidence: level(i?.confidence) }))
+      .map((i) => {
+        const find = samPhrase(i?.find);
+        return { text: text(i?.text, PHOTO_LIMITS.issue), confidence: level(i?.confidence), ...(find ? { find } : {}) };
+      })
       .filter((i) => i.text)
       .slice(0, MAX_ISSUES);
     if (!caption && observations.length === 0 && possibleIssues.length === 0) continue;

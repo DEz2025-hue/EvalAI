@@ -11,6 +11,7 @@ export * from "./report";
 export * from "./design";
 export * from "./solarDesign";
 export * from "./projectPlan";
+export * from "./photoHighlights";
 export * from "./cctvSizing";
 export * from "./photoAnalysis";
 export * from "./reportHtml";

@@ -10,7 +10,7 @@ describe("pictures in a report draft", () => {
   it("every route that shrinks pictures ships the image tool", async () => {
     const config = (await import("../../next.config.js")) as unknown as { default?: unknown; experimental?: unknown };
     const includes = ((config.default ?? config) as { experimental: { outputFileTracingIncludes: Record<string, string[]> } }).experimental.outputFileTracingIncludes;
-    for (const route of ["/api/ai/transcribe", "/api/ai/report-photos", "/api/reports/snapshot"]) expect(includes[route]?.join()).toContain("ffmpeg-static");
+    for (const route of ["/api/ai/transcribe", "/api/ai/report-photos", "/api/ai/photo-highlights", "/api/reports/snapshot"]) expect(includes[route]?.join()).toContain("ffmpeg-static");
     expect(maxDuration).toBe(60);
   });
 

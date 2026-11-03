@@ -7,7 +7,7 @@ import { NARRATIVE_SECTIONS, type ReportNarrative } from "./report";
 export type GateSnapshot = {
   id: string;
   finalized: boolean;
-  payload?: { narrative?: ReportNarrative; photos?: Array<{ evidenceId: string }>; template?: unknown };
+  payload?: { narrative?: ReportNarrative; photos?: Array<{ evidenceId: string; highlights?: unknown[] }>; template?: unknown };
 };
 
 /** Small stable hash (djb2). Not security: it only has to change when the text changes. */
@@ -21,7 +21,7 @@ function hash(text: string): string {
 export function previewKey(s: GateSnapshot): string {
   const n = s.payload?.narrative ?? {};
   // Every written section counts: changing any of them means the person has not seen this exact version yet.
-  return `${s.id}:${hash(JSON.stringify([NARRATIVE_SECTIONS.map(({ key }) => n[key] ?? ""), n.keyFindings ?? [], n.design ?? null, n.solar ?? null, n.projectPlan ?? null, (s.payload?.photos ?? []).map((p) => p.evidenceId), s.payload?.template ?? null]))}`;
+  return `${s.id}:${hash(JSON.stringify([NARRATIVE_SECTIONS.map(({ key }) => n[key] ?? ""), n.keyFindings ?? [], n.design ?? null, n.solar ?? null, n.projectPlan ?? null, (s.payload?.photos ?? []).map((p) => (p.highlights?.length ? [p.evidenceId, p.highlights] : p.evidenceId)), s.payload?.template ?? null]))}`;
 }
 
 export type DownloadGate = { locked: boolean; reason: string | null };

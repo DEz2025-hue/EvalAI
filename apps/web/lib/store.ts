@@ -1,7 +1,7 @@
 import fs from "fs";
 import { canonicalJson } from "./canonicalJson";
 import path from "path";
-import { buildReportPhotos, type PhotoChoices, type SavedPhotoReview } from "./reportPhotos";
+import { buildReportPhotos, type PhotoChoices, type SavedPhotoHighlights, type SavedPhotoReview } from "./reportPhotos";
 import { FINDING_PRIORITIES, KEY_FINDING_LIMITS, NARRATIVE_SECTIONS, PACK_TEMPLATES, checklistFor, lookForFor, templateItemMeta, type FindingPriority, type IntakeSummary, type ReportChecklistRow, type ReportKeyFinding, type ReportSiteBrief, type ReportPhoto, type Scenario, buildReportHtml, type ReportNarrative, computeCompleteness, calculateMeasurement, quotationTotalAmount, type CompletenessResult, type FormulaId, type MeasurementInput, type MeasurementSource, type ArCapture, type PhotoCapture, LENGTH_UNITS, type LengthUnit, isAcceptableArCapture, hasArInput, hasPhotoInput, verifyPhotoReading, QUANTITY_TBD, InterviewStateSchema, interviewStatements, normalizeTemplate, hasTemplate, type ReportTemplate, cleanDesign, cleanSolarDesign, cleanProjectPlan, buildProjectPlan, hasWriteUp } from "@eval-ai/shared";
 import type { ReportSnapshot, ReportInput } from "@eval-ai/shared";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -841,12 +841,13 @@ export async function buildReportInputFromStoredFacts(
   // Photos (D-022): only when a draft is being created; sign-off compares facts without them, so no pictures are re-made there.
   let photos: ReportPhoto[] | undefined;
   if (opts.withPhotos) {
-    const built = await buildReportPhotos(assessmentId, evidence, assessment.context.photoReview as Record<string, SavedPhotoReview> | undefined, titleById, assessment.context.photoChoices as PhotoChoices | undefined);
+    const built = await buildReportPhotos(assessmentId, evidence, assessment.context.photoReview as Record<string, SavedPhotoReview> | undefined, titleById, assessment.context.photoChoices as PhotoChoices | undefined, { highlights: assessment.context.photoHighlights as Record<string, SavedPhotoHighlights> | undefined });
     if (built.length > 0) photos = built;
   }
   // The AI's per-photo notes live in the job context but are shown through `photos`, not duplicated here. The intake
   // text is carried in the readable `siteBrief` instead of the raw context.
-  const { photoReview: _photoReview, photoChoices: _photoChoices, intake: _intake, ...reportContext } = assessment.context;
+  const { photoReview: _photoReview, photoChoices: _photoChoices, photoHighlights: _photoHighlights, intake: _intake, ...reportContext } = assessment.context;
+  void _photoHighlights;
   void _photoReview;
   void _photoChoices;
   const input: ReportInput = {
@@ -1853,6 +1854,25 @@ async function writeDraftSnapshot(snapshotId: string, patch: { payload?: ReportI
     all[idx].reviewNote = patch.review.note;
   }
   writeJson(SNAPSHOTS_FILE, all);
+}
+
+/** Take one possible issue's outlines off a photo in a DRAFT report (a reviewer's call). The photo and its text stay. */
+export async function removeSnapshotHighlightLocal(snapshotId: string, evidenceId: string, label: string, ctx?: StoreCtx): Promise<SnapshotRecord> {
+  const snap = await getSnapshotLocal(snapshotId, ctx);
+  if (!snap) throw new Error("Snapshot not found");
+  await verifyAssessmentWorkspace(ctx, snap.assessmentId);
+  if (snap.finalized) throw new Error("This report is finalized (immutable) — create a new draft to change it");
+  const photos = (snap.payload.photos ?? []).map((p) => {
+    if (p.evidenceId !== evidenceId) return p;
+    const { highlights, ...rest } = p;
+    const kept = (highlights ?? []).filter((h) => h.label !== label);
+    return kept.length ? { ...rest, highlights: kept } : rest;
+  });
+  const payload: ReportInput = { ...snap.payload, photos };
+  const htmlPreview = buildReportHtml(snap, payload);
+  await writeDraftSnapshot(snapshotId, { payload, htmlPreview }, ctx);
+  await auditEvent({ workspaceId: ctx?.workspaceId, action: "snapshot.edited", targetType: "snapshot", targetId: snapshotId, ctx });
+  return { ...snap, payload, htmlPreview };
 }
 
 /** Take photos out of a DRAFT report (a reviewer's call). Finalized reports are immutable. */

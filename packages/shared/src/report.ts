@@ -2,6 +2,7 @@ import type { ReportTemplate } from "./reportTemplate";
 import type { DesignProposal } from "./design";
 import type { SolarDesign } from "./solarDesign";
 import type { ProjectPlan } from "./projectPlan";
+import type { PhotoHighlight } from "./photoHighlights";
 
 export type ReportSnapshot = {
   id: string;
@@ -170,6 +171,8 @@ export type ReportPhoto = {
   cannotTell: string[];
   /** Small JPEG as a data URI (data:image/jpeg;base64,…). */
   thumbnail?: string;
+  /** Where SAM 3.1 outlined this photo's possible issues (D-041). Unverified, like everything else the AI said about the photo. */
+  highlights?: PhotoHighlight[];
 };
 
 export type ReportInput = {

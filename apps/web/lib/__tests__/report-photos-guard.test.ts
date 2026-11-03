@@ -45,7 +45,7 @@ describe("photo notes in reports are always unverified", () => {
   });
 
   it("the report context does not carry the raw photo notes twice", () => {
-    expect(read("apps/web/lib/store.ts")).toMatch(/photoReview: _photoReview, photoChoices: _photoChoices, intake: _intake/);
+    expect(read("apps/web/lib/store.ts")).toMatch(/photoReview: _photoReview, photoChoices: _photoChoices, photoHighlights: _photoHighlights, intake: _intake/);
   });
 
   it("turning a possible issue into a finding goes through the normal finding route with the photo as evidence", () => {

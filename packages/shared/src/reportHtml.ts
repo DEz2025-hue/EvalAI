@@ -3,6 +3,7 @@ import { statusLabel } from "./checklist";
 import { PRIORITY_LABEL, checklistGlance, glanceSentence, groupByCategory, keyFindingsFor, photoNumbers, recommendedActions, reportLayout, siteBriefLines } from "./reportOverview";
 import { scenarioFor, scenarioLabel } from "./scenario";
 import { projectPlanNote, type ProjectPlanHold } from "./projectPlan";
+import { HIGHLIGHT_NOTE, highlightGroups } from "./photoHighlights";
 import { DEFAULT_ACCENT, resolveTemplate, type SectionId } from "./reportTemplate";
 import { CAMERA_TYPE_LABEL, DECISION_BASIS_LABEL, designCounts, type DesignProposal } from "./design";
 import { SYSTEM_RANGES, DORI_LABEL } from "./design";
@@ -68,8 +69,13 @@ const AI_TAG = '<span style="background:#fef3c7;padding:1px 6px;border-radius:99
 function photoFigure(p: ReportPhoto, n: number, small = false): string {
   const esc = escapeHtml;
   const src = safeImageSrc(p.thumbnail);
-  const w = small ? "max-width:200px;max-height:150px" : "max-width:260px;max-height:200px";
-  return `<figure style="margin:8px 0;padding:8px;border:1px solid #e2e8f0;border-radius:6px"><figcaption><strong>Photo ${n}</strong>${p.itemTitle ? ` — ${esc(p.itemTitle)}` : ""}</figcaption>${src ? `<img src="${src}" alt="${esc(p.caption || "Photo " + n)}" style="${w};margin:6px 0;display:block">` : ""}<div>${esc(p.caption)} ${AI_TAG}</div>${p.observations.length ? `<ul>${p.observations.map((o) => `<li>${esc(o)}</li>`).join("")}</ul>` : ""}${p.cannotTell.length ? `<div class="meta">Cannot be told from this photo: ${p.cannotTell.map((c) => esc(c)).join("; ")}</div>` : ""}</figure>`;
+  const groups = src ? highlightGroups(p) : [];
+  // A photo with outlines is shown larger, so the outlines can be read. Shares are checked numbers, never text from the payload.
+  const w = groups.length ? "max-width:440px;max-height:340px" : small ? "max-width:200px;max-height:150px" : "max-width:260px;max-height:200px";
+  const pct = (v: number) => (v * 100).toFixed(2) + "%";
+  const outlines = groups.flatMap((g) => g.areas.map((a) => `<div style="position:absolute;left:${pct(a.x)};top:${pct(a.y)};width:${pct(a.w)};height:${pct(a.h)};border:2px solid #dc2626;box-sizing:border-box"><span style="position:absolute;left:-2px;top:-2px;background:#dc2626;color:#fff;font-size:11px;font-weight:600;line-height:14px;padding:0 4px">${g.letter}</span></div>`)).join("");
+  const legend = groups.length ? `<div style="font-size:13px;margin-bottom:6px"><div class="meta">${esc(HIGHLIGHT_NOTE)}</div>${groups.map((g) => `<div><strong style="color:#dc2626">${g.letter}</strong> ${esc(g.label)}</div>`).join("")}</div>` : "";
+  return `<figure style="margin:8px 0;padding:8px;border:1px solid #e2e8f0;border-radius:6px"><figcaption><strong>Photo ${n}</strong>${p.itemTitle ? ` — ${esc(p.itemTitle)}` : ""}</figcaption>${src ? (groups.length ? `<div style="position:relative;display:inline-block;margin:6px 0;line-height:0"><img src="${src}" alt="${esc(p.caption || "Photo " + n)}" style="${w};display:block">${outlines}</div>` : `<img src="${src}" alt="${esc(p.caption || "Photo " + n)}" style="${w};margin:6px 0;display:block">`) : ""}${legend}<div>${esc(p.caption)} ${AI_TAG}</div>${p.observations.length ? `<ul>${p.observations.map((o) => `<li>${esc(o)}</li>`).join("")}</ul>` : ""}${p.cannotTell.length ? `<div class="meta">Cannot be told from this photo: ${p.cannotTell.map((c) => esc(c)).join("; ")}</div>` : ""}</figure>`;
 }
 
 /** One key finding: what was observed, what it means (interpretation) and what to do, with its sources and the photos it cites. */

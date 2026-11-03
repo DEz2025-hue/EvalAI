@@ -18,6 +18,11 @@ describe("parseSamBoxes", () => {
     expect(parseSamBoxes("")).toEqual([]);
     expect(parseSamBoxes("I cannot find that")).toEqual([]);
   });
+  it("reads every match when only the first record carries the frame marker, as live responses do", () => {
+    const line = "<0f>0<|box;x1=1;y1=1;x2=5;y2=5;w=100;h=100;c=0.9|><|mask;x=0;y=0;c=0.9;data=1,2,~ab|>,1<|box;x1=10;y1=10;x2=20;y2=20;w=100;h=100;c=0.7|><|mask;x=0;y=0;c=0.7;data=3,4,~cd|>";
+    expect(parseSamBoxes(line).map((b) => [b.ordinal, b.x1, b.c])).toEqual([[0, 1, 0.9], [1, 10, 0.7]]);
+  });
+
   it("skips malformed or impossible boxes instead of guessing", () => {
     expect(parseSamBoxes("<0f>0<|box;x1=10;y1=10;x2=5;y2=20;w=100;h=100|>")).toEqual([]); // x2 < x1
     expect(parseSamBoxes("<0f>0<|box;x1=10;y1=10;x2=500;y2=20;w=100;h=100|>")).toEqual([]); // outside the image

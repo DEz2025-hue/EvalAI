@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import type { ReportNarrative } from "@eval-ai/shared";
-import { createReportSnapshotLocal, getSnapshotLocal, listSnapshotsLocal, removeSnapshotPhotosLocal, updateSnapshotNarrativeLocal, verifyAssessmentWorkspace } from "../../../../lib/store";
+import { createReportSnapshotLocal, getSnapshotLocal, listSnapshotsLocal, removeSnapshotHighlightLocal, removeSnapshotPhotosLocal, updateSnapshotNarrativeLocal, verifyAssessmentWorkspace } from "../../../../lib/store";
 import { requireAuth, workspaceIdFor, storeError, requireWriter } from "../../../../lib/auth";
 
 // A draft shrinks up to twelve photos.
@@ -111,8 +111,10 @@ const NarrativeBody = z
       .optional(),
     /** Evidence ids of photos to take out of this draft. */
     removePhotos: z.array(z.string().max(100)).max(20).optional(),
+    /** One possible issue's outlines to take off a photo in this draft. */
+    removeHighlight: z.object({ evidenceId: z.string().max(100), label: z.string().max(400) }).optional(),
   })
-  .refine((b) => b.narrative || (b.removePhotos && b.removePhotos.length > 0), { message: "Nothing to change" });
+  .refine((b) => b.narrative || b.removeHighlight || (b.removePhotos && b.removePhotos.length > 0), { message: "Nothing to change" });
 
 /** Edit the human-written sections of a DRAFT report. Finalized reports are immutable. */
 export async function PATCH(req: Request) {
@@ -122,6 +124,7 @@ export async function PATCH(req: Request) {
     const body = NarrativeBody.parse(await req.json());
     let snapshot;
     if (body.removePhotos && body.removePhotos.length > 0) snapshot = await removeSnapshotPhotosLocal(body.snapshotId, body.removePhotos, auth.ctx);
+    if (body.removeHighlight) snapshot = await removeSnapshotHighlightLocal(body.snapshotId, body.removeHighlight.evidenceId, body.removeHighlight.label, auth.ctx);
     // Shape is checked above; the store checks every field again (cleanNarrative) before saving.
     if (body.narrative) snapshot = await updateSnapshotNarrativeLocal(body.snapshotId, body.narrative as ReportNarrative, auth.ctx);
     return NextResponse.json({ ok: true, snapshot });

@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, vi } from "vitest";
 import zlib from "zlib";
-import { PDFDocument } from "pdf-lib";
+import { PDFDocument, PDFPage } from "pdf-lib";
 import type { ReportInput, ReportPhoto, ReportSnapshot } from "@eval-ai/shared";
 import { buildReportPdf } from "../pdf";
 import { shrinkImage } from "../reportPhotos";
@@ -60,6 +60,30 @@ describe("PDF with photos", () => {
     const withOne = await buildReportPdf(snap, input([photo(1)]));
     expect(withOne.length).toBeGreaterThan(without.length + 1000); // the picture is really inside
     expect((await PDFDocument.load(withOne)).getPageCount()).toBeGreaterThanOrEqual(1);
+  });
+
+  it("draws the outlines over a marked photo, with a legend that says they are not verified", async () => {
+    const texts: string[] = [];
+    const rectangles: Array<{ x: number; y: number; width: number; height: number; color?: unknown }> = [];
+    const text = PDFPage.prototype.drawText;
+    const rect = PDFPage.prototype.drawRectangle;
+    const a = vi.spyOn(PDFPage.prototype, "drawText").mockImplementation(function (this: PDFPage, t: string, o?: never) {
+      texts.push(t);
+      return text.call(this, t, o);
+    });
+    const b = vi.spyOn(PDFPage.prototype, "drawRectangle").mockImplementation(function (this: PDFPage, o?: never) {
+      rectangles.push(o as never);
+      return rect.call(this, o);
+    });
+    await buildReportPdf(snap, input([photo(1, { highlights: [{ label: "Palms may shade the roof", x: 0.5, y: 0.25, w: 0.25, h: 0.5 }] })]));
+    a.mockRestore();
+    b.mockRestore();
+    expect(texts).toContain("A: Palms may shade the roof");
+    expect(texts.join(" ")).toContain("Not verified, not a finding");
+    // A 900 x 600 picture printed 340 wide: the outline is a share of what was drawn, not of the page.
+    const outline = rectangles.find((r) => r.color === undefined && Math.abs(r.width - 85) < 0.5);
+    expect(outline).toBeTruthy();
+    expect(outline!.height).toBeCloseTo(113.33, 0);
   });
 
   it("paginates a full set of 12 photos without crashing or dropping any", async () => {

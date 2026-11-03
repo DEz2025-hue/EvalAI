@@ -22,6 +22,7 @@ const nextConfig = {
     outputFileTracingIncludes: {
       "/api/ai/transcribe": FFMPEG_BINARY,
       "/api/ai/report-photos": FFMPEG_BINARY,
+      "/api/ai/photo-highlights": FFMPEG_BINARY,
       "/api/reports/snapshot": FFMPEG_BINARY,
     },
   },

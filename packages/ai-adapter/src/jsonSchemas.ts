@@ -137,8 +137,8 @@ export function photoReviewSchema(): JsonSchema {
               type: "array",
               items: {
                 type: "object",
-                properties: { text: str, confidence: { type: "string", enum: ["low", "medium", "high"] } },
-                required: ["text", "confidence"],
+                properties: { text: str, confidence: { type: "string", enum: ["low", "medium", "high"] }, find: str },
+                required: ["text", "confidence", "find"],
                 additionalProperties: false,
               },
             },
