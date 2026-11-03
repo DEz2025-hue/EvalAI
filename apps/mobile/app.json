@@ -5,6 +5,7 @@
     "scheme": "eval-ai",
     "userInterfaceStyle": "automatic",
     "backgroundColor": "#F6F6F6",
+    "icon": "./assets/icon.png",
     "platforms": [
       "ios",
       "android",
@@ -12,6 +13,19 @@
     ],
     "plugins": [
       "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/logo.png",
+          "imageWidth": 150,
+          "resizeMode": "contain",
+          "backgroundColor": "#F6F6F6",
+          "dark": {
+            "image": "./assets/logo-dark.png",
+            "backgroundColor": "#151515"
+          }
+        }
+      ],
       [
         "expo-audio",
         {
@@ -41,6 +55,10 @@
       "router": {}
     },
     "ios": {
+      "icon": {
+        "light": "./assets/icon.png",
+        "dark": "./assets/icon-dark.png"
+      },
       "infoPlist": {
         "NSCameraUsageDescription": "Allow EvalAI to use the camera — photos are linked to the correct job/item and stored privately.",
         "NSMicrophoneUsageDescription": "Allow EvalAI to use the microphone — voice notes and live-session narration are stored privately and transcribed only when you ask or turn narration on.",
@@ -48,11 +66,19 @@
       }
     },
     "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "monochromeImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#F6F6F6"
+      },
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO"
       ],
       "package": "com.evalai.mobile"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
     }
   }
 }

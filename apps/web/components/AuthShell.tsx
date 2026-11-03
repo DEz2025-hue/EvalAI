@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
+import BrandLogo from "./BrandLogo";
 
 export default function AuthShell({
   title,
@@ -16,7 +17,7 @@ export default function AuthShell({
         <div aria-hidden="true" className="absolute -right-36 -top-32 h-[34rem] w-[34rem] rounded-full border border-white/10" />
         <div aria-hidden="true" className="absolute -right-16 -top-12 h-[25rem] w-[25rem] rounded-full border border-white/10" />
         <Link href="/" className="relative flex w-fit items-center gap-3">
-          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-white text-xs font-bold tracking-wide text-slate-950">EA</span>
+          <BrandLogo className="h-10 text-white" />
           <span className="text-lg font-semibold tracking-tight">EvalAI</span>
         </Link>
         <div className="relative max-w-xl pb-16">
@@ -40,7 +41,7 @@ export default function AuthShell({
       </aside>
       <section className="flex min-h-screen flex-col px-5 py-6 sm:px-10 lg:px-12">
         <Link href="/" className="flex w-fit items-center gap-2 lg:hidden">
-          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-900 text-xs font-bold text-white">EA</span>
+          <BrandLogo className="h-9 text-slate-900" />
           <span className="text-sm font-semibold tracking-tight">EvalAI</span>
         </Link>
         <div className="flex flex-1 items-center justify-center py-10">

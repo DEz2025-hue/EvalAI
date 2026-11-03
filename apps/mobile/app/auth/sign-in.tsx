@@ -3,8 +3,9 @@ import { Alert, Pressable, View } from "react-native";
 import { KeyboardScroll } from "../../components/keyboard";
 import { Link, useRouter } from "expo-router";
 import { getSupabase, hasSupabaseEnv } from "../../lib/supabase";
-import { colors, radius, space } from "../../lib/theme";
+import { colors, space } from "../../lib/theme";
 import { Button, Card, Field, Icon, Text } from "../../components/ui";
+import { BrandLogo } from "../../components/BrandLogo";
 
 export default function SignIn() {
   const router = useRouter();
@@ -38,10 +39,7 @@ export default function SignIn() {
   return (
     <KeyboardScroll style={{ flex: 1, backgroundColor: colors.bg }} contentContainerStyle={{ flexGrow: 1, padding: space.lg, justifyContent: "center", gap: space.xl }}>
         <View style={{ alignItems: "center", gap: space.sm }}>
-          <View style={{ width: 56, height: 56, borderRadius: radius.lg, backgroundColor: colors.heroBg, alignItems: "center", justifyContent: "center" }}>
-            <Icon name="shield-checkmark" size={28} color={colors.heroAccent} />
-          </View>
-          <Text variant="display">EvalAI</Text>
+          <BrandLogo variant="lockup" height={112} />
           <Text variant="caption">Site assessments and inspections</Text>
         </View>
 

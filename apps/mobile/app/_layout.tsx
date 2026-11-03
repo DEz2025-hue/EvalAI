@@ -3,6 +3,7 @@ import { Fragment, useEffect, useState, type ReactNode } from "react";
 import { useColorScheme, View } from "react-native";
 import { Stack, useRouter, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
+import * as SplashScreen from "expo-splash-screen";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { SessionProvider, useSession } from "../lib/session";
 import type { SchemeName } from "@eval-ai/shared";
@@ -22,6 +23,11 @@ if (__DEV__) {
   else console.log(`[config] API ${env.EXPO_PUBLIC_APP_URL}`);
 }
 
+// The native splash (the logo on the page colour) stays up until the saved theme and the session are both known, so the app opens
+// straight onto its first screen instead of a blank page and a loading skeleton.
+void SplashScreen.preventAutoHideAsync();
+SplashScreen.setOptions({ fade: true, duration: 250 });
+
 /** Sends signed-out people to sign-in (and signed-in people away from it). Without a configured backend the app stays signed out. */
 function AuthGate() {
   const { loading, session, configured } = useSession();
@@ -36,6 +42,10 @@ function AuthGate() {
     if (!session && !inAuth) router.replace("/auth/sign-in" as never);
     else if (session && inAuth && !resetting) router.replace("/(tabs)" as never);
   }, [loading, configured, session, segments, router]);
+
+  useEffect(() => {
+    if (!loading) void SplashScreen.hideAsync();
+  }, [loading]);
 
   if (loading) {
     return (

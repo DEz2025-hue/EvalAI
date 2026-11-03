@@ -5,6 +5,7 @@ import { Link, useRouter } from "expo-router";
 import { getSupabase, hasSupabaseEnv } from "../../lib/supabase";
 import { colors, space } from "../../lib/theme";
 import { Banner, Button, Card, Field, Icon, Text } from "../../components/ui";
+import { BrandLogo } from "../../components/BrandLogo";
 
 const MIN_PASSWORD = 6;
 
@@ -78,6 +79,7 @@ export default function Recovery() {
   return (
     <KeyboardScroll style={{ flex: 1, backgroundColor: colors.bg }} contentContainerStyle={{ flexGrow: 1, padding: space.lg, justifyContent: "center", gap: space.lg }}>
         <View style={{ gap: space.xs }}>
+          <BrandLogo height={40} style={{ marginBottom: space.sm }} />
           <Text variant="display">Reset password</Text>
           <Text variant="caption">
             {step === "email" ? "Enter your email and we'll send you a reset code." : `We sent a code to ${email.trim()}. Enter it below with your new password.`}

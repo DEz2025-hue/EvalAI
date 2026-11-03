@@ -8,6 +8,7 @@ import SearchBox from "./SearchBox";
 import NotificationsBell from "./NotificationsBell";
 import WorkspaceSwitcher from "./WorkspaceSwitcher";
 import ThemeToggle from "./ThemeToggle";
+import BrandLogo from "./BrandLogo";
 import { displayName, initials } from "@eval-ai/shared";
 
 type NavItem = { href: string; label: string; icon: JSX.Element };
@@ -87,7 +88,7 @@ export default function AppShell({ children }: { children: ReactNode }): JSX.Ele
   const sidebar = (
     <div className="flex h-full flex-col">
       <Link href="/" className="flex items-center gap-3 px-5 pb-6 pt-5" aria-label="EvalAI home">
-        <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-900 text-xs font-bold tracking-wide text-white">EA</span>
+        <BrandLogo className="h-9 text-slate-900" />
         <span>
           <span className="block text-sm font-semibold tracking-tight text-slate-900">EvalAI</span>
           <span className="block text-[11px] text-slate-500">Inspection workspace</span>
@@ -143,7 +144,7 @@ export default function AppShell({ children }: { children: ReactNode }): JSX.Ele
                 </svg>
               </button>
               <Link href="/" className="flex items-center gap-2.5 lg:hidden" aria-label="EvalAI home">
-                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-900 text-[11px] font-bold tracking-wide text-white">EA</span>
+                <BrandLogo className="h-8 text-slate-900" />
                 <span className="text-sm font-semibold tracking-tight text-slate-900">EvalAI</span>
               </Link>
               <span className="hidden text-sm font-medium text-slate-500 lg:block">
