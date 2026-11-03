@@ -1,0 +1,18 @@
+# Never uploaded to Vercel: secrets (set as Vercel environment variables instead), build output, local tooling and the phone app.
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+node_modules
+**/node_modules
+**/.next
+**/.next-*
+**/.expo
+apps/mobile
+test-results
+playwright-report
+e2e
+**/*.tsbuildinfo
+.claude
