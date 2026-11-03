@@ -7,6 +7,7 @@ import type { ReactNode } from "react";
 import SearchBox from "./SearchBox";
 import NotificationsBell from "./NotificationsBell";
 import WorkspaceSwitcher from "./WorkspaceSwitcher";
+import ThemeToggle from "./ThemeToggle";
 import { displayName, initials } from "@eval-ai/shared";
 
 type NavItem = { href: string; label: string; icon: JSX.Element };
@@ -152,6 +153,7 @@ export default function AppShell({ children }: { children: ReactNode }): JSX.Ele
             <div className="flex items-center gap-2 sm:gap-3">
             <div className="hidden md:block"><SearchBox /></div>
             <WorkspaceSwitcher />
+            <ThemeToggle />
             <NotificationsBell />
             <div className="relative">
               <button

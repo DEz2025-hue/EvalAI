@@ -6,6 +6,7 @@ import { displayName } from "@eval-ai/shared";
 import { getNotifPrefs, setNotifPrefs, type NotifPrefs } from "../../lib/prefs";
 import DeleteAccountSection from "../../components/DeleteAccountSection";
 import ReportStyleCard from "../../components/ReportStyleCard";
+import { ThemeSwitch } from "../../components/ThemeToggle";
 import { LoadingRegion, Skeleton } from "../../components/Skeleton";
 
 type Workspace = { id: string; name: string; role: string; createdAt: string };
@@ -201,6 +202,14 @@ export default function SettingsPage(): JSX.Element {
             ))}
           </ul>
         )}
+      </section>
+
+      <section aria-label="Appearance" className="card p-5">
+        <h2 className="text-sm font-semibold">Appearance</h2>
+        <p className="mt-1 text-sm text-slate-500">Light, dark, or follow this device. It is remembered in this browser.</p>
+        <div className="mt-3">
+          <ThemeSwitch />
+        </div>
       </section>
 
       <ReportStyleCard />

@@ -51,8 +51,8 @@ export const glass = { ...GLASS.light };
 
 function buildHeaderOptions() {
   return {
-    // A frosted, nearly opaque bar with dark (or, in dark mode, light) text instead of the old solid dark header.
-    headerStyle: { backgroundColor: glass.fillStrong },
+    // A solid bar in the page colour, with no outline, so it sits flush with the screen under it.
+    headerStyle: { backgroundColor: colors.bg },
     headerTintColor: colors.text,
     headerTitleStyle: { fontWeight: "700" as const, color: colors.text },
     headerShadowVisible: false,

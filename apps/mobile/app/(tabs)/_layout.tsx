@@ -1,10 +1,9 @@
 import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import type { ComponentProps } from "react";
-import { StyleSheet, type ColorValue } from "react-native";
+import type { ColorValue } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, headerOptions } from "../../lib/theme";
-import { GlassSurface } from "../../components/glass";
 import { GlassTabBar, tabBarInset } from "../../components/GlassTabBar";
 import { TabBarInsetContext } from "../../components/ui";
 
@@ -25,8 +24,6 @@ export default function TabsLayout() {
         tabBar={(props) => <GlassTabBar {...props} />}
         screenOptions={{
           ...headerOptions,
-          // The header is frosted glass too: a blurred, nearly opaque bar with a hairline edge.
-          headerBackground: () => <GlassSurface edge="bottom" cornerRadius={0} style={StyleSheet.absoluteFill} />,
           tabBarActiveTintColor: colors.text,
           tabBarInactiveTintColor: colors.textMuted,
         }}

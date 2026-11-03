@@ -5,10 +5,18 @@ import { initials } from "@eval-ai/shared";
 import { getSupabase, hasSupabaseEnv } from "../../lib/supabase";
 import { loadWorkspaces } from "../../lib/myWorkspaces";
 import { colors, space } from "../../lib/theme";
-import { Button, Card, Field, IconButton, ListRow, Screen, Text } from "../../components/ui";
+import { Button, Card, Chip, Field, IconButton, ListRow, Screen, Text } from "../../components/ui";
+import { useThemePreference, type ThemePreference } from "../../lib/themePreference";
+
+const THEME_CHOICES: Array<{ value: ThemePreference; label: string; icon: "phone-portrait-outline" | "sunny-outline" | "moon-outline" }> = [
+  { value: "system", label: "Device", icon: "phone-portrait-outline" },
+  { value: "light", label: "Light", icon: "sunny-outline" },
+  { value: "dark", label: "Dark", icon: "moon-outline" },
+];
 
 export default function ProfileScreen() {
   const router = useRouter();
+  const [themePreference, setThemePreference] = useThemePreference();
   const [email, setEmail] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [workspaceName, setWorkspaceName] = useState<string | null>(null);
@@ -92,6 +100,16 @@ export default function ProfileScreen() {
             </View>
           </View>
         ) : null}
+      </Card>
+
+      <Text variant="overline" style={{ marginTop: space.sm }}>Appearance</Text>
+      <Card>
+        <Text variant="caption">Choose light or dark, or follow this device. It is remembered on this phone.</Text>
+        <View style={{ flexDirection: "row", gap: space.sm, flexWrap: "wrap" }}>
+          {THEME_CHOICES.map((c) => (
+            <Chip key={c.value} label={c.label} icon={c.icon} active={themePreference === c.value} onPress={() => setThemePreference(c.value)} />
+          ))}
+        </View>
       </Card>
 
       <Text variant="overline" style={{ marginTop: space.sm }}>Workspace</Text>

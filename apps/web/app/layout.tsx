@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import "./globals.css";
 import AppShell from "../components/AppShell";
+import { THEME_INIT_SCRIPT } from "../lib/themeScript";
 
 export const metadata: Metadata = {
   title: "EvalAI — Assessments & Inspections",
@@ -19,7 +20,11 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: ReactNode }): JSX.Element {
   return (
-    <html lang="en">
+    // suppressHydrationWarning: the script below may set data-theme on <html> before React sees it.
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+      </head>
       <body>
         <AppShell>{children}</AppShell>
       </body>

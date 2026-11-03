@@ -73,7 +73,9 @@ export function GlassSurface({ children, style, intensity = "strong", edge = "al
     return <View style={[{ backgroundColor: colors.surface, overflow: "hidden" }, edges, shadow, style]}>{children}</View>;
   }
 
-  if (NATIVE_GLASS) {
+  // Apple's glass draws a bright rim around its whole shape, so it is used only for a full rounded surface (the tab bar), not for a
+  // bar or sheet that runs to the screen edge.
+  if (NATIVE_GLASS && edge === "all" && cornerRadius > 0) {
     return (
       <View style={[{ overflow: "hidden" }, edges, shadow, style]}>
         <GlassView glassEffectStyle={intensity === "strong" ? "regular" : "clear"} colorScheme={scheme} isInteractive={interactive} style={StyleSheet.absoluteFill} />
