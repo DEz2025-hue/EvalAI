@@ -32,8 +32,8 @@ they already meet the requirements.
 
 -   **ChecklistItem:** assessment-specific editable item, order,
     category, and required/optional status.
--   **ChecklistResponse:** status, notes, author, timestamps, and
-    reviewed state.
+-   **ChecklistResponse:** status, notes, answers to the item's simple
+    fields (D-042), author, timestamps, and reviewed state.
 -   **EvidenceItem:** private media/file metadata, owner workspace,
     media type, storage key, capture time, and provenance.
 -   **EvidenceRelationship:** links evidence to assessment, checklist

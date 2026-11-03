@@ -1,9 +1,9 @@
 "use client";
 import { useRef, useState } from "react";
-import { photoAnalysisText, type PhotoAnalysis } from "@eval-ai/shared";
+import { photoAnalysisText, type FieldSuggestion, type PhotoAnalysis } from "@eval-ai/shared";
 import { uploadEvidence } from "../lib/clientUpload";
 
-export function PhotoCapture({ assessmentId, itemId, items, onUploaded }: { assessmentId: string; itemId?: string; items?: Array<{ id: string; title: string }>; onUploaded: (key: string, linkedItemId?: string) => void }): JSX.Element {
+export function PhotoCapture({ assessmentId, itemId, items, onUploaded, onSuggestions }: { assessmentId: string; itemId?: string; items?: Array<{ id: string; title: string }>; onUploaded: (key: string, linkedItemId?: string) => void; onSuggestions?: (list: FieldSuggestion[]) => void }): JSX.Element {
   const fileRef = useRef<HTMLInputElement>(null);
   const [selectedItem, setSelectedItem] = useState<string>(itemId ?? "");
   const [preview, setPreview] = useState<string | null>(null);
@@ -53,10 +53,11 @@ export function PhotoCapture({ assessmentId, itemId, items, onUploaded }: { asse
     try {
       // The server reads the photo for this job and the selected checklist item (D-035).
       const res = await fetch("/api/ai/analyze-image", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ imageBase64: base64, mimeType: file.type, assessmentId, itemId: selectedItem || undefined }) });
-      const data = (await res.json()) as PhotoAnalysis & { error?: string };
+      const data = (await res.json()) as PhotoAnalysis & { error?: string; fieldSuggestions?: FieldSuggestion[] };
       if (!res.ok) throw new Error(data.error);
       setAnalyze(photoAnalysisText(data));
       setNote(data.suggestedNote ?? "");
+      if (data.fieldSuggestions?.length) onSuggestions?.(data.fieldSuggestions);
     } catch (e) {
       setAnalyze(`Analysis unavailable: ${e instanceof Error ? e.message : String(e)}`);
     }

@@ -327,7 +327,7 @@ export function buildReportHtml(snapshot: ReportSnapshot, input: ReportInput): s
         g.rows
           .map(
             (r) =>
-              `<tr><td style="${TD}">${esc(r.title)}${r.required ? ' <span class="meta">(required)</span>' : ""}</td><td style="${TD}">${pill(r.status)}</td><td style="${TD};font-size:12px">${esc(r.notes ?? "")}${measuredText(r) ? `<div class="meta">${measuredText(r)}</div>` : ""}</td><td style="${TD};font-size:12px;text-align:center">${r.evidenceCount === undefined ? "—" : safeNumber(r.evidenceCount)}</td></tr>`,
+              `<tr><td style="${TD}">${esc(r.title)}${r.required ? ' <span class="meta">(required)</span>' : ""}</td><td style="${TD}">${pill(r.status)}</td><td style="${TD};font-size:12px">${(r.answers ?? []).map((a) => `<div>${esc(a.label)}: ${a.concern ? `<strong style="color:#b45309">${esc(a.value)}</strong>` : esc(a.value)}</div>`).join("")}${esc(r.notes ?? "")}${measuredText(r) ? `<div class="meta">${measuredText(r)}</div>` : ""}</td><td style="${TD};font-size:12px;text-align:center">${r.evidenceCount === undefined ? "—" : safeNumber(r.evidenceCount)}</td></tr>`,
           )
           .join(""),
     )

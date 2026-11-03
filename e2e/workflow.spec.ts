@@ -156,6 +156,39 @@ test("draft the report, edit it, sign it off and see it locked", async () => {
   await expect(page.getByRole("button", { name: "Create new draft" })).toBeVisible();
 });
 
+test("simple answer fields set the result, refuse a false Pass and reach the report", async () => {
+  await page.goto(`/assessments/${jobId}/checklist`);
+  await page.getByText("All items", { exact: true }).click();
+  await page.getByRole("button", { name: /Roof \/ structure \/ mounting constraints/ }).click();
+  await expect(page.getByRole("heading", { level: 2, name: /Roof \/ structure/ })).toBeVisible();
+
+  await page.getByRole("group", { name: "Roof material" }).getByRole("button", { name: "Corrugated metal" }).click();
+  await page.getByLabel(/^Roof length/).fill("12");
+  await page.getByRole("group", { name: "Structural condition" }).getByRole("button", { name: "Not verified" }).click();
+  // A concern moves the result to Needs Attention by itself.
+  await expect(page.getByRole("button", { name: "Needs Attention", exact: true })).toHaveAttribute("aria-pressed", "true");
+
+  // Pass beside that answer is refused when moving on.
+  await page.getByRole("button", { name: "Pass", exact: true }).click();
+  await page.getByRole("button", { name: /^Next/ }).click();
+  const refused = page.getByRole("alert").filter({ hasText: /can't be Pass while Structural condition/ });
+  await expect(refused).toBeVisible();
+
+  await page.getByRole("button", { name: "Needs Attention", exact: true }).click();
+  await page.getByRole("button", { name: /^Next/ }).click();
+  await expect(refused).toHaveCount(0);
+
+  // The answer needs a photo before sign-off, and shows in a new draft as a finding, a plan hold and a measurement.
+  const facts = await json(await page.request.get(`/api/completeness?assessmentId=${jobId}`));
+  expect(JSON.stringify(facts)).toContain("photo_required");
+  await page.goto(`/assessments/${jobId}/report`);
+  await page.getByRole("button", { name: "Create new draft" }).click();
+  const preview = page.frameLocator('iframe[title="Report preview"]');
+  await expect(preview.getByText("Structural condition: Not verified.").first()).toBeVisible();
+  await expect(preview.getByText("Roof material: Corrugated metal").first()).toBeVisible();
+  await expect(preview.getByRole("cell", { name: "Roof length", exact: true })).toBeVisible();
+});
+
 test("a finalized report cannot be edited or re-finalized, and exports as a PDF", async ({ request }) => {
   const list = await json(await request.get(`/api/reports/snapshot?assessmentId=${jobId}`));
   const snaps = list.snapshots as Array<{ id: string; finalized: boolean }>;

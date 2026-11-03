@@ -3,6 +3,7 @@ import type { DesignProposal } from "./design";
 import type { SolarDesign } from "./solarDesign";
 import type { ProjectPlan } from "./projectPlan";
 import type { PhotoHighlight } from "./photoHighlights";
+import type { ReportAnswer } from "./itemFields";
 
 export type ReportSnapshot = {
   id: string;
@@ -115,6 +116,8 @@ export type ReportChecklistRow = {
   required?: boolean;
   /** Item-level measurement entered while checking. */
   measured?: { value: number; unit: string };
+  /** Answers to the item's simple fields (D-042), in the words the report prints. */
+  answers?: ReportAnswer[];
   /** How many photos or files are linked to this item. */
   evidenceCount?: number;
 };

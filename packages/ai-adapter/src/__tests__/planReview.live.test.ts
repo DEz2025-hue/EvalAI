@@ -40,7 +40,7 @@ const RECORD = {
     item("Space for panels, inverter and batteries", "pass", "The only and best location is in the kitchen.", "Site", 1),
     item("Permits, approvals & grid connection requirements", "pass", "The landlord has agreed and signed the installation off.", "Customer"),
     item("Apartment tenure and exclusive-use areas", "pass", "The apartment has exclusive roof rights. There is no need for permission.", "Customer"),
-    item("Electrical supply - main board, earthing, spare capacity", "pass", "There is no earthing installed. Images of the main board and breakers attached.", "Electrical", 2),
+    { ...item("Electrical supply - main board, earthing, spare capacity", "needs_attention", "Images of the main board and breakers attached.", "Electrical", 2), answers: [{ label: "Supply", value: "Single phase" }, { label: "Earthing", value: "Not installed", concern: true }, { label: "Board cover fitted", value: "No", concern: true }] },
     item("Measurements - roof area, cable runs, distances", "not_applicable", "I didn't have means to do a proper measurement.", "Measurements"),
   ],
   findings: [],

@@ -541,6 +541,7 @@ export async function buildReportPdf(snapshot: ReportSnapshot, input: ReportInpu
         draw(g.category, { size: 9, bold: true });
         for (const r of g.rows) {
           draw(`- ${r.title}${r.required ? " (required)" : ""} - ${statusLabel(r.status)}${r.notes ? ` - ${r.notes}` : ""}`, { size: 9, indent: 8 });
+          for (const a of r.answers ?? []) draw(`${a.label}: ${a.value}${a.concern ? " (needs attention)" : ""}`, { size: 8, indent: 14, bold: !!a.concern });
           const extra = [measuredText(r), r.evidenceCount ? `${r.evidenceCount} photo${r.evidenceCount === 1 ? "" : "s"} linked` : ""].filter(Boolean).join(" - ");
           if (extra) draw(extra, { size: 7, indent: 14, color: MUTED });
         }

@@ -13,6 +13,7 @@ vi.mock("../store", async (orig) => {
     getChecklistItemsLocal: async () => [
       { id: "item-req", title: "Roof", required: true },
       { id: "item-opt", title: "Extra", required: false },
+      { id: "item-roof", title: "Roof / structure / mounting constraints", required: true },
     ],
     saveResponsesLocal: (...a: unknown[]) => save(...a),
   };
@@ -28,6 +29,19 @@ beforeEach(() => {
 });
 
 describe("POST /api/checklist/responses enforces the answer rules", () => {
+  it("refuses Pass beside an answer that says otherwise, and saves nothing", async () => {
+    const res = await call([{ itemId: "item-roof", status: "pass", answers: { structure: "Not verified" } }]);
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/can't be Pass while Structural condition/);
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it("saves only the item's own fields and choices", async () => {
+    const res = await call([{ itemId: "item-roof", status: "needs_attention", answers: { structure: "Not verified", material: "Gold", length: 12, evil: "x" } }]);
+    expect(res.status).toBe(200);
+    expect(save.mock.calls[0][1][0].answers).toEqual({ length: 12, structure: "Not verified" });
+  });
+
   it("refuses a measured value without a unit", async () => {
     const res = await call([{ itemId: "item-opt", status: "pass", measuredValue: 2.5 }]);
     expect(res.status).toBe(400);

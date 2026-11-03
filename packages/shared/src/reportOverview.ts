@@ -1,4 +1,5 @@
 import { statusLabel } from "./checklist";
+import { concernText } from "./itemFields";
 import { hasDesign } from "./design";
 import { hasSolarDesign } from "./solarDesign";
 import { FINDING_PRIORITIES, KEY_FINDING_LIMITS, type FindingPriority, type ReportChecklistRow, type ReportInput, type ReportKeyFinding, type ReportSiteBrief } from "./report";
@@ -96,7 +97,7 @@ export function buildKeyFindings(input: ReportInput): ReportKeyFinding[] {
       id: `c${out.length + 1}`,
       title: clip(r.title, KEY_FINDING_LIMITS.title),
       priority: r.status === "fail" ? "high" : "medium",
-      observed: clip((r.notes?.trim() || `Marked ${statusLabel(r.status)} with no note.`) + measured, KEY_FINDING_LIMITS.observed),
+      observed: clip(([concernText(r), r.notes?.trim()].filter(Boolean).join(" ") || `Marked ${statusLabel(r.status)} with no note.`) + measured, KEY_FINDING_LIMITS.observed),
       meaning: "",
       action: "",
       basis: [{ kind: "item", ref: r.title }, ...(input.photos ?? []).filter((p) => p.itemTitle === r.title).map((p) => ({ kind: "photo" as const, ref: p.evidenceId }))],

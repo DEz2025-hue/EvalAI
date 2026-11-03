@@ -1,16 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Pressable, View } from "react-native";
 import { Stack, useLocalSearchParams, useNavigation, useRouter } from "expo-router";
-import { AnswerSync, needsMeasurement, parseMeasurement, responseProblem } from "@eval-ai/shared";
+import { AnswerSync, aiFieldsFor, applyAnswer, fieldsFor, needsMeasurement, parseMeasurement, responseProblem, type FieldSuggestion, type ItemAnswers } from "@eval-ai/shared";
 import { apiFetch, apiBase } from "../../../lib/api";
 import { CHECK_STATUSES, checkStatus, colors, radius, space } from "../../../lib/theme";
 import { PhotoCaptureMobile } from "../../../components/PhotoCaptureMobile";
+import { ItemFieldsMobile } from "../../../components/ItemFieldsMobile";
 import { Badge, Banner, Button, Card, Chip, EmptyState, ErrorState, Field, Loading, ProgressBar, Screen, Text } from "../../../components/ui";
 
 type Source = "established" | "user" | "ai_suggested";
 type Item = { id: string; title: string; required: boolean; instructions?: string; source?: Source; rationale?: string };
 /** `updatedAt` is when this answer was last saved (absent = never): sent back so a newer answer elsewhere isn't overwritten. */
-type Resp = { itemId: string; status: string; notes?: string; measuredValue?: number; measuredUnit?: string; updatedAt?: string };
+type Resp = { itemId: string; status: string; notes?: string; measuredValue?: number; measuredUnit?: string; answers?: ItemAnswers; updatedAt?: string };
 type Filter = "all" | "todo" | "required";
 type SaveState = "idle" | "unsaved" | "saving" | "saved";
 
@@ -34,6 +35,9 @@ export default function MobileChecklistDetail() {
   const [measureOpen, setMeasureOpen] = useState<Set<string>>(new Set());
   const [photoOpen, setPhotoOpen] = useState(false);
   const [photoNote, setPhotoNote] = useState<string | null>(null);
+  // AI suggestions per item. They stay on screen until the person uses or dismisses them; nothing here is saved.
+  const [suggestions, setSuggestions] = useState<Record<string, FieldSuggestion[]>>({});
+  const [suggesting, setSuggesting] = useState(false);
   // What was typed in each measurement field, so unfinished input like "2." or "0," stays on screen while typing.
   const [measureText, setMeasureText] = useState<Record<string, string>>({});
   // The latest answers for saves started from timers and taps (state in a closure can be a render behind).
@@ -93,6 +97,35 @@ export default function MobileChecklistDetail() {
     setProblem(null);
   }
 
+  function editField(key: string, value: string | number | undefined) {
+    if (!cur || !curResp) return;
+    update(applyAnswer(cur.title, curResp.status, curResp.answers, key, value));
+    setSuggestions((m) => ({ ...m, [cur.id]: (m[cur.id] ?? []).filter((s) => s.key !== key) }));
+  }
+
+  function addSuggestions(list: FieldSuggestion[]) {
+    if (!cur) return;
+    setSuggestions((m) => ({ ...m, [cur.id]: [...(m[cur.id] ?? []).filter((s) => !list.some((n) => n.key === s.key)), ...list] }));
+  }
+
+  /** Ask the AI what the person's notes already answer. It only suggests: each one waits for a tap. */
+  async function suggestFromNotes() {
+    if (!cur || !curResp?.notes?.trim()) return;
+    setSuggesting(true);
+    setProblem(null);
+    try {
+      const res = await apiFetch("/api/ai/item-fields", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ assessmentId: String(id), itemId: cur.id, notes: curResp.notes }) });
+      const data = (await res.json().catch(() => ({}))) as { suggestions?: FieldSuggestion[]; error?: string };
+      if (!res.ok) throw new Error(data.error ?? "AI suggestions are unavailable");
+      addSuggestions(data.suggestions ?? []);
+      if (!data.suggestions?.length) setProblem("The notes don't clearly answer any of these fields.");
+    } catch (e) {
+      setProblem(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSuggesting(false);
+    }
+  }
+
   /** After a refused save: replace this item's answer with the one saved elsewhere (the edits on screen are dropped). */
   async function loadLatest(itemId: string) {
     try {
@@ -134,7 +167,7 @@ export default function MobileChecklistDetail() {
       return false;
     }
     setSaveState("saving");
-    const result = await sync.save({ itemId, status: r.status, notes: r.notes, measuredValue: r.measuredValue, measuredUnit: r.measuredUnit });
+    const result = await sync.save({ itemId, status: r.status, notes: r.notes, measuredValue: r.measuredValue, measuredUnit: r.measuredUnit, answers: r.answers });
     if (result.ok) {
       setSaveState(sync.isDirty(itemId) ? "unsaved" : "saved");
       return true;
@@ -195,7 +228,9 @@ export default function MobileChecklistDetail() {
   if (!cur || !curResp) return <Screen><Stack.Screen options={{ title: "Checklist" }} /><EmptyState icon="list-outline" title="No checklist items" action={<Button title="Build checklist" variant="accent" size="sm" onPress={() => router.replace(`/assessments/${String(id)}/checklist-builder` as never)} />} /></Screen>;
 
   const last = idx >= items.length - 1;
-  const showMeasure = needsMeasurement(cur.title) || curResp.measuredValue !== undefined || measureOpen.has(cur.id);
+  const hasFields = !!fieldsFor(cur.title);
+  // Items with fields ask for their numbers there; the free measurement stays one tap away.
+  const showMeasure = (needsMeasurement(cur.title) && !hasFields) || curResp.measuredValue !== undefined || measureOpen.has(cur.id);
   const savedLabel = saveState === "saving" ? "Saving…" : saveState === "unsaved" ? "Not saved yet" : saveState === "saved" ? "Saved" : "";
   const visible = items
     .map((it, i) => ({ it, i, status: responses[it.id]?.status ?? "not_checked" }))
@@ -260,6 +295,8 @@ export default function MobileChecklistDetail() {
             {cur.rationale ? <Text variant="caption">Why: {cur.rationale}</Text> : null}
           </View>
 
+          <ItemFieldsMobile key={cur.id} title={cur.title} answers={curResp.answers} onChange={editField} suggestions={suggestions[cur.id]} onDismiss={(key) => setSuggestions((m) => ({ ...m, [cur.id]: (m[cur.id] ?? []).filter((s) => s.key !== key) }))} />
+
           <View style={{ gap: space.sm }}>
             <Text variant="label" color={colors.text}>Result</Text>
             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
@@ -271,6 +308,7 @@ export default function MobileChecklistDetail() {
           </View>
 
           <Field label="Notes" value={curResp.notes ?? ""} onChangeText={(v) => update({ notes: v })} placeholder="What did you see?" multiline />
+          {aiFieldsFor(cur.title).length > 0 && curResp.notes?.trim() ? <Button title={suggesting ? "Reading your notes…" : "Suggest answers from my notes"} icon="sparkles-outline" variant="ghost" size="sm" onPress={() => void suggestFromNotes()} disabled={suggesting} /> : null}
 
           {showMeasure ? (
             <View style={{ flexDirection: "row", gap: space.sm }}>
@@ -297,7 +335,7 @@ export default function MobileChecklistDetail() {
           {photoOpen ? (
             <View style={{ gap: space.sm }}>
               <Text variant="label" color={colors.text}>Photos for this item</Text>
-              <PhotoCaptureMobile key={cur.id} assessmentId={String(id)} itemId={cur.id} onUploaded={(n) => setPhotoNote(`${n} photo${n === 1 ? "" : "s"} saved and linked to this item.`)} />
+              <PhotoCaptureMobile key={cur.id} assessmentId={String(id)} itemId={cur.id} onUploaded={(n) => setPhotoNote(`${n} photo${n === 1 ? "" : "s"} saved and linked to this item.`)} onSuggestions={addSuggestions} />
               {photoNote ? <Banner tone="success" message={photoNote} /> : null}
             </View>
           ) : (

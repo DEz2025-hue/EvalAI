@@ -1,5 +1,5 @@
 import type { PhotoJobContext } from "@eval-ai/ai-adapter";
-import type { IntakeSummary } from "@eval-ai/shared";
+import { aiFieldsFor, type IntakeSummary } from "@eval-ai/shared";
 import { buildSiteBrief } from "./store";
 import type { loadAssessmentFacts } from "./aiRoute";
 
@@ -33,7 +33,7 @@ export function photoJobContext(facts: Facts, itemId?: string | null): PhotoJobC
     siteName: a.siteName,
     goal: typeof a.context.goal === "string" ? a.context.goal.slice(0, 1500) : undefined,
     siteBrief: photoSiteBrief(facts),
-    item: item ? { title: item.title, category: item.category, lookFor: item.instructions?.slice(0, 1500), status: response?.status ?? "not_checked", notes: response?.notes?.slice(0, 2000) } : null,
+    item: item ? { title: item.title, category: item.category, lookFor: item.instructions?.slice(0, 1500), status: response?.status ?? "not_checked", notes: response?.notes?.slice(0, 2000), ...(aiFieldsFor(item.title).length ? { fields: aiFieldsFor(item.title) } : {}) } : null,
     otherItems: facts.items.filter((i) => i.id !== item?.id).map((i) => i.title),
   };
 }

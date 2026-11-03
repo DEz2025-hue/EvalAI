@@ -13,6 +13,8 @@ export { clarifyContext, proposeChecklist, analyzeAssessment, SYSTEM_GUARD, comp
 export { draftReportNarrative, draftReportSummary, REPORT_SECTION_MAX, REPORT_ANALYST_PROMPT, REPORT_SUMMARY_PROMPT } from "./reportDraft";
 export { draftDesignPlan, draftDesignWrite, DESIGN_PLAN_PROMPT, DESIGN_WRITE_PROMPT } from "./designDraft";
 export { draftSolarPlan, draftSolarWrite, SOLAR_PLAN_PROMPT, SOLAR_WRITE_PROMPT } from "./solarDraft";
+export { suggestItemFields, cleanFieldSuggestions, fieldSuggestionSchema, ITEM_FIELDS_PROMPT } from "./itemFields";
+export type { ItemFieldOption, ItemFieldSuggestion } from "./itemFields";
 export { reviewAndPlan, cleanHolds, planReviewSchema, PLAN_REVIEW_PROMPT } from "./planReview";
 export { proposeMaterials, cleanMaterials, MATERIALS_ANALYST_PROMPT, MATERIALS_LIMITS } from "./materialsDraft";
 export type { MaterialsProposal, ProposedMaterial, RuleInputRef } from "./materialsDraft";

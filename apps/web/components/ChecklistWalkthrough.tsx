@@ -1,15 +1,16 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AnswerSync, needsMeasurement, responseProblem, type SaveResult } from "@eval-ai/shared";
+import { AnswerSync, aiFieldsFor, applyAnswer, fieldsFor, needsMeasurement, responseProblem, type FieldSuggestion, type ItemAnswers, type SaveResult } from "@eval-ai/shared";
 import { useRole } from "./useRole";
 import { PhotoCapture } from "./PhotoCapture";
+import { ItemFieldsForm } from "./ItemFieldsForm";
 import { SourceBadge, type ItemSource } from "./SourceBadge";
 import { FormLoading } from "./Skeleton";
 
 type Item = { id: string; title: string; required: boolean; instructions?: string; source?: ItemSource; rationale?: string };
 /** `updatedAt` is when this answer was last saved (absent = never): sent back so a newer answer elsewhere isn't overwritten. */
-type Resp = { itemId: string; status: string; notes?: string; measuredValue?: number; measuredUnit?: string; updatedAt?: string };
+type Resp = { itemId: string; status: string; notes?: string; measuredValue?: number; measuredUnit?: string; answers?: ItemAnswers; updatedAt?: string };
 type Filter = "all" | "todo" | "required";
 type SaveState = "idle" | "unsaved" | "saving" | "saved";
 
@@ -41,6 +42,9 @@ export function ChecklistWalkthrough({ id, basePath }: { id: string; basePath: "
   const [filter, setFilter] = useState<Filter>("all");
   const [measureOpen, setMeasureOpen] = useState<Set<string>>(new Set());
   const [photoNote, setPhotoNote] = useState<string | null>(null);
+  // AI suggestions per item. They stay on screen until the person uses or dismisses them; nothing here is saved.
+  const [suggestions, setSuggestions] = useState<Record<string, FieldSuggestion[]>>({});
+  const [suggesting, setSuggesting] = useState(false);
   // The latest answers for saves started from timers and clicks (state in a closure can be a render behind).
   const responsesRef = useRef(responses);
   responsesRef.current = responses;
@@ -97,6 +101,36 @@ export function ChecklistWalkthrough({ id, basePath }: { id: string; basePath: "
     setError(null);
   }
 
+  function editField(key: string, value: string | number | undefined) {
+    if (!cur || !curResp) return;
+    edit(applyAnswer(cur.title, curResp.status, curResp.answers, key, value));
+    setSuggestions((m) => ({ ...m, [cur.id]: (m[cur.id] ?? []).filter((s) => s.key !== key) }));
+  }
+
+  function addSuggestions(list: FieldSuggestion[]) {
+    if (!cur) return;
+    setSuggestions((m) => ({ ...m, [cur.id]: [...(m[cur.id] ?? []).filter((s) => !list.some((n) => n.key === s.key)), ...list] }));
+  }
+
+  /** Ask the AI what the person's notes already answer. It only suggests: each one waits for a tap. */
+  async function suggestFromNotes() {
+    if (!cur || !curResp?.notes?.trim()) return;
+    setSuggesting(true);
+    setError(null);
+    setPhotoNote(null);
+    try {
+      const res = await fetch("/api/ai/item-fields", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ assessmentId: id, itemId: cur.id, notes: curResp.notes }) });
+      const data = (await res.json().catch(() => ({}))) as { suggestions?: FieldSuggestion[]; error?: string };
+      if (!res.ok) throw new Error(data.error ?? "AI suggestions are unavailable");
+      addSuggestions(data.suggestions ?? []);
+      if (!data.suggestions?.length) setPhotoNote("The notes don't clearly answer any of these fields.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSuggesting(false);
+    }
+  }
+
   /**
    * Save one item if it has unsaved changes. `showRules` is false for autosave: an answer that doesn't meet the rules yet
    * (a value typed before its unit) simply waits, and the rule is shown when the person moves on.
@@ -112,7 +146,7 @@ export function ChecklistWalkthrough({ id, basePath }: { id: string; basePath: "
       return false;
     }
     setSaveState("saving");
-    const result = await sync.save({ itemId, status: r.status, notes: r.notes, measuredValue: r.measuredValue, measuredUnit: r.measuredUnit });
+    const result = await sync.save({ itemId, status: r.status, notes: r.notes, measuredValue: r.measuredValue, measuredUnit: r.measuredUnit, answers: r.answers });
     if (result.ok) {
       setSaveState(sync.isDirty(itemId) ? "unsaved" : "saved");
       return true;
@@ -190,7 +224,9 @@ export function ChecklistWalkthrough({ id, basePath }: { id: string; basePath: "
   const visible = items
     .map((it, i) => ({ it, i, status: responses[it.id]?.status ?? "not_checked" }))
     .filter(({ it, status }) => filter === "all" || (status === "not_checked" && (filter === "todo" || it.required)));
-  const showMeasure = needsMeasurement(cur.title) || curResp.measuredValue !== undefined || measureOpen.has(cur.id);
+  const hasFields = !!fieldsFor(cur.title);
+  // Items with fields ask for their numbers there; the free measurement stays one tap away.
+  const showMeasure = (needsMeasurement(cur.title) && !hasFields) || curResp.measuredValue !== undefined || measureOpen.has(cur.id);
   const last = idx >= items.length - 1;
   const savedLabel = saveState === "saving" ? "Saving…" : saveState === "unsaved" ? "Not saved yet" : saveState === "saved" ? "Saved" : "";
 
@@ -244,15 +280,17 @@ export function ChecklistWalkthrough({ id, basePath }: { id: string; basePath: "
           {cur.instructions ? <p className="rounded bg-slate-50 px-3 py-2 text-sm text-slate-700"><span className="font-medium">Look for: </span>{cur.instructions}</p> : null}
           {cur.rationale ? <p className="text-xs text-slate-500">Why: {cur.rationale}</p> : null}
         </div>
+        <ItemFieldsForm title={cur.title} answers={curResp.answers} onChange={editField} suggestions={suggestions[cur.id]} onDismiss={(key) => setSuggestions((m) => ({ ...m, [cur.id]: (m[cur.id] ?? []).filter((s) => s.key !== key) }))} />
         <div className="flex flex-wrap gap-2">
           {STATUSES.map((s) => (
             <button key={s.v} type="button" aria-pressed={curResp.status === s.v} onClick={() => edit({ status: s.v })} className={`text-xs px-3 py-1.5 rounded-full border ${curResp.status === s.v ? "bg-slate-900 text-white border-slate-900" : "bg-white border-slate-200"}`}>{s.label}</button>
           ))}
         </div>
-        <p className="text-xs text-slate-500">Not Checked ≠ Pass.{cur.required ? " Not Applicable needs a reason in the notes." : ""}</p>
+        <p className="text-xs text-slate-500">{hasFields ? "The result follows your answers. You can still choose Issue / Fail or N/A. " : ""}Not Checked ≠ Pass.{cur.required ? " Not Applicable needs a reason in the notes." : ""}</p>
         <label className="block space-y-1">
           <span className="text-sm font-medium">Observation / notes</span>
           <textarea value={curResp.notes ?? ""} onChange={(e) => edit({ notes: e.target.value })} placeholder="Observation, defects, limitations" className="w-full rounded border border-slate-200 px-3 py-2 text-sm min-h-[80px]" />
+          {aiFieldsFor(cur.title).length > 0 && curResp.notes?.trim() ? <button type="button" onClick={() => void suggestFromNotes()} disabled={suggesting} className="text-xs text-slate-600 underline">{suggesting ? "Reading your notes…" : "Suggest answers from my notes"}</button> : null}
         </label>
         {showMeasure ? (
           <div className="grid grid-cols-2 gap-3">
@@ -271,7 +309,7 @@ export function ChecklistWalkthrough({ id, basePath }: { id: string; basePath: "
         <details>
           <summary className="cursor-pointer text-sm font-medium">Add a photo to this item</summary>
           <div className="mt-2">
-            <PhotoCapture key={cur.id} assessmentId={id} itemId={cur.id} onUploaded={() => setPhotoNote("Photo saved and linked to this item.")} />
+            <PhotoCapture key={cur.id} assessmentId={id} itemId={cur.id} onUploaded={() => setPhotoNote("Photo saved and linked to this item.")} onSuggestions={addSuggestions} />
             {photoNote ? <p role="status" className="mt-1 text-xs text-green-700">{photoNote}</p> : null}
           </div>
         </details>

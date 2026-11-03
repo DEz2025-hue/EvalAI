@@ -1,5 +1,6 @@
 // Deterministic completeness review — pure function so web, mobile, API and the finalize gate agree.
 import { needsMeasurement } from "./answerSync";
+import { answerMeasurements, blankFields, fieldsFor, hasAnswers } from "./itemFields";
 
 export type CompletenessTarget = "checklist" | "findings" | "materials" | "clarify" | "evidence";
 
@@ -7,7 +8,7 @@ export type CompletenessIssue = { code: string; reason: string; target: Complete
 
 export type CompletenessInput = {
   items: Array<{ id: string; title: string; required: boolean }>;
-  responses: Array<{ itemId: string; status: string; measuredValue?: number | null }>;
+  responses: Array<{ itemId: string; status: string; measuredValue?: number | null; answers?: unknown }>;
   /** item_id of every evidence row that is linked to a checklist item. */
   evidenceItemIds: string[];
   findings: Array<{ status: string }>;
@@ -49,7 +50,18 @@ export function computeCompleteness(input: CompletenessInput): CompletenessResul
       warnings.push({ code: "issue_flagged", reason: `${label} is flagged ${status === "fail" ? "Fail" : "Needs attention"} — make sure a finding and evidence cover it`, target: "findings" });
     }
     if (status === "pass" && it.required && !linked.has(it.id)) passWithoutEvidence++;
-    if (needsMeasurement(it.title) && status !== "not_applicable" && status !== "not_checked" && (r?.measuredValue === undefined || r?.measuredValue === null)) {
+    // The simple fields (D-042). The photo rule only applies once the fields are in use, so jobs answered before them can still be finalized.
+    const set = fieldsFor(it.title);
+    if (set && status !== "not_applicable" && status !== "not_checked") {
+      if (!hasAnswers(it.title, r?.answers)) {
+        warnings.push({ code: "fields_empty", reason: `${label} has a result but its answer fields are empty`, target: "checklist" });
+      } else {
+        const blank = blankFields(it.title, r?.answers);
+        if (blank.length > 0) warnings.push({ code: "fields_blank", reason: `${label} still needs: ${blank.join(", ")}`, target: "checklist" });
+        if (set.photoRequired && !linked.has(it.id)) blockers.push({ code: "photo_required", reason: `${label} needs a photo linked to it`, target: "evidence" });
+      }
+    }
+    if (needsMeasurement(it.title) && status !== "not_applicable" && status !== "not_checked" && (r?.measuredValue === undefined || r?.measuredValue === null) && answerMeasurements(it.title, r?.answers).length === 0) {
       warnings.push({ code: "measurement_missing", reason: `${label} has no recorded measurement`, target: "checklist" });
     }
   });

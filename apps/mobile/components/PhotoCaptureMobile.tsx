@@ -3,7 +3,7 @@ import { View, Image, Alert } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { uploadEvidence } from "../lib/upload";
 import { readLocalFile, toBase64 } from "../lib/localFile";
-import { photoAnalysisText, type PhotoAnalysis } from "@eval-ai/shared";
+import { photoAnalysisText, type PhotoAnalysis, type FieldSuggestion } from "@eval-ai/shared";
 import { apiFetch, apiBase } from "../lib/api";
 import { colors, radius, space } from "../lib/theme";
 import { Badge, Banner, Button, Card, IconButton, Text } from "./ui";
@@ -27,7 +27,7 @@ type Shot = {
  * Add photos to a job: take several, or choose many at once from the gallery, then upload them together. Each photo
  * keeps its own status, so one failure never loses the others, and "Ask AI" works on any single photo.
  */
-export function PhotoCaptureMobile({ assessmentId, itemId, onUploaded }: { assessmentId: string; itemId?: string; onUploaded?: (count: number) => void }) {
+export function PhotoCaptureMobile({ assessmentId, itemId, onUploaded, onSuggestions }: { assessmentId: string; itemId?: string; onUploaded?: (count: number) => void; onSuggestions?: (list: FieldSuggestion[]) => void }) {
   const [shots, setShots] = useState<Shot[]>([]);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -109,6 +109,8 @@ export function PhotoCaptureMobile({ assessmentId, itemId, onUploaded }: { asses
       const data = await res.json();
       if (!res.ok) throw new Error((data as { error?: string }).error ?? "Analysis failed");
       patch(s.key, { analysis: photoAnalysisText(data as PhotoAnalysis) });
+      const found = (data as { fieldSuggestions?: FieldSuggestion[] }).fieldSuggestions;
+      if (found?.length) onSuggestions?.(found);
     } catch (e) {
       patch(s.key, { analysis: `Analysis unavailable: ${e instanceof Error ? e.message : String(e)}` });
     }

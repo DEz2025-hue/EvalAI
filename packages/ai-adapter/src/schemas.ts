@@ -141,6 +141,8 @@ export const DraftReportInput = z.object({
         /** What the item is about (the template's "look for" text). Guidance, never something that was observed. */
         covers: z.string().max(800).optional(),
         measured: z.object({ value: z.number(), unit: z.string().max(20) }).optional(),
+        /** What the person answered in the item's simple fields (D-042). */
+        answers: z.array(z.object({ label: z.string().max(160), value: z.string().max(160), concern: z.boolean().optional() })).max(20).optional(),
         /** Photos linked to this item. */
         evidenceCount: z.number().int().min(0).optional(),
       }),
@@ -287,7 +289,7 @@ export const PhotoJobContext = z.object({
   /** Short facts about the site: address, existing equipment, constraints, what was described at intake, interview details. */
   siteBrief: z.record(z.unknown()).optional(),
   /** The checklist item the photo is linked to: what it asks for, and what the person has recorded so far. */
-  item: z.object({ title: z.string().max(300), category: z.string().max(100).optional(), lookFor: z.string().max(1500).optional(), status: z.string().max(40).optional(), notes: z.string().max(2000).optional() }).nullable().optional(),
+  item: z.object({ title: z.string().max(300), category: z.string().max(100).optional(), lookFor: z.string().max(1500).optional(), status: z.string().max(40).optional(), notes: z.string().max(2000).optional(), fields: z.array(z.object({ key: z.string().max(60), label: z.string().max(120), options: z.array(z.string().max(120)).max(12) })).max(12).optional() }).nullable().optional(),
   /** Titles of the job's other checklist items, so the model can say where a photo fits better. */
   otherItems: z.array(z.string().max(300)).max(200).default([]),
 });
@@ -317,6 +319,8 @@ export const AnalyzeImageOutput = z.object({
   possibleIssues: z.array(z.string()).default([]),
   /** A draft note the person can put on the checklist item. */
   suggestedNote: z.string().default(""),
+  /** Choices the photo suggests for the item's simple fields (D-042). A person accepts each one. */
+  fieldSuggestions: z.array(z.object({ key: z.string(), label: z.string(), value: z.string() })).default([]),
   limitations: z.array(z.string()).default([]),
   uncertainty: z.enum(["low", "medium", "high"]).default("high"),
   evidenceRef: z.string().optional(),

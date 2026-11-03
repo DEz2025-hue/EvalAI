@@ -1,3 +1,4 @@
+import { fieldSuggestionSchema, type ItemFieldOption } from "./itemFields";
 import type { JsonSchema } from "./chat";
 
 // JSON Schemas sent as response_format.json_schema. Written to satisfy Meta's "strict" subset too (root object,
@@ -98,10 +99,11 @@ export function analyzeSchema(evidenceIds: string[]): JsonSchema {
   };
 }
 
-export function imageSchema(): JsonSchema {
+export function imageSchema(fields: ItemFieldOption[] = []): JsonSchema {
   return {
     type: "object",
     properties: {
+      ...(fields.length ? { field_suggestions: fieldSuggestionSchema(fields, false) } : {}),
       summary: str,
       fit: { type: "string", enum: ["yes", "partly", "no", "no_item"] },
       relevance: str,
@@ -114,7 +116,7 @@ export function imageSchema(): JsonSchema {
       limitations: strArray,
       uncertainty: { type: "string", enum: ["low", "medium", "high"] },
     },
-    required: ["summary", "fit", "relevance", "better_items", "observations", "readings", "suggestions", "possible_issues", "suggested_note", "limitations", "uncertainty"],
+    required: [...(fields.length ? ["field_suggestions"] : []), "summary", "fit", "relevance", "better_items", "observations", "readings", "suggestions", "possible_issues", "suggested_note", "limitations", "uncertainty"],
     additionalProperties: false,
   };
 }

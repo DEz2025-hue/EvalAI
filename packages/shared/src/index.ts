@@ -1,5 +1,6 @@
 // Shared domain — deterministic, no AI side effects
 export * from "./checklist";
+export * from "./itemFields";
 export * from "./answerSync";
 export * from "./reportOverview";
 export * from "./measurements";

@@ -19,6 +19,7 @@ const SOLAR_RULES =
   "Two kinds of content, kept apart. SITE FACTS (the roof, the supply, existing equipment, the appliances and what their labels say) come ONLY from the record; never invent an appliance, a roof, a reading or a measurement. " +
   "DESIGN CHOICES (system type, which loads to back up, sizing assumptions, where panels go) are a professional proposal: make them confidently, as a solar designer would for the client to approve, and mark which ones are assumptions. " +
   "Rules: no prices or costs; no standards, codes or clause numbers; never say the design or the site complies with anything. Never use the words 'compliance', 'compliant' or 'complies'. " +
+  "Each checklist item may carry answers: what the person recorded in plain fields, as facts. An answer with concern true means that thing still needs dealing with, so it must be raised even if the notes say nothing about it. Use roof sizes and other typed numbers in them as measurements. " +
   "siteBrief.interview holds what the person said: use it as the client's wishes and statements, not as verified facts. " +
   "photoNotes are UNVERIFIED descriptions an AI wrote from the photos. Lines starting 'Label reading' quote text printed on an appliance or equipment label: use them as the best source for a load's power, and say so. " +
   "Write in plain, short, professional sentences in the third person.";

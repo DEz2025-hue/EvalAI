@@ -179,6 +179,10 @@ audit; they do not prove implementation is complete.
                                                  setItemStatus, coverage hint         hint checked once with a synthetic picture. Not tried on
                                                                                       a phone.
 
+  Simple answer fields on items (D-042)   Implemented          itemFields.ts, migration 0018,       Unit, route and browser (demo mode) tested. Phone
+                                                 ItemFieldsForm, ItemFieldsMobile     form not tried on a device; migration must be
+                                                                                      applied before the code is deployed.
+
   Project plan and Wonder review (D-039)  Implemented          projectPlan.ts, planReview.ts,       Unit, route, PDF and browser (demo mode) tested;
                                                  report-draft stage "plan",           review run live on made-up data on Wonder (503,
                                                  ProjectPlanEditor.tsx                55 s timeout, 30 s, 28 s). Not tried on a phone;

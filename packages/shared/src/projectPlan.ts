@@ -1,5 +1,6 @@
 import type { ReportFindingBasis, ReportInput, ReportNarrative } from "./report";
 import { scenarioFor } from "./scenario";
+import { concernText } from "./itemFields";
 
 // The project plan in a report (D-039): what must be settled before work starts, and how the project then runs, phase by phase.
 // Every new draft gets a standard plan built here from the record, so a report has one even when the AI is unavailable. A Muse Wonder review may
@@ -127,14 +128,14 @@ export function buildProjectPlan(input: Pick<ReportInput, "pack" | "mode" | "con
   const phases = install ? installPhases(input.pack) : existingSystemPhases();
   const rows = input.checklist ?? [];
   const open = rows.filter((r) => r.required && (OPEN_STATUSES.has(r.status) || r.status === "not_applicable"));
-  const problems = rows.filter((r) => PROBLEM_STATUSES.has(r.status));
+  const problems = rows.filter((r) => PROBLEM_STATUSES.has(r.status) || !!concernText(r));
   phases[0].tasks = [...open.map((r) => `Complete: ${r.title}`), ...phases[0].tasks];
   phases[1].tasks = [...problems.map((r) => `Resolve: ${r.title}`), ...phases[1].tasks];
   const holds: ProjectPlanHold[] = [
     ...problems.map((r): ProjectPlanHold => ({
       title: r.title,
       priority: r.status === "fail" ? "high" : "medium",
-      why: r.notes?.trim() || "Marked as a problem during the checklist.",
+      why: [concernText(r), r.notes?.trim()].filter(Boolean).join(" ") || "Marked as a problem during the checklist.",
       action: "Resolve this and record the result before the work depends on it.",
       basis: [{ kind: "item", ref: r.title }],
     })),

@@ -12,6 +12,7 @@ export type Operation =
   | "draftReport"
   | "draftDesign"
   | "reviewPlan"
+  | "itemFields"
   | "proposeMaterials"
   | "interview"
   | "transcribeAudio"
@@ -151,6 +152,8 @@ export function buildAdapterConfig(env: Env): AdapterConfig {
       // The senior review and project plan (D-039): one call that reads the whole record. Muse Wonder, because it is the model built for following detailed
       // instructions and planning, and this is the one step where catching a hidden problem is worth more than speed.
       reviewPlan: { model: pick(env.AI_MODEL_PLAN, wonder), reasoningEffort: effort(env.AI_EFFORT_PLAN, "low"), maxCompletionTokens: num(env.AI_MAX_TOKENS_PLAN, 12000), timeoutMs: 55_000 },
+      // Suggest a checklist item's simple fields from its notes (D-042): small and quick.
+      itemFields: { model: pick(env.AI_MODEL_ITEM_FIELDS, spark), reasoningEffort: effort(env.AI_EFFORT_ITEM_FIELDS, "low"), maxCompletionTokens: num(env.AI_MAX_TOKENS_ITEM_FIELDS, 3000), timeoutMs: 30_000 },
       // Materials: one call that reads the whole record. Low reasoning keeps the answer inside the token budget; quantities are computed by code afterwards.
       proposeMaterials: { model: pick(env.AI_MODEL_MATERIALS, spark), reasoningEffort: effort(env.AI_EFFORT_MATERIALS, "low"), maxCompletionTokens: num(env.AI_MAX_TOKENS_MATERIALS, 10000), timeoutMs: 58_000 },
       // Site interview: one short question per call (fast), or one digest of the whole conversation at the end.

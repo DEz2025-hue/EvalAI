@@ -5,7 +5,7 @@
 // - Saves run one at a time. An autosave and a "Next" tap for the same item can't race each other into a false conflict.
 // - Each edit bumps a revision. A save clears "unsaved" only up to the revision it sent, so typing during a save stays unsaved.
 
-export type AnswerPayload = { itemId: string; status: string; notes?: string; measuredValue?: number; measuredUnit?: string };
+export type AnswerPayload = { itemId: string; status: string; notes?: string; measuredValue?: number; measuredUnit?: string; answers?: Record<string, string | number> };
 
 export type SendResult = { ok: true; updatedAt: string } | { ok: false; status: number; error: string };
 export type SaveResult = { ok: true } | { ok: false; conflict: boolean; error: string };

@@ -5,6 +5,7 @@ import { SYSTEM_GUARD, compact } from "./text";
 import { situationHint } from "./situation";
 import { lensText, lensesFor } from "./photoLens";
 import { AnalyzeImageInput, AnalyzeImageOutput } from "./schemas";
+import { cleanFieldSuggestions } from "./itemFields";
 
 // Photo analysis (Muse Spark vision, D-035). The photo is studied FOR THE JOB: the server sends the job's pack and situation, the site
 // brief and the checklist item the photo belongs to (with what that item asks for), and a topic lens says what an expert would look at.
@@ -38,11 +39,12 @@ export async function analyzeImage(input: unknown, options?: CallOptions) {
   const cfg = getAdapterConfig();
   const c = v.context;
   const lens = c ? lensText(lensesFor(c.pack, c.item)) : "";
+  const fields = c?.item?.fields ?? [];
   const { data } = await chatJson(
     cfg,
     "analyzeImage",
     {
-      system: SYSTEM_GUARD + IMAGE_ANALYST_PROMPT + (lens ? " What to look at for this photo: " + lens : ""),
+      system: SYSTEM_GUARD + IMAGE_ANALYST_PROMPT + (lens ? " What to look at for this photo: " + lens : "") + (fields.length ? " field_suggestions: for item.fields, give key and value only where the photo plainly shows the answer, and leave out anything you cannot see clearly. A person confirms each one." : ""),
       user: [
         {
           type: "text",
@@ -57,7 +59,7 @@ export async function analyzeImage(input: unknown, options?: CallOptions) {
         { type: "image_url", image_url: { url: "data:" + v.mimeType + ";base64," + v.imageBase64 } },
       ],
       schemaName: "photo_analysis",
-      schema: imageSchema(),
+      schema: imageSchema(fields),
     },
     options,
   );
@@ -80,6 +82,7 @@ export async function analyzeImage(input: unknown, options?: CallOptions) {
     suggestions: strings(raw.suggestions, 6),
     possibleIssues: strings(raw.possible_issues, 6),
     suggestedNote: text(raw.suggested_note, 800),
+    fieldSuggestions: cleanFieldSuggestions(raw.field_suggestions, fields),
     limitations: [...strings(raw.limitations, 8), "Photo analysis is a suggestion, not a verified measurement"],
     uncertainty: ["low", "medium", "high"].includes(String(raw.uncertainty)) ? raw.uncertainty : "high",
     requiresHumanReview: true,

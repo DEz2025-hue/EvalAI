@@ -3,6 +3,7 @@ import { canonicalJson } from "./canonicalJson";
 import path from "path";
 import { buildReportPhotos, type PhotoChoices, type SavedPhotoHighlights, type SavedPhotoReview } from "./reportPhotos";
 import { FINDING_PRIORITIES, KEY_FINDING_LIMITS, NARRATIVE_SECTIONS, PACK_TEMPLATES, checklistFor, lookForFor, templateItemMeta, type FindingPriority, type IntakeSummary, type ReportChecklistRow, type ReportKeyFinding, type ReportSiteBrief, type ReportPhoto, type Scenario, buildReportHtml, type ReportNarrative, computeCompleteness, calculateMeasurement, quotationTotalAmount, type CompletenessResult, type FormulaId, type MeasurementInput, type MeasurementSource, type ArCapture, type PhotoCapture, LENGTH_UNITS, type LengthUnit, isAcceptableArCapture, hasArInput, hasPhotoInput, verifyPhotoReading, QUANTITY_TBD, InterviewStateSchema, interviewStatements, normalizeTemplate, hasTemplate, type ReportTemplate, cleanDesign, cleanSolarDesign, cleanProjectPlan, buildProjectPlan, hasWriteUp } from "@eval-ai/shared";
+import { answerMeasurements, answerRows, type ItemAnswers } from "@eval-ai/shared";
 import type { ReportSnapshot, ReportInput } from "@eval-ai/shared";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -39,6 +40,7 @@ type ChecklistResponseRecord = {
   notes?: string;
   measuredValue?: number;
   measuredUnit?: string;
+  answers?: ItemAnswers;
   updatedAt: string;
 };
 
@@ -583,6 +585,8 @@ export type ResponseInput = {
   notes?: string;
   measuredValue?: number;
   measuredUnit?: string;
+  /** Answers to the item's simple fields (D-042). The caller has checked them against the item. */
+  answers?: ItemAnswers;
   /**
    * When the answer was last saved as this screen saw it (null = it had never been saved). If the stored answer is newer,
    * someone changed it on another screen or device meanwhile and the save is refused instead of overwriting their answer.
@@ -633,7 +637,7 @@ export async function saveResponsesLocal(assessmentId: string, responses: Respon
         if (stale.length > 0) throw staleError(stale);
       }
       // One statement for all rows: either every answer is saved or none is.
-      const rows = responses.map((r) => ({ assessment_id: assessmentId, item_id: r.itemId, status: r.status, notes: r.notes ?? null, measured_value: r.measuredValue ?? null, measured_unit: r.measuredUnit ?? null, updated_at: now }));
+      const rows = responses.map((r) => ({ assessment_id: assessmentId, item_id: r.itemId, status: r.status, notes: r.notes ?? null, measured_value: r.measuredValue ?? null, measured_unit: r.measuredUnit ?? null, answers: r.answers ?? null, updated_at: now }));
       const { error } = await supabase.from("checklist_responses").upsert(rows, { onConflict: "assessment_id,item_id" });
       if (error) throw error;
       return { ok: true, persisted: true, saved: responses.length, updatedAt: now };
@@ -647,7 +651,7 @@ export async function saveResponsesLocal(assessmentId: string, responses: Respon
   if (stale.length > 0) throw staleError(stale);
   for (const r of responses) {
     const idx = all.findIndex((x) => x.assessmentId === assessmentId && x.itemId === r.itemId);
-    const rec: ChecklistResponseRecord = { assessmentId, itemId: r.itemId, status: r.status as ChecklistResponseRecord["status"], notes: r.notes, measuredValue: r.measuredValue, measuredUnit: r.measuredUnit, updatedAt: now };
+    const rec: ChecklistResponseRecord = { assessmentId, itemId: r.itemId, status: r.status as ChecklistResponseRecord["status"], notes: r.notes, measuredValue: r.measuredValue, measuredUnit: r.measuredUnit, answers: r.answers, updatedAt: now };
     if (idx >= 0) all[idx] = rec;
     else all.push(rec);
   }
@@ -660,9 +664,9 @@ export async function getResponsesLocal(assessmentId: string, ctx?: StoreCtx): P
     try {
       const supabase = await clientFor(ctx);
       // Same as the items: an unreadable answer list must not look like "nothing answered yet".
-      const { data, error } = await supabase.from("checklist_responses").select("item_id, status, notes, measured_value, measured_unit, updated_at").eq("assessment_id", assessmentId);
+      const { data, error } = await supabase.from("checklist_responses").select("item_id, status, notes, measured_value, measured_unit, answers, updated_at").eq("assessment_id", assessmentId);
       if (error) throw error;
-      if (data) return data.map((d) => ({ assessmentId, itemId: d.item_id, status: d.status, notes: d.notes ?? undefined, measuredValue: d.measured_value ?? undefined, measuredUnit: d.measured_unit ?? undefined, updatedAt: d.updated_at }));
+      if (data) return data.map((d) => ({ assessmentId, itemId: d.item_id, status: d.status, notes: d.notes ?? undefined, measuredValue: d.measured_value ?? undefined, measuredUnit: d.measured_unit ?? undefined, answers: (d.answers as ItemAnswers | null) ?? undefined, updatedAt: d.updated_at }));
     } catch (e) { throw dbError(e); }
   }
   if (dbMode(ctx)) return [];
@@ -760,6 +764,7 @@ export async function buildReportInputFromStoredFacts(
       category,
       required,
       ...(r?.measuredValue !== undefined ? { measured: { value: r.measuredValue, unit: r.measuredUnit ?? "" } } : {}),
+      ...(answerRows(title, r?.answers).length ? { answers: answerRows(title, r?.answers) } : {}),
       evidenceCount: photosByItem.get(id) ?? 0,
     };
   });
@@ -770,6 +775,8 @@ export async function buildReportInputFromStoredFacts(
     value: r.measuredValue!,
     unit: r.measuredUnit ?? "",
   }));
+  // Numbers typed into an item's simple fields (D-042).
+  for (const r of responses) measurements.push(...answerMeasurements(titleById.get(r.itemId) ?? "", r.answers));
   // Recorded measurements: value + unit + the method that produced it (never an AI estimate).
   const recorded = await listMeasurementsLocal(assessmentId, ctx);
   for (const m of recorded) {
@@ -1620,7 +1627,7 @@ export async function getCompletenessLocal(assessmentId: string, ctx?: StoreCtx)
   const answers = (assessment.context as { clarificationAnswers?: Record<string, unknown> }).clarificationAnswers;
   const result = computeCompleteness({
     items: items.map((i) => ({ id: i.id, title: i.title, required: i.required })),
-    responses: responses.map((r) => ({ itemId: r.itemId, status: r.status, measuredValue: r.measuredValue })),
+    responses: responses.map((r) => ({ itemId: r.itemId, status: r.status, measuredValue: r.measuredValue, answers: r.answers })),
     evidenceItemIds: evidence.items.map((e) => e.itemId).filter((x): x is string => !!x),
     findings: findings.map((f) => ({ status: f.status })),
     materials: materials.length > 0 ? { count: materials.length, provisionalCount: materials.filter((m) => m.provisional).length } : null,
