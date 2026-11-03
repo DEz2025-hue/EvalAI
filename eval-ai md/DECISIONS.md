@@ -324,6 +324,13 @@ unknown/provisional.
 -   **Honest limits:** Planning figures, not a site test: bitrate varies with the scene and the camera's settings (sources quote a 30 to 50% saving for H.265), sources differ on detail thresholds (a newer scheme is reported), and PoE draws are typical maxima by camera type, not datasheet values. All are shown as editable inputs or printed constants so a designer can correct them.
 -   **Documents updated:** DECISIONS.md.
 
+### D-038 --- Live guidance is switched off for now and shown as coming with Meta glasses
+
+-   **Status:** Confirmed — 2026-11-03. Supersedes the live-session beta of D-015 for now; D-015 and D-016 still describe how it works and how glasses would plug in.
+-   **Decision:** (1) One flag, `LIVE_CAMERA_ENABLED` in `packages/shared/src/liveSession.ts`, is set to false. (2) While it is off: the web job pages do not show the live camera panel; the phone's job screen offers **Site interview** instead of "Live session (beta)", and that screen shows only the interview, with the camera walk (and its camera and microphone hooks) not mounted at all; `/api/ai/live-frame` refuses every request before any AI call; `/api/live/status` reports coming soon on every platform. (3) Both dashboards show **"Live guidance with Meta glasses — Coming soon"** with one shared message (`LIVE_COMING_SOON`). (4) The site interview (D-030) is unchanged. (5) The live code stays in place and tested (its route tests switch the flag on), so turning live back on is a one-line change.
+-   **Context and evidence:** The owner asked to remove live from the platform for the hackathon and present it as coming with Meta glasses.
+-   **Documents updated:** DECISIONS.md.
+
 ## Open decisions
 
 Remaining to resolve through provider verification and implementation: - Exact authentication and role/permission matrix details. - Exact Meta model IDs and verified image/audio/streaming capabilities per model. - Which voice capabilities deliver reliably per platform (web vs Expo). - Report export layout and PDF rendering choice. - Offline/sync scope. - Data retention and deletion periods. - Whether corrective-action assignment is in initial release.

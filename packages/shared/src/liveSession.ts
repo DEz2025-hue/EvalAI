@@ -4,6 +4,19 @@
 // runs and transcribed. Stills can optionally go to the AI for a reviewable suggestion. This file holds the rules as a pure state
 // machine so they can be tested without a phone; the app drives it with a 1-second clock.
 
+/**
+ * Live camera guidance is switched off for now (D-038): the phone's camera walk, the web live camera panel and the frame route are
+ * hidden or refuse requests, and the dashboards say it is coming with Meta glasses. The site interview stays. Set to true to bring it back.
+ */
+export const LIVE_CAMERA_ENABLED = false;
+
+/** What the dashboards say while live guidance is off. */
+export const LIVE_COMING_SOON = {
+  title: "Live guidance with Meta glasses",
+  message:
+    "Coming soon: walk the site hands-free with Meta AI glasses. The AI will see what you see, guide you through the checklist item by item and capture photos and notes for your review as you go.",
+} as const;
+
 export const LIVE_INTERVALS_S = [10, 20, 30] as const;
 export const LIVE_DEFAULT_INTERVAL_S = 20;
 /** Hard limits so a forgotten session can't run (or cost) forever. */

@@ -6,6 +6,8 @@ vi.mock("@eval-ai/ai-adapter", async (orig) => {
   const real = await orig<typeof import("@eval-ai/ai-adapter")>();
   return { ...real, liveFrame: (...a: unknown[]) => liveFrame(...a) };
 });
+// Live guidance is off for now (D-038); these tests switch it on to keep the route itself covered.
+vi.mock("@eval-ai/shared", async (orig) => ({ ...(await orig<typeof import("@eval-ai/shared")>()), LIVE_CAMERA_ENABLED: true }));
 vi.mock("../auth", () => ({ requireWriter: async () => ({ auth: { mode: "demo", ctx: {} } }) }));
 const loadFacts = vi.fn();
 vi.mock("../aiRoute", async (orig) => {

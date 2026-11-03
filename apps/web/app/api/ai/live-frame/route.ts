@@ -3,6 +3,7 @@ import { z } from "zod";
 import { liveFrame } from "@eval-ai/ai-adapter";
 import { requireWriter } from "../../../../lib/auth";
 import { aiError, aiGuard, aiRunHook, loadAssessmentFacts } from "../../../../lib/aiRoute";
+import { LIVE_CAMERA_ENABLED, LIVE_COMING_SOON } from "@eval-ai/shared";
 
 const Body = z.object({
   assessmentId: z.string().min(1).max(100),
@@ -23,6 +24,8 @@ const Body = z.object({
 export async function POST(req: Request) {
   const { auth, error: authErr } = await requireWriter();
   if (authErr) return authErr;
+  // Live guidance is off for now (D-038): no frame is analysed, so nothing is spent on it.
+  if (!LIVE_CAMERA_ENABLED) return NextResponse.json({ error: `${LIVE_COMING_SOON.title} is coming soon.` }, { status: 404 });
   const limited = await aiGuard(auth, "live-frame", 8);
   if (limited) return limited;
   try {

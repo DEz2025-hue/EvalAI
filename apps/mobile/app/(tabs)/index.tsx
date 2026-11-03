@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Pressable, View } from "react-native";
 import { Link, useFocusEffect, useRouter } from "expo-router";
 import { getSupabase, hasSupabaseEnv } from "../../lib/supabase";
-import { firstName, scenarioFor, scenarioLabel } from "@eval-ai/shared";
+import { LIVE_COMING_SOON, firstName, scenarioFor, scenarioLabel } from "@eval-ai/shared";
 import { loadWorkspaces } from "../../lib/myWorkspaces";
 import { capitalize, siteNameOf, timeAgo } from "../../lib/format";
 import { systemIcon, systemLabel } from "../../lib/packs";
@@ -174,7 +174,8 @@ export default function HomeScreen() {
           : null}
       </Card>
 
-      <Banner tone="neutral" title="Live session — Beta" message="Open a job and tap Live session to get AI suggestions from the camera every few seconds." />
+      {/* Live guidance is off for now (D-038); it is coming with Meta glasses. */}
+      <Banner tone="neutral" title={`${LIVE_COMING_SOON.title} · Coming soon`} message={LIVE_COMING_SOON.message} />
     </Screen>
   );
 }

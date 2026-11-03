@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Alert, View } from "react-native";
-import { SCENARIO_LIST, scenarioFor, scenarioLabel, startHereFor, type IntakeSummary, type Scenario } from "@eval-ai/shared";
+import { LIVE_CAMERA_ENABLED, SCENARIO_LIST, scenarioFor, scenarioLabel, startHereFor, type IntakeSummary, type Scenario } from "@eval-ai/shared";
 import { useLocalSearchParams, Link, Stack, useFocusEffect, useRouter } from "expo-router";
 import { getSupabase, hasSupabaseEnv } from "../../lib/supabase";
 import { apiFetch, apiBase } from "../../lib/api";
@@ -179,10 +179,10 @@ export default function AssessmentDetail() {
 
       {startHere ? <Banner tone="info" title={`Start here: ${startHere.title}`} message={startHere.reason || "Suggested by the site intake."} /> : null}
 
-      {/* Working on site comes first: no scrolling past the checklist to start a live session. */}
+      {/* Working on site comes first: no scrolling past the checklist to start the interview (or, when it is on, a live session, D-038). */}
       <View style={{ flexDirection: "row", gap: space.sm }}>
         <Link href={`${base}/live` as never} asChild>
-          <Button title="Live session (beta)" icon="videocam-outline" variant="accent" style={{ flex: 1 }} />
+          <Button title={LIVE_CAMERA_ENABLED ? "Live session (beta)" : "Site interview"} icon={LIVE_CAMERA_ENABLED ? "videocam-outline" : "chatbubbles-outline"} variant="accent" style={{ flex: 1 }} />
         </Link>
         <Link href={`${base}/intake` as never} asChild>
           <Button title={row.context?.intake ? "Site intake again" : "Site intake"} icon="sparkles-outline" variant="secondary" style={{ flex: 1 }} />

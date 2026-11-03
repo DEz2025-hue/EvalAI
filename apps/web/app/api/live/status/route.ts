@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { isAiConfigured } from "@eval-ai/ai-adapter";
-import { LIVE_DEFAULT_INTERVAL_S, LIVE_INTERVALS_S, LIVE_MAX_FRAMES, LIVE_MAX_SECONDS } from "@eval-ai/shared";
+import { LIVE_CAMERA_ENABLED, LIVE_COMING_SOON, LIVE_DEFAULT_INTERVAL_S, LIVE_INTERVALS_S, LIVE_MAX_FRAMES, LIVE_MAX_SECONDS } from "@eval-ai/shared";
 
 // Live session status and release gate (D-015). Live is NOT video: the phone shows a camera preview and takes a still
 // every few seconds (or on tap); each still goes to /api/ai/live-frame for a reviewable suggestion. This endpoint is the
@@ -8,6 +8,10 @@ import { LIVE_DEFAULT_INTERVAL_S, LIVE_INTERVALS_S, LIVE_MAX_FRAMES, LIVE_MAX_SE
 
 export async function GET() {
   const frameAnalysis = isAiConfigured();
+  // Live guidance is off for now (D-038): say so, and that it is coming with Meta glasses.
+  if (!LIVE_CAMERA_ENABLED) {
+    return NextResponse.json({ status: "coming_soon", available: false, platforms: { mobile: "coming_soon", web: "coming_soon", glasses: "coming_soon" }, title: LIVE_COMING_SOON.title, message: LIVE_COMING_SOON.message, decision: "D-038" });
+  }
   return NextResponse.json({
     status: "beta",
     feature: "live session: periodic and manual frames (not video)",

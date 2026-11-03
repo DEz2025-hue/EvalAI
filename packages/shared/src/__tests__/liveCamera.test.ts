@@ -18,12 +18,9 @@ describe("web live session is still Coming Soon (only mobile has the beta)", () 
     expect(src).not.toMatch(/getUserMedia.*live/i);
   });
 
-  it("the dashboard and assessment page still label web live camera as Coming Soon and point to the mobile beta", () => {
-    for (const f of ["apps/web/app/page.tsx", "apps/web/app/assessments/[id]/page.tsx"]) {
-      const src = read(f);
-      expect(src).toContain("Coming Soon");
-      expect(src.toLowerCase()).toContain("beta");
-    }
+  it("while live is off (D-038) the dashboard shows it as coming soon with Meta glasses, and the job page hides the live panel", () => {
+    expect(read("apps/web/app/page.tsx")).toContain("LIVE_COMING_SOON.title");
+    expect(read("apps/web/app/assessments/[id]/page.tsx")).toContain("{LIVE_CAMERA_ENABLED ? <LiveCameraPanel");
   });
 });
 
@@ -184,9 +181,10 @@ describe("mobile live session beta: consent, indicator, no recording, no backgro
     expect(session).toContain('type: "accept"');
   });
 
-  it("the Home and job screens call it a beta, not Coming Soon", () => {
-    expect(read("apps/mobile/app/(tabs)/index.tsx")).toContain("Live session — Beta");
+  it("the job screen calls it a beta when it is on; while it is off (D-038) Home shows it as coming soon and the job offers the site interview", () => {
     expect(read("apps/mobile/app/assessments/[id].tsx")).toContain("Live session (beta)");
+    expect(read("apps/mobile/app/assessments/[id].tsx")).toContain("Site interview");
+    expect(read("apps/mobile/app/(tabs)/index.tsx")).toContain("LIVE_COMING_SOON");
   });
 });
 

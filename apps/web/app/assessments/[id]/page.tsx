@@ -8,7 +8,7 @@ import { MeasurementsPanel } from "../../../components/MeasurementsPanel";
 import { FieldCapture } from "../../../components/FieldCapture";
 import { LiveCameraPanel } from "../../../components/LiveCameraPanel";
 import { InterviewPanel } from "../../../components/InterviewPanel";
-import type { InterviewState } from "@eval-ai/shared";
+import { LIVE_CAMERA_ENABLED, type InterviewState } from "@eval-ai/shared";
 import { AiDraftPanel } from "../../../components/AiDraftPanel";
 import { DeleteJobCard } from "../../../components/DeleteJobCard";
 import { CardLoading } from "../../../components/Skeleton";
@@ -82,7 +82,8 @@ export default function AssessmentDetailPage({ params, searchParams }: { params:
 
       {persisted ? <InterviewPanel key="interview" assessmentId={id} items={items.map((i) => ({ id: i.id, title: i.title }))} initial={(persisted.context?.interview as InterviewState | undefined) ?? null} /> : null}
 
-      <LiveCameraPanel assessmentId={id} />
+      {/* Live guidance is off for now (D-038); it is coming with Meta glasses. */}
+      {LIVE_CAMERA_ENABLED ? <LiveCameraPanel assessmentId={id} /> : null}
 
       <AiDraftPanel assessmentId={id} pack={pack} mode={mode as "assessment" | "inspection"} />
 
@@ -94,7 +95,6 @@ export default function AssessmentDetailPage({ params, searchParams }: { params:
 
       {persisted && <DeleteJobCard assessmentId={id} siteName={persisted.siteName ?? ""} backHref="/assessments" />}
 
-      <div className="rounded-lg border border-slate-200 bg-amber-50 p-3 text-xs text-amber-900">Live Camera Analysis — Coming Soon on the web. A live session is in beta on the mobile app. Here, use photo capture and on-demand analysis.</div>
     </div>
   );
 }
