@@ -7,7 +7,7 @@ export const MaterialItem = z.object({
   quantity: z.number(),
   unit: z.string(),
   rationale: z.string(), // traceable source
-  source: z.enum(["measurement", "finding", "rule", "user_input"]),
+  source: z.enum(["measurement", "finding", "rule", "user_input", "ai_suggested"]),
   provisional: z.boolean().default(false),
   assumptions: z.array(z.string()).default([]),
   findingId: z.string().optional(),

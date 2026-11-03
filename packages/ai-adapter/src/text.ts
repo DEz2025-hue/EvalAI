@@ -1,18 +1,10 @@
 import { z } from "zod";
 import { getAdapterConfig } from "./config";
-import { AiAdapterError } from "./client";
+import { situationHint } from "./situation";
 import { chatJson, type CallOptions } from "./chat";
-import { analyzeSchema, checklistSchema, clarifySchema, reportDraftSchema } from "./jsonSchemas";
-import {
-  AnalyzeAssessmentInput,
-  AnalyzeAssessmentOutput,
-  ClarifyContextInput,
-  ClarifyContextOutput,
-  DraftReportInput,
-  DraftReportOutput,
-  ProposeChecklistInput,
-  ProposeChecklistOutput,
-} from "./schemas";
+import { dropOverlaps, type ExistingItem } from "./checklistOverlap";
+import { analyzeSchema, checklistSchema, clarifySchema } from "./jsonSchemas";
+import { AnalyzeAssessmentInput, AnalyzeAssessmentOutput, ClarifyContextInput, ClarifyContextOutput, ProposeChecklistInput, ProposeChecklistOutput } from "./schemas";
 
 // Text operations (Muse Spark by default — see config.ts). Output is always a DRAFT for a person to review.
 
@@ -42,7 +34,7 @@ export async function clarifyContext(input: z.infer<typeof ClarifyContextInput>,
     "clarifyContext",
     {
       system: SYSTEM_GUARD + " Ask only questions whose answers would materially change the checklist, safety or recommendations. Do not ask what the context already answers. Use type 'select' only with options.",
-      user: JSON.stringify({ task: "clarifyContext", mode: v.mode, pack: v.pack, context: compact(v.context), existingChecklistTitles: (v.existingChecklist ?? []).map((c) => c.title) }),
+      user: JSON.stringify({ task: "clarifyContext", mode: v.mode, pack: v.pack, situation: situationHint(v.scenario ?? v.context.scenario), context: compact(v.context), existingChecklistTitles: (v.existingChecklist ?? []).map((c) => c.title) }),
       schemaName: "clarify_questions",
       schema: clarifySchema(),
     },
@@ -73,19 +65,23 @@ export async function proposeChecklist(input: z.infer<typeof ProposeChecklistInp
     {
       system:
         SYSTEM_GUARD +
-        " Propose ADDITIONAL checklist items that suit this job. Do not repeat items listed in existingChecklistTitles. Items are suggestions for a person to accept or remove, not requirements or compliance rules. Keep titles short and specific.",
-      user: JSON.stringify({ task: "proposeChecklist", mode: v.mode, pack: v.pack, context: compact(v.context), answers: compact(v.answers ?? {}), existingChecklistTitles: v.existingChecklist?.map((c) => c.title) ?? [], maxItems: v.maxItems }),
+        " Propose ADDITIONAL checklist items for gaps specific to THIS job. existingChecklist is everything the checklist already has, each with what it covers: read it all first. " +
+        "Only propose a topic that no existing item covers, in its title or in its covers text. Do not reword, split, narrow or merge an existing item, and do not propose a sub-check of one (for example 'shading analysis' when 'Orientation, tilt, shading survey' exists). " +
+        "Base each suggestion on something in this job's context or answers (equipment, constraints, site type, what the customer wants) and say in its rationale what is specific to this job and which existing item is the closest one. " +
+        "Returning fewer items, or none, is better than repeating the checklist. Items are suggestions for a person to accept or remove, not requirements or compliance rules. Keep titles short and specific.",
+      user: JSON.stringify({ task: "proposeChecklist", mode: v.mode, pack: v.pack, situation: situationHint(v.scenario ?? v.context.scenario), context: compact(v.context), answers: compact(v.answers ?? {}), existingChecklist: compact(v.existingChecklist ?? []), maxItems: v.maxItems }),
       schemaName: "checklist_suggestions",
       schema: checklistSchema(v.maxItems),
     },
     options,
   );
   const raw = data as { items?: Array<Record<string, unknown>>; warnings?: string[] };
-  const existing = new Set((v.existingChecklist ?? []).map((c) => c.title.trim().toLowerCase()));
-  const items = (raw.items ?? [])
-    .filter((i) => blank(i.title).length >= 3 && !existing.has(blank(i.title).toLowerCase()))
+  const proposed = (raw.items ?? []).filter((i) => blank(i.title).length >= 3);
+  // The model is told not to repeat the checklist; this makes sure of it, by meaning and not only by exact title.
+  const { kept, skipped } = dropOverlaps<Record<string, unknown> & { title: string }>(proposed.map((i) => ({ ...i, title: blank(i.title) })), (v.existingChecklist ?? []) as ExistingItem[]);
+  const items = kept
     .map((i) => ({ title: blank(i.title), instructions: blank(i.instructions) || undefined, required: !!i.required, category: blank(i.category) || undefined, rationale: blank(i.rationale) || undefined, source: "ai_suggested" as const }));
-  return ProposeChecklistOutput.parse({ items, warnings: raw.warnings ?? [] });
+  return ProposeChecklistOutput.parse({ items, warnings: raw.warnings ?? [], skipped });
 }
 
 // ---- 3. Assessment analysis → draft findings ----
@@ -102,7 +98,7 @@ export async function analyzeAssessment(input: z.infer<typeof AnalyzeAssessmentI
         " Review the checklist results and draft potential findings. Each finding must say what is supported by the data and what is not (uncertainty, missing_inputs). " +
         "evidence_refs may only contain ids from evidenceIds and only when that evidence plausibly supports the finding; use an empty list otherwise. " +
         "Items that are not_checked are unknown, never passes. Severity 'none' when the data does not justify a rating.",
-      user: JSON.stringify({ task: "analyzeAssessment", mode: v.mode, pack: v.pack, checklistResponses: compact(v.checklistResponses), evidenceIds: known }),
+      user: JSON.stringify({ task: "analyzeAssessment", mode: v.mode, pack: v.pack, situation: situationHint(v.scenario), checklistResponses: compact(v.checklistResponses), evidenceIds: known }),
       schemaName: "assessment_analysis",
       schema: analyzeSchema(known),
     },
@@ -143,25 +139,3 @@ export async function analyzeAssessment(input: z.infer<typeof AnalyzeAssessmentI
   });
 }
 
-// ---- 7. Report narrative suggestion (a person edits and signs off) ----
-export async function draftReportNarrative(input: z.infer<typeof DraftReportInput>, options?: CallOptions) {
-  const v = DraftReportInput.parse(input);
-  const cfg = getAdapterConfig();
-  const { data } = await chatJson(
-    cfg,
-    "draftReport",
-    {
-      system:
-        SYSTEM_GUARD +
-        " Write a short professional summary (under 180 words) and a recommendations section for a site report, using ONLY the supplied confirmed findings, checklist outcomes, measurements and limitations. " +
-        "Recommendations must follow from confirmed findings; if there are none, say that no action is supported by the recorded evidence. Mention unchecked items and limitations plainly. Plain text, no markdown headings.",
-      user: JSON.stringify({ task: "draftReport", siteName: v.siteName, mode: v.mode, pack: v.pack, goal: v.goal, checklist: compact(v.checklist), confirmedFindings: compact(v.findings), measurements: compact(v.measurements), limitations: compact(v.limitations) }),
-      schemaName: "report_draft",
-      schema: reportDraftSchema(),
-    },
-    options,
-  );
-  const raw = data as { summary?: string; recommendations?: string; missing_information?: string[] };
-  if (!blank(raw.summary)) throw new AiAdapterError("The AI did not produce a summary", "invalid_response");
-  return DraftReportOutput.parse({ summary: blank(raw.summary), recommendations: blank(raw.recommendations), missingInformation: raw.missing_information ?? [], requiresHumanReview: true });
-}

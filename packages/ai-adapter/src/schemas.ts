@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ScenarioField } from "./situation";
 
 // Shared schema primitives — validate at every trust boundary (ARCHITECTURE.md §5, SECURITY.md §5)
 
@@ -13,6 +14,7 @@ export const ClarifyContextInput = z.object({
   assessmentId: z.string().min(1).max(100).optional(),
   mode: z.enum(["assessment", "inspection"]),
   pack: z.enum(["solar", "cctv"]),
+  scenario: ScenarioField,
   context: z.record(z.unknown()).default({}),
   existingChecklist: z.array(z.object({ title: z.string() })).optional(),
 });
@@ -35,10 +37,11 @@ export const ProposeChecklistInput = z.object({
   assessmentId: z.string().uuid().optional(),
   mode: z.enum(["assessment", "inspection"]),
   pack: z.enum(["solar", "cctv"]),
+  scenario: ScenarioField,
   context: z.record(z.unknown()),
   answers: z.record(z.unknown()).optional(),
-  /** Titles already on the checklist, so suggestions only add what is missing. */
-  existingChecklist: z.array(z.object({ title: z.string() })).optional(),
+  /** Everything already on the checklist (template items, typed items, earlier suggestions), with what each covers, so suggestions only add what is missing. */
+  existingChecklist: z.array(z.object({ title: z.string(), covers: z.string().max(1000).optional(), category: z.string().max(100).optional() })).optional(),
   maxItems: z.number().min(5).max(50).default(20),
 });
 
@@ -52,6 +55,8 @@ export const ProposeChecklistOutput = z.object({
     source: z.enum(["template", "ai_suggested"]).default("ai_suggested"),
   })),
   warnings: z.array(z.string()).default([]),
+  /** Suggestions left out because they repeat something already on the checklist. */
+  skipped: z.array(z.object({ title: z.string(), duplicateOf: z.string() })).default([]),
 });
 
 export const AnalyzeAssessmentInput = z.object({
@@ -68,6 +73,7 @@ export const AnalyzeAssessmentInput = z.object({
   evidenceRefs: z.array(z.string()).default([]),
   mode: z.enum(["assessment", "inspection"]),
   pack: z.enum(["solar", "cctv"]),
+  scenario: ScenarioField,
 });
 
 export const FindingDraft = z.object({
@@ -122,17 +128,152 @@ export const DraftReportInput = z.object({
   siteName: z.string().max(200),
   mode: z.enum(["assessment", "inspection"]),
   pack: z.enum(["solar", "cctv"]),
+  scenario: ScenarioField,
   goal: z.string().max(1000).optional(),
-  checklist: z.array(z.object({ title: z.string(), status: z.string(), notes: z.string().optional() })).max(300),
+  checklist: z
+    .array(
+      z.object({
+        title: z.string(),
+        status: z.string(),
+        notes: z.string().optional(),
+        category: z.string().max(100).optional(),
+        required: z.boolean().optional(),
+        /** What the item is about (the template's "look for" text). Guidance, never something that was observed. */
+        covers: z.string().max(800).optional(),
+        measured: z.object({ value: z.number(), unit: z.string().max(20) }).optional(),
+        /** Photos linked to this item. */
+        evidenceCount: z.number().int().min(0).optional(),
+      }),
+    )
+    .max(300),
+  /** Confirmed findings only. */
   findings: z.array(z.object({ title: z.string(), severity: z.string().optional(), description: z.string().optional(), uncertainty: z.string().optional() })).max(50),
+  /** How many findings still await a person's review. Their content is never sent. */
+  findingsAwaitingReview: z.number().int().min(0).default(0),
   measurements: z.array(z.object({ name: z.string(), value: z.number(), unit: z.string() })).max(100),
   limitations: z.array(z.string()).max(50),
+  /** Counted from the saved checklist, so the model quotes the numbers instead of counting. */
+  glance: z
+    .object({
+      total: z.number().int().min(0),
+      checked: z.number().int().min(0),
+      pass: z.number().int().min(0),
+      issue: z.number().int().min(0),
+      needsAttention: z.number().int().min(0),
+      notApplicable: z.number().int().min(0),
+      notChecked: z.number().int().min(0),
+      requiredNotChecked: z.number().int().min(0),
+    })
+    .optional(),
+  /** Saved facts about the job: where, why, what was already known, what was described at intake, scope answers. */
+  siteBrief: z
+    .object({
+      address: z.string().max(300).optional(),
+      goal: z.string().max(1500).optional(),
+      existingEquipment: z.string().max(1500).optional(),
+      constraints: z.string().max(1500).optional(),
+      intakeText: z.string().max(2000).optional(),
+      intakeVisible: z.array(z.string().max(300)).max(8).optional(),
+      intakeLimits: z.array(z.string().max(300)).max(6).optional(),
+      answers: z.array(z.object({ question: z.string().max(300), answer: z.string().max(1000) })).max(30).optional(),
+      /** What the person said in the site interview. Statements, not verified facts. */
+      interview: z
+        .object({
+          details: z.array(z.object({ label: z.string().max(60), value: z.string().max(1500) })).max(8),
+          statements: z.array(z.object({ question: z.string().max(300), answer: z.string().max(1500) })).max(12),
+          openQuestions: z.array(z.string().max(300)).max(8),
+        })
+        .optional(),
+    })
+    .optional(),
+  materials: z.array(z.object({ description: z.string(), quantity: z.number(), unit: z.string(), rationale: z.string(), provisional: z.boolean().optional() })).max(100).default([]),
+  /** What an AI said about the job's photos (D-022). UNVERIFIED: it may be mentioned, never treated as a confirmed finding. */
+  photos: z
+    .array(
+      z.object({
+        /** The photo's evidence id. Findings cite photos by their number in this list; the id is how that number is turned back into the photo. */
+        id: z.string().max(100).optional(),
+        itemTitle: z.string().max(300).optional(),
+        caption: z.string().max(500),
+        observations: z.array(z.string().max(400)).max(10).default([]),
+        possibleIssues: z.array(z.string().max(400)).max(6).default([]),
+        cannotTell: z.array(z.string().max(300)).max(6).default([]),
+      }),
+    )
+    .max(12)
+    .default([]),
+});
+
+/** Stage 2: rewrite the summary and open items from the findings as the person has edited them. */
+export const DraftSummaryInput = z.object({
+  workspaceId: z.string().min(1).max(100),
+  assessmentId: z.string().min(1).max(100),
+  siteName: z.string().max(200),
+  mode: z.enum(["assessment", "inspection"]),
+  pack: z.enum(["solar", "cctv"]),
+  scenario: ScenarioField,
+  siteBrief: DraftReportInput.shape.siteBrief,
+  glance: DraftReportInput.shape.glance,
+  /** The findings as they stand now (the person's edits are authoritative). */
+  keyFindings: z
+    .array(z.object({ title: z.string().max(200), priority: z.enum(["high", "medium", "low", "info"]), observed: z.string().max(1600), meaning: z.string().max(1600), action: z.string().max(900) }))
+    .max(20),
+  limitations: z.array(z.string()).max(50),
+  findingsAwaitingReview: z.number().int().min(0).default(0),
+});
+
+/** The documented rules, as data (from shared ruleCatalog). The model chooses among them; code does the arithmetic. */
+export const MaterialRuleData = z.object({
+  id: z.string(),
+  label: z.string(),
+  unit: z.string(),
+  formula: z.string(),
+  inputs: z.array(z.object({ name: z.string(), label: z.string(), unit: z.string(), kind: z.string(), default: z.number().optional(), min: z.number(), max: z.number() })),
+});
+
+export const ProposeMaterialsInput = z.object({
+  workspaceId: z.string().min(1).max(100),
+  assessmentId: z.string().min(1).max(100),
+  siteName: z.string().max(200),
+  mode: z.enum(["assessment", "inspection"]),
+  pack: z.enum(["solar", "cctv"]),
+  scenario: ScenarioField,
+  goal: z.string().max(1000).optional(),
+  checklist: DraftReportInput.shape.checklist,
+  findings: DraftReportInput.shape.findings,
+  findingsAwaitingReview: z.number().int().min(0).default(0),
+  measurements: DraftReportInput.shape.measurements,
+  limitations: z.array(z.string()).max(50),
+  siteBrief: DraftReportInput.shape.siteBrief,
+  photos: DraftReportInput.shape.photos,
+  /** The list as it stands now, so the model does not repeat it. */
+  existingMaterials: z.array(z.object({ description: z.string().max(300), specification: z.string().max(500).optional() })).max(100).default([]),
+  rules: z.array(MaterialRuleData).max(30),
 });
 
 export const DraftReportOutput = z.object({
   summary: z.string(),
-  recommendations: z.string(),
+  siteOverview: z.string().default(""),
+  /** Related observations, measurements and photos combined into technical findings; sources already checked against the report. */
+  keyFindings: z
+    .array(
+      z.object({
+        title: z.string(),
+        priority: z.enum(["high", "medium", "low", "info"]),
+        observed: z.string(),
+        meaning: z.string(),
+        action: z.string(),
+        basis: z.array(z.object({ kind: z.enum(["item", "photo", "measurement", "finding"]), ref: z.string() })),
+      }),
+    )
+    .default([]),
+  /** Titles of findings the model wrote but that were left out (incomplete, or no real source). */
+  droppedFindings: z.array(z.string()).default([]),
+  openItems: z.string().default(""),
   missingInformation: z.array(z.string()).default([]),
+  assumptions: z.array(z.string()).default([]),
+  /** Figures with a unit, % or currency in the text that are not in the facts the model was given. For the reviewer to check. */
+  unverifiedFigures: z.array(z.string()).default([]),
   requiresHumanReview: z.literal(true).default(true),
 });
 

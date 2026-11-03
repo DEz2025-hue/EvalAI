@@ -1,8 +1,11 @@
 // Shared domain — deterministic, no AI side effects
 export * from "./checklist";
+export * from "./answerSync";
+export * from "./reportOverview";
 export * from "./measurements";
 export * from "./photoMeasure";
 export * from "./materials";
+export * from "./materialRules";
 export * from "./quotations";
 export * from "./report";
 export * from "./reportHtml";
@@ -10,3 +13,11 @@ export * from "./packs";
 export * from "./completeness";
 export * from "./money";
 export * from "./names";
+export * from "./liveSession";
+export * from "./liveNarration";
+export * from "./scenario";
+export * from "./intake";
+export * from "./liveWalk";
+export * from "./interview";
+export * from "./reportGate";
+export * from "./reportTemplate";

@@ -1,4 +1,5 @@
 // Deterministic completeness review — pure function so web, mobile, API and the finalize gate agree.
+import { needsMeasurement } from "./answerSync";
 
 export type CompletenessTarget = "checklist" | "findings" | "materials" | "clarify" | "evidence";
 
@@ -48,7 +49,7 @@ export function computeCompleteness(input: CompletenessInput): CompletenessResul
       warnings.push({ code: "issue_flagged", reason: `${label} is flagged ${status === "fail" ? "Fail" : "Needs attention"} — make sure a finding and evidence cover it`, target: "findings" });
     }
     if (status === "pass" && it.required && !linked.has(it.id)) passWithoutEvidence++;
-    if (/measurement/i.test(it.title) && status !== "not_applicable" && status !== "not_checked" && (r?.measuredValue === undefined || r?.measuredValue === null)) {
+    if (needsMeasurement(it.title) && status !== "not_applicable" && status !== "not_checked" && (r?.measuredValue === undefined || r?.measuredValue === null)) {
       warnings.push({ code: "measurement_missing", reason: `${label} has no recorded measurement`, target: "checklist" });
     }
   });

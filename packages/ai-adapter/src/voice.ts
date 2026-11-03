@@ -48,6 +48,7 @@ export function buildTranscribeRequest(model: string, keywords?: string[], langu
 
 export async function transcribeWav(wav: Uint8Array, opts: { keywords?: string[]; languageBias?: string[] } = {}, options?: CallOptions): Promise<z.infer<typeof TranscribeAudioOutput>> {
   const cfg = getAdapterConfig();
+  if (cfg.provider === "openrouter") throw new AiAdapterError("Speech transcription is not available through OpenRouter. Use Meta's own API for voice.", "not_configured");
   const oc = cfg.ops.transcribeAudio;
   if (wav.length > MAX_AUDIO_BYTES) throw new AiAdapterError("Audio is larger than 32 MB — split the recording", "unsupported_audio");
   const info = inspectWav(wav);

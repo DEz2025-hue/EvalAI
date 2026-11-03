@@ -23,5 +23,40 @@ export const ChecklistResponse = z.object({
 });
 export type ChecklistResponse = z.infer<typeof ChecklistResponse>;
 
+/**
+ * Rules every saved answer must meet, shared by the API and the screens so they agree. Returns the problem, or null.
+ * A measured value needs its unit, and Not Applicable on a required item needs a reason in the notes.
+ */
+export function responseProblem(r: { status: string; notes?: string | null; measuredValue?: number | null; measuredUnit?: string | null }, item: { title: string; required: boolean }): string | null {
+  if (r.measuredValue !== undefined && r.measuredValue !== null && !(r.measuredUnit ?? "").trim()) {
+    return `"${item.title}": add a unit for the measured value (for example m, kW, V).`;
+  }
+  if (r.status === "not_applicable" && item.required && !(r.notes ?? "").trim()) {
+    return `"${item.title}" is required: Not Applicable needs a reason in the notes.`;
+  }
+  return null;
+}
+
+/** Read a typed measurement. Accepts a decimal comma; returns undefined for empty or unfinished input like "-" or ".". */
+export function parseMeasurement(text: string): number | undefined {
+  const t = text.trim().replace(",", ".");
+  if (!t || t === "-" || t === "." || t === "-.") return undefined;
+  const n = Number(t);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+const STATUS_LABELS: Record<ChecklistStatus, string> = {
+  pass: "Pass",
+  fail: "Issue found",
+  needs_attention: "Needs attention",
+  not_applicable: "Not applicable",
+  not_checked: "Not Checked",
+};
+
+/** Plain-language result for a stored status code (reports and screens show this, never `needs_attention`). */
+export function statusLabel(status: string): string {
+  return STATUS_LABELS[status as ChecklistStatus] ?? STATUS_LABELS.not_checked;
+}
+
 export function isPass(status: ChecklistStatus) { return status === "pass"; }
 export function isChecked(status: ChecklistStatus) { return status !== "not_checked"; }

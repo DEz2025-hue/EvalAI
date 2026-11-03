@@ -50,7 +50,7 @@ async function timed(name: string, fn: () => Promise<string>): Promise<ProbeChec
   }
 }
 
-export async function probeProvider(cfg: AdapterConfig = getAdapterConfig(), opts: { includeSam?: boolean } = {}): Promise<{ ok: boolean; checks: ProbeCheck[] }> {
+export async function probeProvider(cfg: AdapterConfig = getAdapterConfig(), opts: { includeSam?: boolean } = {}): Promise<{ ok: boolean; provider: AdapterConfig["provider"]; checks: ProbeCheck[] }> {
   const checks: ProbeCheck[] = [];
   const configured = new Map<string, Operation[]>();
   for (const [op, oc] of Object.entries(cfg.ops) as Array<[Operation, { model: string }]>) configured.set(oc.model, [...(configured.get(oc.model) ?? []), op]);
@@ -118,5 +118,5 @@ export async function probeProvider(cfg: AdapterConfig = getAdapterConfig(), opt
     checks.push(await timed("Segmentation (SAM)", async () => { await samSegment({ imageBase64: syntheticPng(), mimeType: "image/png", prompt: "red square" }); return "endpoint answered"; }));
   }
 
-  return { ok: checks.every((c) => c.ok), checks };
+  return { ok: checks.every((c) => c.ok), provider: cfg.provider, checks };
 }

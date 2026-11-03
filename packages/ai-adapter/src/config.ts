@@ -6,7 +6,12 @@ export type Operation =
   | "proposeChecklist"
   | "analyzeAssessment"
   | "analyzeImage"
+  | "liveFrame"
+  | "siteIntake"
+  | "photoReview"
   | "draftReport"
+  | "proposeMaterials"
+  | "interview"
   | "transcribeAudio"
   | "segment";
 
@@ -21,7 +26,11 @@ export type OperationConfig = {
   timeoutMs: number;
 };
 
+/** "meta" is Meta's own Model API. "openrouter" reaches the same Muse models through OpenRouter (testing route, DECISIONS D-018). */
+export type AiProvider = "meta" | "openrouter";
+
 export type AdapterConfig = {
+  provider: AiProvider;
   baseUrl: string;
   apiKey: string;
   ops: Record<Operation, OperationConfig>;
@@ -79,27 +88,88 @@ function effort(value: string | undefined, fallback: ReasoningEffort): Reasoning
 
 type Env = Record<string, string | undefined>;
 
-export function buildAdapterConfig(env: Env): AdapterConfig {
-  const baseUrl = env.AI_PROVIDER_BASE_URL;
-  const apiKey = env.AI_PROVIDER_API_KEY;
-  if (!baseUrl || !apiKey) throw new Error("Missing AI_PROVIDER_BASE_URL / AI_PROVIDER_API_KEY — see .env.example (server-only)");
+const OPENROUTER_URL = /^https?:\/\/([^/]*\.)?openrouter\.ai(\/|$)/i;
+const META_URL = /^https?:\/\/([^/]*\.)?meta\.ai(\/|$)/i;
 
-  const spark = assertStandardModel(env.META_SPARK_MODEL || DEFAULT_MODELS.spark);
+/** OpenRouter is chosen by AI_PROVIDER=openrouter. An explicit AI_PROVIDER=meta wins over any address; with neither, the web address decides (older setups). */
+function isOpenRouter(env: Env, baseUrl: string): boolean {
+  const named = (env.AI_PROVIDER ?? "").trim().toLowerCase();
+  if (named === "openrouter") return true;
+  if (named === "meta") return false;
+  return OPENROUTER_URL.test(baseUrl.trim());
+}
+
+const clean = (v: string | undefined) => (v ?? "").trim();
+
+/**
+ * Which provider, with the key and address for it. `AI_PROVIDER=meta|openrouter` plus a key per provider
+ * (`META_API_KEY`, `OPENROUTER_API_KEY`; optional `META_BASE_URL`, `OPENROUTER_BASE_URL`) lets the env file hold both keys and
+ * switch with one line. The older single pair (`AI_PROVIDER_API_KEY` / `AI_PROVIDER_BASE_URL`) still works and is the fallback.
+ */
+function resolveProvider(env: Env): { provider: AiProvider; apiKey: string; rawBase: string; keyName: string } {
+  const provider: AiProvider = isOpenRouter(env, clean(env.AI_PROVIDER_BASE_URL)) ? "openrouter" : "meta";
+  const own = provider === "openrouter"
+    ? { key: env.OPENROUTER_API_KEY, base: env.OPENROUTER_BASE_URL, fallbackBase: "https://openrouter.ai/api", keyName: "OPENROUTER_API_KEY" }
+    : { key: env.META_API_KEY, base: env.META_BASE_URL, fallbackBase: "https://api.meta.ai", keyName: "META_API_KEY" };
+  const apiKey = clean(own.key) || clean(env.AI_PROVIDER_API_KEY);
+  // A leftover single address that belongs to the OTHER provider (an old line in a lower-priority env file) must not be used.
+  const legacyBase = clean(env.AI_PROVIDER_BASE_URL);
+  const legacyIsOther = provider === "openrouter" ? META_URL.test(legacyBase) : OPENROUTER_URL.test(legacyBase);
+  const rawBase = clean(own.base) || (legacyIsOther ? "" : legacyBase) || (apiKey ? own.fallbackBase : "");
+  return { provider, apiKey, rawBase, keyName: own.keyName };
+}
+
+/** Is an AI provider set up on this server (a key for the chosen provider, and a valid configuration)? */
+export function isAiConfigured(env: Env = process.env as Env): boolean {
+  try {
+    buildAdapterConfig(env);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function buildAdapterConfig(env: Env): AdapterConfig {
+  const { provider, apiKey, rawBase, keyName } = resolveProvider(env);
+  if (!rawBase || !apiKey) throw new Error(`Missing AI_PROVIDER_API_KEY (or ${keyName} for AI_PROVIDER=${provider}) — see .env.example (server-only)`);
+  if (!/^https?:\/\//i.test(rawBase)) throw new Error("The AI provider address must be a web address starting with https:// (is the API key in the wrong line of the env file?)");
+  let baseUrl = rawBase.trim().replace(/\/+$/, "").replace(/\/v1$/, "");
+  // OpenRouter's API lives under /api (requests become /api/v1/chat/completions).
+  if (provider === "openrouter" && !/\/api$/i.test(baseUrl)) baseUrl += "/api";
+
+  // The same checks apply to both providers; OpenRouter lists Meta's models as "meta/<id>".
+  const named = (id: string) => {
+    const std = assertStandardModel(id);
+    return provider === "openrouter" && !std.includes("/") ? `meta/${std}` : std;
+  };
+  const spark = named(env.META_SPARK_MODEL || DEFAULT_MODELS.spark);
   const voice = assertStandardModel(env.META_VOICE_MODEL || DEFAULT_MODELS.voice);
   const sam = assertStandardModel(env.META_SAM_MODEL || DEFAULT_MODELS.sam);
   // Optional per-operation override, e.g. AI_MODEL_ANALYZE=muse-wonder-1.0 to trial Wonder for analysis only.
-  const pick = (override: string | undefined, fallback: string) => (override ? assertStandardModel(override) : fallback);
+  const pick = (override: string | undefined, fallback: string) => (override ? named(override) : fallback);
   const num = (v: string | undefined, d: number) => (v && Number.isFinite(Number(v)) && Number(v) > 0 ? Math.floor(Number(v)) : d);
 
   return {
-    baseUrl: baseUrl.replace(/\/+$/, "").replace(/\/v1$/, ""),
+    provider,
+    baseUrl,
     apiKey,
     ops: {
       clarifyContext: { model: pick(env.AI_MODEL_CLARIFY, spark), reasoningEffort: effort(env.AI_EFFORT_CLARIFY, "low"), maxCompletionTokens: num(env.AI_MAX_TOKENS_CLARIFY, 4000), timeoutMs: 45_000 },
       proposeChecklist: { model: pick(env.AI_MODEL_CHECKLIST, spark), reasoningEffort: effort(env.AI_EFFORT_CHECKLIST, "medium"), maxCompletionTokens: num(env.AI_MAX_TOKENS_CHECKLIST, 8000), timeoutMs: 55_000 },
       analyzeAssessment: { model: pick(env.AI_MODEL_ANALYZE, spark), reasoningEffort: effort(env.AI_EFFORT_ANALYZE, "high"), maxCompletionTokens: num(env.AI_MAX_TOKENS_ANALYZE, 16000), timeoutMs: 55_000 },
       analyzeImage: { model: pick(env.AI_MODEL_IMAGE, spark), reasoningEffort: effort(env.AI_EFFORT_IMAGE, "low"), maxCompletionTokens: num(env.AI_MAX_TOKENS_IMAGE, 4000), timeoutMs: 45_000 },
-      draftReport: { model: pick(env.AI_MODEL_REPORT, spark), reasoningEffort: effort(env.AI_EFFORT_REPORT, "medium"), maxCompletionTokens: num(env.AI_MAX_TOKENS_REPORT, 8000), timeoutMs: 55_000 },
+      // Live session frames: one small still every few seconds, so keep it fast and cheap.
+      liveFrame: { model: pick(env.AI_MODEL_LIVE, spark), reasoningEffort: effort(env.AI_EFFORT_LIVE, "low"), maxCompletionTokens: num(env.AI_MAX_TOKENS_LIVE, 2000), timeoutMs: 30_000 },
+      // Site intake: one call at the start of a job from a description and a few photos.
+      // Low reasoning: with up to 20 photos, medium reasoning can spend the whole token budget thinking and leave no answer.
+      siteIntake: { model: pick(env.AI_MODEL_INTAKE, spark), reasoningEffort: effort(env.AI_EFFORT_INTAKE, "low"), maxCompletionTokens: num(env.AI_MAX_TOKENS_INTAKE, 8000), timeoutMs: 60_000 },
+      // Photo review for the report: a few photos per call.
+      photoReview: { model: pick(env.AI_MODEL_PHOTOS, spark), reasoningEffort: effort(env.AI_EFFORT_PHOTOS, "low"), maxCompletionTokens: num(env.AI_MAX_TOKENS_PHOTOS, 7000), timeoutMs: 55_000 },
+      draftReport: { model: pick(env.AI_MODEL_REPORT, spark), reasoningEffort: effort(env.AI_EFFORT_REPORT, "low"), maxCompletionTokens: num(env.AI_MAX_TOKENS_REPORT, 12000), timeoutMs: 58_000 },
+      // Materials: one call that reads the whole record. Low reasoning keeps the answer inside the token budget; quantities are computed by code afterwards.
+      proposeMaterials: { model: pick(env.AI_MODEL_MATERIALS, spark), reasoningEffort: effort(env.AI_EFFORT_MATERIALS, "low"), maxCompletionTokens: num(env.AI_MAX_TOKENS_MATERIALS, 10000), timeoutMs: 58_000 },
+      // Site interview: one short question per call (fast), or one digest of the whole conversation at the end.
+      interview: { model: pick(env.AI_MODEL_INTERVIEW, spark), reasoningEffort: effort(env.AI_EFFORT_INTERVIEW, "low"), maxCompletionTokens: num(env.AI_MAX_TOKENS_INTERVIEW, 5000), timeoutMs: 55_000 },
       transcribeAudio: { model: voice, timeoutMs: 60_000 },
       segment: { model: sam, timeoutMs: 45_000 },
     },

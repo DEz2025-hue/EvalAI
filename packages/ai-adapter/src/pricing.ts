@@ -17,7 +17,7 @@ const TOKEN_PRICES_PER_MILLION: Record<string, { input: number; output: number }
 
 /** Estimated USD for a token-priced call, or null when the model is not token-priced / unknown. */
 export function estimateTokenCostUsd(model: string, usage: Usage): number | null {
-  const p = TOKEN_PRICES_PER_MILLION[model];
+  const p = TOKEN_PRICES_PER_MILLION[model.replace(/^meta\//, "")]; // OpenRouter names them "meta/<id>"
   if (!p) return null;
   return (usage.promptTokens * p.input + usage.completionTokens * p.output) / 1_000_000;
 }
