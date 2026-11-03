@@ -21,3 +21,4 @@ export * from "./liveWalk";
 export * from "./interview";
 export * from "./reportGate";
 export * from "./reportTemplate";
+export * from "./theme";
