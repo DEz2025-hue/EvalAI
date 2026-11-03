@@ -52,7 +52,14 @@
       "typedRoutes": true
     },
     "extra": {
-      "router": {}
+      "router": {
+        "asyncRoutes": {
+          "web": true
+        }
+      },
+      "eas": {
+        "projectId": "97f2b1ab-ac50-43b7-8aab-3a3f8655144e"
+      }
     },
     "ios": {
       "icon": {
@@ -73,12 +80,16 @@
       },
       "permissions": [
         "android.permission.CAMERA",
-        "android.permission.RECORD_AUDIO"
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
       ],
       "package": "com.evalai.mobile"
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "owner": "diamond14"
   }
 }
