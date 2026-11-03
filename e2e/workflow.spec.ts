@@ -58,17 +58,23 @@ test("an unfinished checklist blocks completeness and report sign-off", async ({
 test("walk through the checklist, answering every item", async () => {
   await page.goto(`/assessments/${jobId}/checklist`);
   const heading = page.getByRole("heading", { level: 1 });
-  await expect(heading).toContainText("item 1 /");
-  const total = Number(/\/ (\d+)/.exec((await heading.textContent()) ?? "")?.[1]);
+  await expect(heading).toContainText("item 1 of");
+  const total = Number(/of (\d+)/.exec((await heading.textContent()) ?? "")?.[1]);
   expect(total).toBeGreaterThanOrEqual(5);
   for (let i = 0; i < total; i++) {
     await page.getByRole("button", { name: "Pass", exact: true }).click();
     if (i === 0) await page.getByPlaceholder("Observation, defects, limitations").fill("Roof access via ladder, isolator labelled.");
+    // Measurement items ask for a value with its unit before moving on.
+    if (await page.getByPlaceholder("e.g. 12.5").isVisible()) {
+      await page.getByPlaceholder("e.g. 12.5").fill("12.5");
+      await page.getByPlaceholder("m, kW, m²").fill("m");
+    }
     if (i < total - 1) {
-      await page.getByRole("button", { name: /^Next/ }).click();
-      await expect(heading).toContainText(`item ${i + 2} /`);
+      await page.getByRole("button", { name: /^Next/ }).click(); // saves this item first
+      await expect(heading).toContainText(`item ${i + 2} of`);
     } else {
-      await page.getByRole("button", { name: "Save", exact: true }).click();
+      await page.getByRole("button", { name: /^Finish/ }).click();
+      await expect(page).toHaveURL(/\/completeness/);
     }
   }
   await expect
@@ -123,6 +129,12 @@ test("draft the report, edit it, sign it off and see it locked", async () => {
   await page.getByRole("button", { name: "Create new draft" }).click();
   await expect(page.getByText(/Draft — not reviewed or signed off yet/)).toBeVisible();
   await expect(page.frameLocator('iframe[title="Report preview"]').getByText("Cracked tiles near the north ridge").first()).toBeVisible();
+  // The report is more than the checklist echoed back: counts, a site section and plain-language results are always there.
+  const preview = page.frameLocator('iframe[title="Report preview"]');
+  await expect(preview.getByText("At a glance:")).toBeVisible();
+  await expect(preview.getByRole("heading", { name: "Key findings" })).toBeVisible();
+  await expect(preview.getByText("Appendix A — Checklist results")).toBeVisible();
+  await expect(preview.getByText(/needs_attention|not_checked/)).toHaveCount(0);
 
   await page.locator("textarea").first().fill("Roof is suitable for a 5 kW array subject to tile repair.");
   await page.getByRole("button", { name: "Save edits" }).click();

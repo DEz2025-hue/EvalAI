@@ -36,6 +36,8 @@ export default defineConfig({
       NEXT_PUBLIC_SUPABASE_ANON_KEY: "",
       SUPABASE_SERVICE_ROLE_KEY: "",
       AI_PROVIDER_API_KEY: "",
+      META_API_KEY: "",
+      OPENROUTER_API_KEY: "",
       NEXT_TELEMETRY_DISABLED: "1",
     },
   },

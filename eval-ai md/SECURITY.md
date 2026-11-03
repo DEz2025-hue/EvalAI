@@ -91,8 +91,21 @@ browser or mobile code.
     product behavior and configured retention policy.
 -   Provide text or manual alternatives when voice services are
     unavailable.
--   Live camera remains unavailable until its privacy and technical
-    behavior are validated.
+-   Real-time video live camera remains unavailable. The live session beta
+    (periodic and manual frames, mobile only, D-015) must keep to these rules:
+    consent before any frame is sent; a visible camera-on indicator; no
+    video recording and no background capture; audio narration (D-017) only
+    through apps/mobile/lib/useNarration.ts, after consent, with a visible
+    microphone indicator, stopped with the session, saved privately like voice
+    notes, transcripts unconfirmed until the person confirms them; frames sent inline and never stored
+    or logged by the server unless the person saves one; temporary pictures
+    deleted on leaving the screen; session limits and rate limits; view-only
+    members cannot start it. Privacy and technical behaviour on real devices is
+    still to be validated (TEST_PLAN.md section 8).
+
+-   Deleting a job is permanent and destructive (D-020): owners and admins only, enforced by the database function and the route; a job with a finalized report needs the site name typed back; the deletion is audited without job content; files are removed only after the database step succeeds.
+
+-   Report photos (D-022): small copies of job photos are embedded in report snapshots so they survive deletion of the original; they are downloaded server-side with ownership checks, shown only as JPEG data URIs, and removed with the job when a job is deleted.
 
 ## 7. Upload and API controls
 

@@ -353,9 +353,9 @@ Each relevant screen must define:
 
 **Purpose:** Review and generate an assessment or inspection report from saved data.
 
-**Content:** Report type, site/job context, scope, checklist outcomes, findings, evidence, measurements, recommendations, limitations, and optional materials/quotes. Show draft/final status and version information.
+**Content:** Report type, site/job context, scope, checklist outcomes, findings, evidence, measurements, recommendations, limitations, and optional materials/quotes. Show draft/final status and version information. (D-028) The body is organised around **key findings**: an executive summary, site and scope, key findings (each with what was observed, what it means, a recommended action, its sources and any cited photos), recommended actions by priority, open items and limitations, then the checklist and measurements as appendices. A fact is told once; the appendices hold the raw records.
 
-**Behavior:** Provide “Generate without materials list” when supported. Generate from a versioned snapshot. Show generation progress and only confirm success after the report is persisted. Make finalization consequences clear.
+**Behavior:** Provide “Generate without materials list” when supported. Generate from a versioned snapshot. Writing the findings is automatic when a draft is created; the person edits each finding, can add or remove findings, and rewrites the summary from the edited findings. AI-written parts are labelled as drafts and interpretation until confirmed. Show generation progress and only confirm success after the report is persisted. Make finalization consequences clear.
 
 **Acceptance criteria:** Report contents match the selected snapshot; optional materials can be omitted; generation errors are recoverable; finalized versions do not mutate when the job is edited later.
 

@@ -73,3 +73,6 @@ supabase/.temp
 # playwright
 test-results
 playwright-report
+
+# Output of the live report evaluation (made-up data, regenerated on demand)
+packages/ai-adapter/eval-output/

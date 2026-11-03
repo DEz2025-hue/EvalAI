@@ -91,8 +91,10 @@ validated.
 
 ## 6. Live camera status
 
-Continuous live-camera AI guidance is **Coming Soon**. Do not expose a
-working-state label until the feature is implemented and tested.
+Real-time (continuous video) live-camera AI guidance is **Coming Soon**. A live
+session using periodic and manual frames (D-015) is in **Beta** on the mobile
+app only (section 6.1). Do not expose a working-state label for anything that
+has not been implemented and tested.
 
 A future implementation must choose and document one of these
 patterns: - user manually captures frames and requests analysis; - app
@@ -102,6 +104,37 @@ provider-supported real-time audio/video session.
 Do not assume these patterns have equivalent provider support or cost.
 Validate frame rate, latency, data retention, network use, battery use,
 camera permissions, interruption handling, privacy, and safe fallback.
+
+### 6.1 Live session beta (periodic and manual frames)
+
+-   The phone shows a camera preview. A still is taken every 10, 20 or 30
+    seconds, or when the person taps Capture. Video is never recorded.
+-   Narration (D-017, on by default): the microphone records the person's
+    voice in pieces of about 45 seconds. Each piece is saved privately with the
+    job, transcribed, and shown as an editable, unconfirmed transcript linked
+    by time to the pictures taken while it was said. Numbers and units are
+    highlighted to check. Spoken words never change a checklist answer; the
+    person confirms the text and chooses to add it as a note on the item or as
+    a finding draft.
+-   "AI second pair of eyes" (off by default): the stills are also sent to the
+    AI, as described below.
+-   A consent step comes first; a LIVE · camera on · microphone recording (or
+    "not recording") indicator is always visible; the session, camera and
+    microphone end when the app leaves the screen, after 30 minutes, or after
+    90 pictures.
+-   Each AI note is a suggestion that needs review. The AI never changes a
+    checklist status, creates a finding or evidence, or gives a measurement.
+    Saving a picture or adding a finding draft needs an explicit tap.
+-   If the AI is unavailable the session continues capture-only.
+-   Frames go to the provider inline, are not stored or logged by the server,
+    and are temporary files on the phone that are deleted unless saved.
+-   Status: implemented, unit tested with mocked provider responses, **not yet
+    verified on a device or against the live provider**.
+
+### 6.2 Meta glasses
+
+Design only (D-016). Glasses would be another frame source for the same session.
+Meta's toolkit is a developer preview and apps using it cannot be published yet.
 
 ## 7. Structured AI operations
 
@@ -153,12 +186,43 @@ Standard models only; inline media only (no Files API, so Zero Data Retention st
 
 ### Go-live runbook
 1. Meta dashboard: complete billing for the team (the 402 response links to the billing page).
-2. Environment (server only): `AI_PROVIDER_API_KEY`, `AI_PROVIDER_BASE_URL=https://api.meta.ai`, and the versioned model ids from `.env.example`. Unversioned ids (`muse-spark`) are mapped automatically but should be corrected.
+2. Environment (server only, in `apps/web/.env.local`): `AI_PROVIDER=meta`, `META_API_KEY`, and the versioned model ids from `.env.example`. Both providers' keys can sit in the file (`OPENROUTER_API_KEY` too): changing the one `AI_PROVIDER` line (`meta` or `openrouter`) switches, then restart the web server. The older `AI_PROVIDER_API_KEY` / `AI_PROVIDER_BASE_URL` pair still works. Unversioned model ids (`muse-spark`) are mapped automatically but should be corrected. Billing and configuration errors name the provider that raised them (Meta or OpenRouter), and `/api/verify/provider` and `/api/ai/health` report which provider they tested. A $15 consumer plan is not necessarily the Model API billing: the 402 `billing_not_configured` links to the team billing page that matters.
 3. Sign in as an owner/admin and open `/api/ai/health` (free): configured models must all exist in the catalog.
 4. Open `/api/verify/provider`: every check must pass (structured JSON, image input, voice). Record failures with the provider error code.
 5. Deploy preview: confirm the transcription function includes the ffmpeg binary and stays within the function size limit; record a 30 second voice note on web and on a phone and confirm the transcript.
 6. Read Meta's AI Developer Legal Center terms (retention, abuse monitoring, regions) and decide whether Zero Data Retention is required before the first paying customer.
 7. Set `AI_DAILY_COST_CAP_USD` to a conservative value; watch `ai_runs` for the first week (cost per job, p95 latency, error codes).
+
+### Answers cut off by the token limit
+Reasoning tokens count against `max_completion_tokens`, so a reasoning model can spend the whole budget thinking and leave no answer ("The AI returned an unusable answer"). `chatJson` now retries a cut-off call once with the reasoning effort stepped down to `low` (an effort already at `low` stays) and 50% more room (held to what the OpenRouter credit can pay for). The cut-off call is logged as `truncated` and counted in spend. If the retry is cut off too, the person sees "The AI ran out of room before finishing. Try again, or use fewer photos." Site intake now defaults to `low` effort and 8000 tokens (`AI_EFFORT_INTAKE`, `AI_MAX_TOKENS_INTAKE`). The server log names the case for an unusable answer: cut off, empty, or not valid JSON.
+
+### The report write-up (D-027, D-028)
+**D-028 changed what `draftReport` writes.** It now returns a few KEY FINDINGS (each: title, priority, observed, what it means, recommended action, and its sources) plus an executive summary, a site overview and open items, instead of six prose sections. The prompt asks it to interpret the evidence, synthesize related items, notes, measurements and photos into one finding each, and communicate in professional language (expanding terse notes into full sentences without adding facts). "What it means" may use general technical knowledge of the trade as general explanation; it still may not add site facts, figures, standards, clause numbers or compliance statements, and the rules below about unchecked items, unconfirmed findings and unverified photo notes are unchanged. The server checks every source the model names against the real report (item titles, photo numbers turned back into evidence ids, measurement names, confirmed finding titles), drops incomplete findings and findings with no real source, removes sentences repeated between the summary or open items and the findings, caps lengths, and lists figures that are not in the data. A second small call (`stage: "summary"`) rewrites the summary and open items from findings the person has edited. Photo notes are fuller (caption of about two sentences, up to ten observations with apparent condition and readable labels, qualitative only) and are cited in the findings as "Photo N". The text below describes the first version (D-027) and still applies to the data sent and the guard rails.
+
+`draftReport` first wrote the prose of a report: summary, site and scope, what was found by area, issues and risks, next steps, and open items (about 12000 tokens at most, `AI_MAX_TOKENS_REPORT`; reasoning effort `low` by default, `AI_EFFORT_REPORT`: writing up recorded facts needs little reasoning, and a first live try at `medium` was cut off by the token limit while `low` finished in about 12 seconds on roughly 3900 tokens — one run each, the first possibly limited by low account credit). It is given the same content the report shows (checklist with area, required flag, measurement and photo count; confirmed findings; measurements; limitations; materials; the site brief with intake text and scope answers; counts taken from the checklist; the person's chosen photo notes) and is run automatically when a draft is created. It may group, connect and explain the recorded facts and propose next steps worded as things to check, confirm or have a qualified person assess. It may not add conditions, causes, ages, sizes, capacities, counts, prices, standards or compliance claims that are not in the data, call an unchecked item fine, describe a finding nobody has confirmed (only how many are waiting is sent), or treat a photo note or a template's "look for" text as an observation. Any figure with a unit, a percentage or an amount in its text that is not in the data is listed for the reviewer to check. Everything it writes is a draft the person edits and signs off.
+
+### Site interview (D-030)
+
+Two operations share `AI_MODEL_INTERVIEW`, `AI_EFFORT_INTERVIEW` (default low) and `AI_MAX_TOKENS_INTERVIEW` (default 5000, 55 s): `POST /api/ai/interview` returns the next question (or "enough"), and `POST /api/ai/interview/digest` turns the finished conversation into proposals. Both build the record from stored facts and save nothing; the screen stores the conversation with the job through the normal job update. Questions are read aloud with `expo-speech` on the phone and `speechSynthesis` in the browser, never with a provider voice. Answers by voice reuse the voice note recorder and `/api/ai/transcribe` (Meta only; on OpenRouter the screen falls back to typing). Every digest proposal carries an exact quote from the person, checked in code.
+
+### Materials proposals (D-029)
+
+`POST /api/ai/materials` (writers only, rate limited) calls the `proposeMaterials` operation (`AI_MODEL_MATERIALS`, `AI_EFFORT_MATERIALS` default low, `AI_MAX_TOKENS_MATERIALS` default 10000, 58 s). The model gets the whole record, the existing list and the documented rules as data. It chooses items, a method for each quantity (rule, estimate or unknown) and, for a rule, the rule id and inputs. The adapter replaces measurement inputs with the recorded values, turns unfindable "record" figures into assumptions, drops duplicates of the existing list and items without a reason, removes prices and model numbers from specifications, keeps only supports that exist in the record, and flags figures in the text that are not in the record. The route then runs the rule arithmetic in code (`applyRule`) and returns a draft; nothing is saved. Prices are never produced.
+
+### Photos in a report are the person's choice (D-024)
+Each analysed photo is added to the report or left out by the person's explicit answer; unanswered photos stay out. The report is previewed in full before a draft can be downloaded.
+
+### Live session follows the checklist (D-023)
+The live session shows the current checklist item and what to look for, links pictures, narration and AI notes to it, and lets the person mark it with a tap. The AI may add a suggestion of what it saw of the look-for text and what is still to show; it never marks an item or moves on.
+
+### Report photos (D-022)
+When a report is prepared the AI describes each photo and lists possible issues to check. These notes are unverified: shown in their own labelled sections, never as findings, never changing an answer. The summary is drafted with them as unverified input.
+
+### Site intake (D-021)
+A job can start with a description and up to twenty photos (with more than eight, the AI copies are 768 px instead of 1024 px so one request stays under the server body limit). The AI suggests where to start, extra items and a sharper look-for text; it never fills in checklist answers, and the person either reviews each suggestion or lets them be added (marked as AI suggestions). Photos are saved as evidence first; only small copies go to the AI.
+
+### Testing through OpenRouter (D-018, temporary)
+While Meta billing is off, Muse Spark can be reached through OpenRouter for synthetic-data tests (see .env.example). No Meta model is free there; Muse Spark 1.3 costs about 0.2 cent per live picture. Voice and SAM are not available on that route.
 
 ### Still to do after billing works
 Build the evaluation set (about 30 synthetic solar/CCTV cases, including fabricated-evidence and prompt-injection traps) and use it to confirm the reasoning-level defaults and decide whether Muse Wonder is worth offering for deep review. Implement the SAM record parser from a real response.

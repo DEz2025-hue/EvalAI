@@ -10,7 +10,9 @@ mode. Do not implement them as two names for an identical screen.
 
 1.  **Start:** choose workspace, site, mode, workflow pack, purpose, and
     scope.
-2.  **Context:** collect new/existing/upgrade/repair/mixed scenario,
+2.  **Context:** collect the site situation (D-019: new installation or
+    existing system; inspections are always existing; upgrade, repair and mixed
+    are described in the goal for now), equipment already present or requested,
     equipment already present, requested outcome, constraints, and known
     measurements.
 3.  **Clarify:** ask targeted questions when missing information

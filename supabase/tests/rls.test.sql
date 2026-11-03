@@ -386,6 +386,55 @@ end $$;
 reset role;
 
 -- ======================================================================================================================
+-- Office report style (report_templates, migration 0017): every member reads it, only owners and admins change it
+-- ======================================================================================================================
+insert into report_templates(workspace_id, template) values (rls_test.id('w1'), '{"officeName":"Seed Office","sections":[]}'::jsonb);
+
+select rls_test.as_user(rls_test.id('u_viewer'));
+set local role authenticated;
+do $$ begin
+  perform rls_test.eq('template: viewer reads the style', rls_test.cnt(format('select 1 from report_templates where workspace_id = %L', rls_test.id('w1'))), 1);
+  perform rls_test.no('template: viewer cannot change it', format('update report_templates set template = ''{"sections":[]}''::jsonb where workspace_id = %L', rls_test.id('w1')));
+  perform rls_test.no('template: viewer cannot delete it', format('delete from report_templates where workspace_id = %L', rls_test.id('w1')));
+end $$;
+reset role;
+
+select rls_test.as_user(rls_test.id('u_member'));
+set local role authenticated;
+do $$ begin
+  perform rls_test.eq('template: member reads the style', rls_test.cnt(format('select 1 from report_templates where workspace_id = %L', rls_test.id('w1'))), 1);
+  perform rls_test.no('template: member cannot change it', format('update report_templates set template = ''{"sections":[]}''::jsonb where workspace_id = %L', rls_test.id('w1')));
+  perform rls_test.no('template: member cannot delete it', format('delete from report_templates where workspace_id = %L', rls_test.id('w1')));
+end $$;
+reset role;
+
+select rls_test.as_user(rls_test.id('u_outsider'));
+set local role authenticated;
+do $$ begin
+  perform rls_test.eq('template: an outsider cannot see another workspace''s style', rls_test.cnt(format('select 1 from report_templates where workspace_id = %L', rls_test.id('w1'))), 0);
+  perform rls_test.no('template: an outsider cannot change it', format('update report_templates set template = ''{"sections":[]}''::jsonb where workspace_id = %L', rls_test.id('w1')));
+end $$;
+reset role;
+
+-- Section 8 demoted the admin to member, so make them an admin again (as the connecting role) before testing admin rights.
+update workspace_memberships set role = 'admin' where user_id = rls_test.id('u_admin') and workspace_id = rls_test.id('w1');
+select rls_test.as_user(rls_test.id('u_admin'));
+set local role authenticated;
+do $$ begin
+  perform rls_test.yes('template: admin can change it', format('update report_templates set template = ''{"officeName":"Admin Office","sections":[]}''::jsonb where workspace_id = %L', rls_test.id('w1')));
+  perform rls_test.yes('template: admin can delete it', format('delete from report_templates where workspace_id = %L', rls_test.id('w1')));
+  perform rls_test.yes('template: admin can create it', format('insert into report_templates(workspace_id, template) values (%L, ''{"sections":[]}''::jsonb)', rls_test.id('w1')));
+end $$;
+reset role;
+
+select rls_test.as_user(rls_test.id('u_owner'));
+set local role authenticated;
+do $$ begin
+  perform rls_test.yes('template: owner can change it', format('update report_templates set template = ''{"officeName":"Owner Office","sections":[]}''::jsonb where workspace_id = %L', rls_test.id('w1')));
+end $$;
+reset role;
+
+-- ======================================================================================================================
 -- Report
 -- ======================================================================================================================
 do $$ declare failed text; begin

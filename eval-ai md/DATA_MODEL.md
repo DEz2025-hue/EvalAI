@@ -68,7 +68,10 @@ entities.
 -   **MaterialsList:** parent record and version.
 -   **MaterialsListItem:** description, specification, quantity/unit,
     rationale, source inputs, assumptions, verification state, and
-    linked findings.
+    linked findings. Source is one of measurement, finding, rule,
+    user_input or ai_suggested (D-029, migration 0016). An item whose
+    quantity is not known is stored with quantity 1 and a "Quantity to
+    be determined" assumption, and shown as TBD.
 -   **Supplier:** supplier details supplied or verified by the user.
 -   **Quotation:** supplier, source, reference, date, currency, validity
     where stated, attachment, and review status.
@@ -120,3 +123,7 @@ propagates, and whether transcript deletion also removes original audio.
 Keep private storage references inaccessible without authorization.
 Retain only the data necessary for product functionality and disclosed
 audit requirements.
+
+## Site situation (D-019)
+
+`assessments.context.scenario` is `new_install` or `existing` (absent on older assessments). Inspections always store `existing`. It is set at creation, can be set once on a job that has none, and is never changed afterwards. It selects the starting checklist and is passed to the AI as a one-line hint read from the stored job.

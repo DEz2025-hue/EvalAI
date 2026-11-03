@@ -104,7 +104,7 @@ audit; they do not prove implementation is complete.
 
   Assessment Mode                Implemented      PACK_TEMPLATES, /assessments/new   Live DB resume e2e pending env
                                                  + [id] with ContextForm,          — demo fallback keeps workflow
-                                                 ChecklistEditor (not_checked≠pass) walkable without DB
+                                                 ChecklistSummary (not_checked≠pass) walkable without DB
                                                  MeasurementsPanel, PhotoCapture,
                                                  VoiceRecorder, draft/resume via
                                                  /api/assessments + /api/checklist
@@ -142,6 +142,20 @@ audit; they do not prove implementation is complete.
                                                  QuotationReview, /api/materials/   — version bump → stale flag
                                                  quotations, stale trigger
 
+  AI materials proposal (D-029)  Implemented      materialRules.ts (7 rules),        Live model output not yet read
+                                                 proposeMaterials, /api/ai/         (no OpenRouter credit);
+                                                 materials, web + phone review,     migration 0016 to apply
+                                                 report rendering, eval set
+
+  Office report style (D-031)    Implemented      reportTemplate.ts, 0017 migration,    Migration 0017 applied; Settings tried;
+                                                 /api/report-template, Settings card,   draft and PDF in new style tried (no logo);
+                                                 HTML + PDF rendering                   phone does not edit the style
+
+  Site interview (D-030)         Implemented      interview.ts (shared), interview ops,  Live model + Meta voice not yet
+                                                 /api/ai/interview(+digest), phone      tried; phone not run on a device;
+                                                 InterviewSession, web                  expo-speech needs a rebuild
+                                                 InterviewPanel, report section
+
   Deterministic calculations     Tested          measurements.test.ts +              Vitest EPERM sandbox Temp — manual
                                                  checklist.test.ts + manual node    deterministic checks PASS
                                                  tsc + build green
@@ -151,7 +165,47 @@ audit; they do not prove implementation is complete.
                                                  photoMeasure.ts, D-014              against a live SAM response, or for real
                                                                                      accuracy. Always labelled an estimate.
 
-  Live camera guidance           Coming Soon     Labelled as Coming Soon in UI       Not implemented per D-005
+  Findings-first report (D-027, D-028)   Implemented (web, mobile, PDF) reportHtml.ts, reportOverview.ts,   Unit, route, adapter, PDF, store and guard tests; an
+                                                 keyFindings.ts, reportDraft.ts,      evaluation set of 6 made-up jobs with automated checks.
+                                                 pdf.ts, /api/ai/report-draft,        The written text was NOT read on a live model (no
+                                                 ReportView, KeyFindingsEditor,       purchased AI credit); not tried in the browser or on a
+                                                 ReportPhotoSteps, report.tsx         phone. Web now has the photo steps.
+
+  Photo choice + preview before download (D-024) Implemented (mobile + web gate) ReportPhotoChoices, report-preview,     Unit, route, guard tests; chooser run in the browser with
+                                                 reportGate.ts, photo-choices route    fakes. WebView not seen on a phone. Lock is in the app
+                                                                                      screens, not the server.
+
+  Live session walks the checklist (D-023) Implemented (mobile) liveWalk.ts, LiveSession Now card,   Unit, guard tests and a browser run with fakes; coverage
+                                                 setItemStatus, coverage hint         hint checked once with a synthetic picture. Not tried on
+                                                                                      a phone.
+
+  Report reads the photos (D-022)        Implemented (mobile) reportPhotos.ts, photoReview,         Unit, route, PDF and guard tested; whole pipeline run
+                                                 /api/ai/report-photos, report.tsx   once with synthetic pictures (~2 cents, ~25 s).
+                                                                                      Not tried on a phone or with real site photos.
+
+  Guided checklist + site intake (D-021) Implemented (mobile) packs.ts LOOK_FOR, siteIntake,     Unit, route and guard tested; one real-model check
+                                                 /api/ai/site-intake, SiteIntake.tsx  with a synthetic picture. Not tried on a phone
+                                                                                      or judged by a technician. No web intake.
+
+  Delete a job (draft or finished, D-020) Implemented  migration 0015, DELETE route,      Database rules tested in a rolled-back
+                                                 mobile + web Danger zone            transaction; route and guard tested. Migration
+                                                                                      NOT applied yet; UI not checked signed in.
+
+  Site situation (new install / existing, D-019) Implemented  scenario.ts, checklistFor,       Unit and route tested. Not checked on a phone
+                                                 create + job screens (mobile, web),  or against the live model; upgrade/repair
+                                                 AI prompts, report header            situations not built.
+
+  Live session (stills + narration, D-017) Beta (mobile)  LiveSession, useNarration,      Unit-tested with mocked provider. NOT
+                                                 usePhoneCamera, liveSource,
+                                                 liveNarration.ts, itemNotes.ts
+  Live session (periodic + manual frames)  Beta (mobile)  LiveSession, usePhoneCamera,   Unit-tested with mocked provider. NOT
+                                                 liveSource, /api/ai/live-frame,     verified on a phone or against the live
+                                                 shared liveSession.ts, D-015        provider. Device checklist: TEST_PLAN s8.
+
+  Meta glasses as a live frame source   Design only    FrameSource contract, D-016          Not built: Meta's toolkit is a
+                                                                                         developer preview, cannot publish yet.
+
+  Live camera guidance (real-time video, web) Coming Soon  Labelled as Coming Soon in UI  Not implemented (D-005, D-015)
   ----------------------------------------------------------------------------------------------------------------
 
   Phase 2 exit gate: user can complete & resume basic assessment & inspection without AI — achieved via demo fallback + Supabase-ready persistence (workspaceId+RLS when env set).
