@@ -2,23 +2,41 @@ import { useState } from "react";
 import { View, Image, Alert } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { uploadEvidence } from "../lib/upload";
+import { readLocalFile, toBase64 } from "../lib/localFile";
 import { apiFetch, apiBase } from "../lib/api";
 import { colors, radius, space } from "../lib/theme";
-import { Banner, Button, IconButton, Text } from "./ui";
+import { Badge, Banner, Button, Card, IconButton, Text } from "./ui";
 
 const ALLOWED = ["image/jpeg", "image/png", "image/webp"];
 const MAX_BYTES = 15 * 1024 * 1024;
+/** How many photos can wait in the list at once. */
+const MAX_PHOTOS = 10;
 
-export function PhotoCaptureMobile({ assessmentId, itemId, onUploaded }: { assessmentId: string; itemId?: string; onUploaded?: (key: string) => void }) {
-  const [preview, setPreview] = useState<string | null>(null);
-  const [file, setFile] = useState<ImagePicker.ImagePickerAsset | null>(null);
+type Shot = {
+  key: string;
+  uri: string;
+  name: string;
+  mime: string;
+  status: "ready" | "uploading" | "uploaded" | "error";
+  error?: string;
+  analysis?: string;
+};
+
+/**
+ * Add photos to a job: take several, or choose many at once from the gallery, then upload them together. Each photo
+ * keeps its own status, so one failure never loses the others, and "Ask AI" works on any single photo.
+ */
+export function PhotoCaptureMobile({ assessmentId, itemId, onUploaded }: { assessmentId: string; itemId?: string; onUploaded?: (count: number) => void }) {
+  const [shots, setShots] = useState<Shot[]>([]);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [analysis, setAnalysis] = useState<string | null>(null);
+
+  const patch = (key: string, change: Partial<Shot>) => setShots((prev) => prev.map((s) => (s.key === key ? { ...s, ...change } : s)));
 
   async function pick(which: "camera" | "library") {
     setError(null);
-    setAnalysis(null);
+    const room = MAX_PHOTOS - shots.length;
+    if (room <= 0) return;
     const perm = which === "camera" ? await ImagePicker.requestCameraPermissionsAsync() : await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (perm.status !== "granted") {
       Alert.alert("Permission needed", "Allow camera or photo access in Settings to add photos to this job.");
@@ -27,107 +45,112 @@ export function PhotoCaptureMobile({ assessmentId, itemId, onUploaded }: { asses
     const res =
       which === "camera"
         ? await ImagePicker.launchCameraAsync({ mediaTypes: ["images"], quality: 0.8, allowsEditing: false })
-        : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.8, allowsEditing: false });
+        : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.8, allowsEditing: false, allowsMultipleSelection: true, selectionLimit: room, orderedSelection: true });
     if (res.canceled) return;
-    const asset = res.assets[0];
-    if (asset.mimeType && !ALLOWED.includes(asset.mimeType)) {
-      setError("Only JPEG, PNG or WebP photos are supported.");
-      return;
-    }
-    if ((asset.fileSize ?? 0) > MAX_BYTES) {
-      setError("That photo is too large (over 15 MB).");
-      return;
-    }
-    setFile(asset);
-    setPreview(asset.uri);
+    const added: Shot[] = [];
+    let skipped = 0;
+    res.assets.slice(0, room).forEach((a, i) => {
+      if ((a.mimeType && !ALLOWED.includes(a.mimeType)) || (a.fileSize ?? 0) > MAX_BYTES) {
+        skipped += 1;
+        return;
+      }
+      added.push({ key: `${Date.now()}-${i}-${Math.random().toString(36).slice(2, 6)}`, uri: a.uri, name: a.fileName ?? `photo-${Date.now()}-${i}.jpg`, mime: a.mimeType ?? "image/jpeg", status: "ready" });
+    });
+    if (added.length > 0) setShots((prev) => [...prev, ...added]);
+    if (skipped > 0) setError(`${skipped} photo${skipped > 1 ? "s were" : " was"} skipped (only JPEG, PNG or WebP under 15 MB).${added.length ? " The others were added." : ""}`);
   }
 
-  async function upload() {
-    if (!file) return;
+  async function uploadAll() {
+    const todo = shots.filter((s) => s.status === "ready" || s.status === "error");
+    if (todo.length === 0) return;
     setUploading(true);
     setError(null);
     try {
-      // Posts to the web API which validates + stores privately (authenticated).
-      try {
-        apiBase();
-      } catch {
-        setError(null);
-        Alert.alert("Upload pending", "Photo saved on this phone. It will need to be uploaded once you're connected.");
-        onUploaded?.(file.uri);
-        return;
-      }
-      const data = await uploadEvidence({ assessmentId, itemId, uri: file.uri, fileName: file.fileName ?? "photo-" + Date.now() + ".jpg", mimeType: file.mimeType ?? "image/jpeg" });
-      onUploaded?.(data.storageKey ?? file.uri);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
+      apiBase();
+    } catch {
       setUploading(false);
+      Alert.alert("Upload pending", "The photos are on this phone. They need to be uploaded once you're connected.");
+      return;
     }
+    let ok = 0;
+    for (const s of todo) {
+      patch(s.key, { status: "uploading", error: undefined });
+      try {
+        await uploadEvidence({ assessmentId, itemId, uri: s.uri, fileName: s.name, mimeType: s.mime });
+        patch(s.key, { status: "uploaded" });
+        ok += 1;
+      } catch (e) {
+        patch(s.key, { status: "error", error: e instanceof Error ? e.message : String(e) });
+      }
+    }
+    setUploading(false);
+    if (ok > 0) onUploaded?.(ok);
   }
 
-  async function requestAnalysis() {
-    if (!file || !preview) return;
-    setAnalysis("Analyzing…");
+  async function askAi(s: Shot) {
+    patch(s.key, { analysis: "Analyzing…" });
     try {
       try {
         apiBase();
       } catch {
-        setAnalysis("AI photo analysis isn't available right now.");
+        patch(s.key, { analysis: "AI photo analysis isn't available right now." });
         return;
       }
-      // Convert to base64 via fetch blob
-      const resp = await fetch(file.uri);
-      const blob = await resp.blob();
-      const b64 = await new Promise<string>((resolve, reject) => {
-        const r = new FileReader();
-        r.onload = () => {
-          const s = String(r.result);
-          resolve(s.includes(",") ? s.split(",")[1] : s);
-        };
-        r.onerror = () => reject(new Error("read failed"));
-        r.readAsDataURL(blob);
-      });
+      // Read the file with expo-file-system (React Native's fetch can return an empty body for local files).
+      const bytes = await readLocalFile(s.uri);
+      if (bytes.byteLength === 0) throw new Error("The photo couldn't be read from this phone.");
       const res = await apiFetch("/api/ai/analyze-image", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageBase64: b64, mimeType: file.mimeType ?? "image/jpeg", assessmentId }),
+        body: JSON.stringify({ imageBase64: toBase64(bytes), mimeType: s.mime, assessmentId }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error((data as { error?: string }).error ?? "Analysis failed");
       const d = data as { summary: string; limitations?: string[]; uncertainty?: string };
-      setAnalysis([d.summary, d.limitations?.length ? `Limitations: ${d.limitations.join("; ")}` : "", d.uncertainty ? `Confidence: ${d.uncertainty}` : ""].filter(Boolean).join("\n"));
+      patch(s.key, { analysis: [d.summary, d.limitations?.length ? `Limitations: ${d.limitations.join("; ")}` : "", d.uncertainty ? `Confidence: ${d.uncertainty}` : ""].filter(Boolean).join("\n") });
     } catch (e) {
-      setAnalysis(`Analysis unavailable: ${e instanceof Error ? e.message : String(e)}`);
+      patch(s.key, { analysis: `Analysis unavailable: ${e instanceof Error ? e.message : String(e)}` });
     }
   }
 
-  const clear = () => { setPreview(null); setFile(null); setError(null); setAnalysis(null); };
+  const waiting = shots.filter((s) => s.status === "ready" || s.status === "error").length;
+  const full = shots.length >= MAX_PHOTOS;
 
   return (
     <View style={{ gap: space.md }}>
-      {preview ? (
-        <View>
-          <Image source={{ uri: preview }} style={{ width: "100%", height: 200, borderRadius: radius.md, backgroundColor: colors.surfaceMuted }} resizeMode="cover" />
-          <View style={{ position: "absolute", top: space.sm, right: space.sm }}>
-            <IconButton icon="close" label="Remove photo" onPress={clear} />
-          </View>
-        </View>
-      ) : (
-        <View style={{ flexDirection: "row", gap: space.sm }}>
-          <Button title="Take photo" icon="camera" onPress={() => pick("camera")} style={{ flex: 1 }} />
-          <Button title="Choose" icon="images-outline" variant="secondary" onPress={() => pick("library")} style={{ flex: 1 }} />
-        </View>
-      )}
+      <View style={{ flexDirection: "row", gap: space.sm }}>
+        <Button title={shots.length ? "Take another" : "Take photo"} icon="camera" onPress={() => void pick("camera")} disabled={full} style={{ flex: 1 }} />
+        <Button title="Choose photos" icon="images-outline" variant="secondary" onPress={() => void pick("library")} disabled={full} style={{ flex: 1 }} />
+      </View>
+      {shots.length > 0 ? <Text variant="caption">{shots.length} of {MAX_PHOTOS} photos in the list{waiting > 0 ? ` · ${waiting} not uploaded yet` : ""}</Text> : null}
 
-      {preview ? (
-        <View style={{ flexDirection: "row", gap: space.sm }}>
-          <Button title={uploading ? "Uploading…" : "Upload"} icon="cloud-upload-outline" variant="accent" onPress={upload} loading={uploading} style={{ flex: 1 }} />
-          <Button title="Ask AI" icon="sparkles-outline" variant="secondary" onPress={requestAnalysis} style={{ flex: 1 }} />
-        </View>
+      {shots.map((s) => (
+        <Card key={s.key}>
+          <View style={{ flexDirection: "row", gap: space.md }}>
+            <Image source={{ uri: s.uri }} style={{ width: 84, height: 112, borderRadius: radius.sm, backgroundColor: colors.surfaceMuted }} resizeMode="cover" />
+            <View style={{ flex: 1, gap: space.xs }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                {s.status === "uploaded" ? <Badge label="Uploaded" tone="success" /> : null}
+                {s.status === "uploading" ? <Badge label="Uploading…" tone="info" /> : null}
+                {s.status === "error" ? <Badge label="Not uploaded" tone="danger" /> : null}
+                {s.status === "ready" ? <Badge label="Ready" tone="neutral" /> : null}
+                <View style={{ flex: 1 }} />
+                <IconButton icon="close" label="Remove photo" onPress={() => setShots((prev) => prev.filter((x) => x.key !== s.key))} />
+              </View>
+              {s.error ? <Text variant="caption" color={colors.danger}>{s.error}</Text> : null}
+              <Button title="Ask AI" icon="sparkles-outline" variant="secondary" size="sm" onPress={() => void askAi(s)} />
+            </View>
+          </View>
+          {s.analysis ? <Banner tone="warning" title="AI suggestion — not a verified measurement" message={s.analysis} /> : null}
+        </Card>
+      ))}
+
+      {waiting > 0 ? <Button title={uploading ? "Uploading…" : waiting > 1 ? `Upload ${waiting} photos` : "Upload photo"} icon="cloud-upload-outline" variant="accent" onPress={() => void uploadAll()} loading={uploading} /> : null}
+      {shots.length > 0 && waiting === 0 && !uploading ? (
+        <Button title="Clear list" variant="ghost" onPress={() => setShots([])} />
       ) : null}
 
       {error ? <Banner tone="danger" message={error} /> : null}
-      {analysis ? <Banner tone="warning" title="AI suggestion — not a verified measurement" message={analysis} /> : null}
       <Text style={{ fontSize: 11, color: colors.textSubtle }}>Photos are stored privately and only shared with people in your workspace.</Text>
     </View>
   );

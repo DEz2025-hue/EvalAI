@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Pressable, View } from "react-native";
 import { Link, useFocusEffect, useRouter } from "expo-router";
 import { getSupabase, hasSupabaseEnv } from "../../lib/supabase";
-import { firstName } from "@eval-ai/shared";
+import { firstName, scenarioFor, scenarioLabel } from "@eval-ai/shared";
 import { loadWorkspaces } from "../../lib/myWorkspaces";
 import { capitalize, siteNameOf, timeAgo } from "../../lib/format";
 import { systemIcon, systemLabel } from "../../lib/packs";
@@ -164,7 +164,7 @@ export default function HomeScreen() {
                 key={row.id}
                 icon={systemIcon(row.pack)}
                 title={siteNameOf(row)}
-                subtitle={`${systemLabel(row.pack)} · ${capitalize(row.mode)}`}
+                subtitle={`${systemLabel(row.pack)} · ${capitalize(row.mode)}${scenarioFor(row.mode, row.context?.scenario) ? " · " + scenarioLabel(scenarioFor(row.mode, row.context?.scenario)) : ""}`}
                 meta={`Updated ${timeAgo(row.updated_at)}`}
                 right={<StatusBadge status={row.status} />}
                 onPress={() => router.push(`/assessments/${row.id}`)}
@@ -174,7 +174,7 @@ export default function HomeScreen() {
           : null}
       </Card>
 
-      <Banner tone="neutral" title="Live camera — Coming Soon" message="For now, capture photos and voice notes on each checklist item." />
+      <Banner tone="neutral" title="Live session — Beta" message="Open a job and tap Live session to get AI suggestions from the camera every few seconds." />
     </Screen>
   );
 }

@@ -49,12 +49,12 @@ export function FieldCaptureMobile({ assessmentId, items }: { assessmentId: stri
   return (
     <>
       <Card>
-        <SectionHeader title="Photos" subtitle="Take or choose a photo and link it to an item." />
-        <ItemChips label="Link the next photo to" items={items} value={photoItem} onChange={setPhotoItem} />
+        <SectionHeader title="Photos" subtitle="Take photos or choose several at once, and link them to an item." />
+        <ItemChips label="Link the next photos to" items={items} value={photoItem} onChange={setPhotoItem} />
         <PhotoCaptureMobile
           assessmentId={assessmentId}
           itemId={photoItem || undefined}
-          onUploaded={() => setMessage({ kind: "ok", text: photoItem ? "Photo saved and linked to the checklist item." : "Photo saved to the job." })}
+          onUploaded={(n) => setMessage({ kind: "ok", text: (n > 1 ? n + " photos saved" : "Photo saved") + (photoItem ? " and linked to the checklist item." : " to the job.") })}
         />
       </Card>
       <Card>

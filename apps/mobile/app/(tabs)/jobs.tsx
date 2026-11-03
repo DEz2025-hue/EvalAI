@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { RefreshControl, ScrollView, View } from "react-native";
 import { useRouter, useFocusEffect } from "expo-router";
-import type { PackId } from "@eval-ai/shared";
+import { scenarioFor, scenarioLabel, type PackId } from "@eval-ai/shared";
 import { getSupabase, hasSupabaseEnv } from "../../lib/supabase";
 import { loadWorkspaces } from "../../lib/myWorkspaces";
 import { capitalize, siteNameOf, timeAgo } from "../../lib/format";
@@ -181,7 +181,7 @@ export default function JobsScreen() {
                   </View>
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                     <Icon name={systemIcon(row.pack)} size={14} color={colors.textMuted} />
-                    <Text variant="caption">{systemLabel(row.pack)} · {capitalize(row.mode)} · {timeAgo(row.updated_at)}</Text>
+                    <Text variant="caption">{systemLabel(row.pack)} · {capitalize(row.mode)}{scenarioFor(row.mode, row.context?.scenario) ? " · " + scenarioLabel(scenarioFor(row.mode, row.context?.scenario)) : ""} · {timeAgo(row.updated_at)}</Text>
                   </View>
                   <Button
                     title={row.status === "draft" ? "Resume draft" : "Open job"}

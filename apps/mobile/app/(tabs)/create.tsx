@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { View } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
-import type { PackId } from "@eval-ai/shared";
+import { SCENARIOS, SCENARIO_LIST, scenarioFor, type PackId, type Scenario } from "@eval-ai/shared";
 import { apiFetch } from "../../lib/api";
 import { isSystem, SYSTEMS, systemOptions } from "../../lib/packs";
 import { colors, space } from "../../lib/theme";
@@ -20,6 +20,8 @@ export default function CreateScreen() {
   const [address, setAddress] = useState("");
   const [goal, setGoal] = useState("");
   const [existingEquipment, setExistingEquipment] = useState("");
+  const [scenario, setScenario] = useState<Scenario | null>(null);
+  const [scenarioError, setScenarioError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [nameError, setNameError] = useState<string | null>(null);
@@ -27,6 +29,13 @@ export default function CreateScreen() {
   async function submit() {
     setError(null);
     setNameError(null);
+    setScenarioError(null);
+    // An inspection is always an existing system; an assessment must say which.
+    const situation = scenarioFor(mode, scenario);
+    if (!situation) {
+      setScenarioError("Choose whether this is a new installation or an existing system.");
+      return;
+    }
     if (siteName.trim().length < 2) {
       setNameError("Enter at least 2 characters.");
       return;
@@ -40,11 +49,12 @@ export default function CreateScreen() {
       const res = await apiFetch("/api/assessments", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode, pack, siteName: siteName.trim(), address: address.trim() || undefined, goal: goal.trim() || undefined, existingEquipment: existingEquipment.trim() || undefined }),
+        body: JSON.stringify({ mode, pack, siteName: siteName.trim(), address: address.trim() || undefined, goal: goal.trim() || undefined, existingEquipment: existingEquipment.trim() || undefined, scenario: situation }),
       });
       const data = (await res.json().catch(() => ({}))) as { id?: string; error?: string };
       if (!res.ok || !data.id) throw new Error(data.error ?? "Could not create the job — please try again");
-      router.push(("/assessments/" + data.id) as never);
+      // First stop: describe the site or take photos so the app can guide the checklist (skippable).
+      router.replace(("/assessments/" + data.id + "/intake?first=1") as never);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -63,14 +73,43 @@ export default function CreateScreen() {
           </View>
         </View>
 
+        <View style={{ gap: space.sm }}>
+          <Text variant="label" color={colors.text}>Situation at the site</Text>
+          {mode === "inspection" ? (
+            <Banner tone="neutral" message="An inspection is always of a system that is already installed." />
+          ) : (
+            <>
+              <View style={{ flexDirection: "row", gap: space.sm }}>
+                {SCENARIO_LIST.map((s) => (
+                  <OptionCard
+                    key={s.id}
+                    icon={s.id === "new_install" ? "construct-outline" : "build-outline"}
+                    title={s.label}
+                    subtitle={s.hint}
+                    selected={scenario === s.id}
+                    onPress={() => { setScenario(s.id); setScenarioError(null); }}
+                  />
+                ))}
+              </View>
+              {scenarioError ? <Text variant="caption" color={colors.danger}>{scenarioError}</Text> : null}
+            </>
+          )}
+        </View>
+
         <Select label="System" value={pack} options={systemOptions()} onChange={(v) => { if (isSystem(v)) setPack(v); }} />
 
         <Card style={{ gap: space.lg }}>
           <Text variant="heading">Site details</Text>
           <Field label="Site name" required value={siteName} onChangeText={setSiteName} placeholder="e.g. 12 Acacia Rd — roof" error={nameError} />
           <Field label="Address" value={address} onChangeText={setAddress} placeholder="Optional" />
-          <Field label="Goal or scope" value={goal} onChangeText={setGoal} multiline placeholder="New install, upgrade or repair — what does the customer want?" />
-          <Field label="Existing equipment" value={existingEquipment} onChangeText={setExistingEquipment} multiline placeholder="Make and model if known" />
+          <Field label="Goal or scope" value={goal} onChangeText={setGoal} multiline placeholder={SCENARIOS[scenarioFor(mode, scenario) ?? "existing"].goalPlaceholder} />
+          <Field
+            label={SCENARIOS[scenarioFor(mode, scenario) ?? "existing"].equipmentLabel}
+            value={existingEquipment}
+            onChangeText={setExistingEquipment}
+            multiline
+            placeholder={SCENARIOS[scenarioFor(mode, scenario) ?? "existing"].equipmentPlaceholder}
+          />
         </Card>
 
         {error ? <Banner tone="danger" title="Couldn't create the job" message={error} /> : null}

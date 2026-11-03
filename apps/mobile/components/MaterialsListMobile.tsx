@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
 import { View, Alert } from "react-native";
+import { displayQuantity } from "@eval-ai/shared";
 import { apiFetch, apiBase } from "../lib/api";
 import { colors, space } from "../lib/theme";
+import { MaterialsSuggestMobile, type SuggestedItem } from "./MaterialsSuggestMobile";
 import { Badge, Banner, Button, Card, EmptyState, SectionHeader, Text } from "./ui";
 
-type Item = { id: string; description: string; quantity: number; unit: string; rationale: string; source: "measurement" | "finding" | "rule" | "user_input"; provisional?: boolean; assumptions?: string[] };
+type Item = { id: string; description: string; quantity: number; unit: string; rationale: string; source: "measurement" | "finding" | "rule" | "user_input" | "ai_suggested"; provisional?: boolean; assumptions?: string[] };
 
-export function MaterialsListMobile({ assessmentId, initial = [], version = 1 }: { assessmentId: string; initial?: Item[]; version?: number }) {
+export function MaterialsListMobile({ assessmentId, initial = [], version = 0, onVersion }: { assessmentId: string; initial?: Item[]; version?: number; onVersion?: (version: number) => void }) {
   const [items, setItems] = useState<Item[]>(initial);
   const [saving, setSaving] = useState(false);
   const [resumeNote, setResumeNote] = useState<string | null>(null);
@@ -21,7 +23,8 @@ export function MaterialsListMobile({ assessmentId, initial = [], version = 1 }:
       const res = await apiFetch(`/api/materials?assessmentId=${assessmentId}`);
       if (!res.ok) return;
       const data = await res.json().catch(() => ({}));
-      const d = data as { items?: Item[]; count?: number };
+      const d = data as { items?: Item[]; count?: number; version?: number };
+      if (typeof d.version === "number") onVersion?.(d.version);
       if (d.items?.length) {
         setItems(d.items);
         setResumeNote(`Loaded ${d.count ?? d.items.length} saved item${(d.count ?? d.items.length) === 1 ? "" : "s"}.`);
@@ -32,6 +35,12 @@ export function MaterialsListMobile({ assessmentId, initial = [], version = 1 }:
   useEffect(() => {
     loadPersisted();
   }, []);
+
+  function addSuggested(added: SuggestedItem[]) {
+    if (added.length === 0) return;
+    setItems((prev) => [...prev, ...added]);
+    setResumeNote(`${added.length} AI suggestion${added.length === 1 ? "" : "s"} added. Review them, then save.`);
+  }
 
   function add() {
     // Simplified prompt flow for RN — use Alert.prompt if available, else placeholder
@@ -73,6 +82,7 @@ export function MaterialsListMobile({ assessmentId, initial = [], version = 1 }:
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error((data as { error?: string }).error ?? "Save failed");
       const d = data as { version?: number; persisted?: boolean };
+      if (typeof d.version === "number") onVersion?.(d.version);
       Alert.alert("Materials saved", `Saved as version ${d.version ?? version + 1}. Quotes based on earlier versions now need updating.`);
     } catch (e) {
       Alert.alert("Save failed", e instanceof Error ? e.message : String(e));
@@ -83,7 +93,8 @@ export function MaterialsListMobile({ assessmentId, initial = [], version = 1 }:
 
   return (
     <Card>
-      <SectionHeader title="Materials" subtitle={`Version ${version}`} />
+      <SectionHeader title="Materials" subtitle={version > 0 ? `Version ${version}` : "Not saved yet"} />
+      <MaterialsSuggestMobile assessmentId={assessmentId} onAdd={addSuggested} />
       {resumeNote ? <Banner tone="success" message={resumeNote} /> : null}
 
       {items.length === 0 ? (
@@ -97,7 +108,8 @@ export function MaterialsListMobile({ assessmentId, initial = [], version = 1 }:
                 <Text variant="caption" numberOfLines={1}>{it.rationale}</Text>
               </View>
               <View style={{ alignItems: "flex-end", gap: 4 }}>
-                <Text variant="bodyStrong">{it.quantity} {it.unit}</Text>
+                <Text variant="bodyStrong">{displayQuantity(it)}</Text>
+                {it.source === "ai_suggested" ? <Badge label="AI suggestion" tone="info" /> : null}
                 {it.provisional ? <Badge label="Provisional" tone="warning" /> : null}
               </View>
             </View>

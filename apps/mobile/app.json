@@ -13,7 +13,7 @@
       [
         "expo-audio",
         {
-          "microphonePermission": "Allow $(PRODUCT_NAME) to use the microphone — voice notes are stored privately and transcribed only when you request it."
+          "microphonePermission": "Allow $(PRODUCT_NAME) to use the microphone — voice notes and live-session narration are stored privately and transcribed only when you ask or turn narration on."
         }
       ],
       [
@@ -21,6 +21,14 @@
         {
           "photosPermission": "Allow $(PRODUCT_NAME) to access your photos — images are linked to the correct assessment/item and stored privately.",
           "cameraPermission": "Allow $(PRODUCT_NAME) to use the camera — photos are linked to the correct job/item and stored privately, signed URL only after authorization."
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow $(PRODUCT_NAME) to use the camera for live sessions. Pictures are only kept if you save them.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false
         }
       ]
     ],
@@ -33,7 +41,7 @@
     "ios": {
       "infoPlist": {
         "NSCameraUsageDescription": "Allow EvalAI to use the camera — photos are linked to the correct job/item and stored privately.",
-        "NSMicrophoneUsageDescription": "Allow EvalAI to use the microphone — voice notes are stored privately and transcribed only when you request it.",
+        "NSMicrophoneUsageDescription": "Allow EvalAI to use the microphone — voice notes and live-session narration are stored privately and transcribed only when you ask or turn narration on.",
         "NSPhotoLibraryUsageDescription": "Allow EvalAI to pick photos from your library for evidence."
       }
     },

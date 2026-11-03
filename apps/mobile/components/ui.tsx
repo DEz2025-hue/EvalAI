@@ -1,12 +1,16 @@
-import { forwardRef, useState, type ComponentProps, type ComponentRef, type ReactNode } from "react";
+import { forwardRef, useCallback, useEffect, useRef, useState, type ComponentProps, type ComponentRef, type ReactNode } from "react";
 import {
   ActivityIndicator,
+  Animated,
+  Easing,
   Modal,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
   Text as RNText,
   TextInput,
+  useWindowDimensions,
   View,
   type StyleProp,
   type TextInputProps,
@@ -429,15 +433,48 @@ export const ListRow = forwardRef<ComponentRef<typeof View>, {
 
 export type SelectOption = { value: string; label: string; description?: string; icon?: IconName };
 
+/**
+ * Drives a bottom sheet: the dim backdrop fades while the sheet slides up on its own, instead of the whole screen sliding
+ * (which is what the Modal's built-in "slide" does and what looked wrong). `progress` is 0 closed, 1 open. `mounted` keeps the
+ * Modal on screen while the closing animation plays.
+ */
+function useBottomSheet() {
+  const [mounted, setMounted] = useState(false);
+  const progress = useRef(new Animated.Value(0)).current;
+  const native = Platform.OS !== "web";
+  const running = useRef<Animated.CompositeAnimation | null>(null);
+
+  const open = useCallback(() => {
+    running.current?.stop();
+    setMounted(true);
+    running.current = Animated.timing(progress, { toValue: 1, duration: 260, easing: Easing.out(Easing.cubic), useNativeDriver: native });
+    running.current.start();
+  }, [progress, native]);
+
+  const close = useCallback(() => {
+    running.current?.stop();
+    running.current = Animated.timing(progress, { toValue: 0, duration: 190, easing: Easing.in(Easing.cubic), useNativeDriver: native });
+    running.current.start(({ finished }) => {
+      if (finished) setMounted(false);
+    });
+  }, [progress, native]);
+
+  useEffect(() => () => running.current?.stop(), []);
+  return { mounted, progress, open, close };
+}
+
 /** Field-styled dropdown that opens a bottom sheet of options. Used where the list can grow (e.g. systems). */
 export function Select({ label, title, value, options, onChange, placeholder = "Choose…" }: { label?: string; title?: string; value: string; options: SelectOption[]; onChange: (value: string) => void; placeholder?: string }) {
-  const [open, setOpen] = useState(false);
+  const sheet = useBottomSheet();
+  const { height: windowHeight } = useWindowDimensions();
   const current = options.find((o) => o.value === value);
+  const slide = sheet.progress.interpolate({ inputRange: [0, 1], outputRange: [windowHeight * 0.7, 0] });
+  const chevron = sheet.progress.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "180deg"] });
   return (
     <View style={{ gap: 6 }}>
       {label ? <Text variant="label" color={colors.text}>{label}</Text> : null}
       <Pressable
-        onPress={() => setOpen(true)}
+        onPress={sheet.open}
         accessibilityRole="button"
         accessibilityLabel={label ? `${label}: ${current?.label ?? placeholder}` : current?.label ?? placeholder}
         style={({ pressed }) => ({
@@ -454,18 +491,22 @@ export function Select({ label, title, value, options, onChange, placeholder = "
       >
         {current?.icon ? <Icon name={current.icon} size={18} color={colors.accentText} /> : null}
         <Text variant="body" color={current ? colors.text : colors.textSubtle} style={{ flex: 1, fontSize: 15 }} numberOfLines={1}>{current?.label ?? placeholder}</Text>
-        <Icon name="chevron-down" size={18} color={colors.textMuted} />
+        <Animated.View style={{ transform: [{ rotate: chevron }] }}>
+          <Icon name="chevron-down" size={18} color={colors.textMuted} />
+        </Animated.View>
       </Pressable>
 
-      <Modal visible={open} transparent animationType="slide" onRequestClose={() => setOpen(false)}>
-        <Pressable onPress={() => setOpen(false)} style={{ flex: 1, backgroundColor: "rgba(15,23,42,0.45)", justifyContent: "flex-end" }} accessibilityLabel="Close">
-          <Pressable onPress={() => {}} style={{ backgroundColor: colors.surface, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, paddingBottom: space.xl, maxHeight: "70%" }}>
+      <Modal visible={sheet.mounted} transparent animationType="none" statusBarTranslucent onRequestClose={sheet.close}>
+        <View style={{ flex: 1, justifyContent: "flex-end" }}>
+          <Animated.View pointerEvents="none" style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, backgroundColor: "rgba(15,23,42,0.45)", opacity: sheet.progress }} />
+          <Pressable onPress={sheet.close} style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0 }} accessibilityLabel="Close" />
+          <Animated.View style={{ backgroundColor: colors.surface, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, paddingBottom: space.xl, maxHeight: "70%", transform: [{ translateY: slide }] }}>
             <View style={{ alignItems: "center", paddingTop: space.sm }}>
               <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: colors.borderStrong }} />
             </View>
             <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: space.lg, paddingVertical: space.md }}>
               <Text variant="heading" style={{ flex: 1 }}>{title ?? label ?? "Choose"}</Text>
-              <IconButton icon="close" label="Close" onPress={() => setOpen(false)} />
+              <IconButton icon="close" label="Close" onPress={sheet.close} />
             </View>
             <ScrollView>
               {options.map((o, i) => {
@@ -473,7 +514,7 @@ export function Select({ label, title, value, options, onChange, placeholder = "
                 return (
                   <Pressable
                     key={o.value}
-                    onPress={() => { onChange(o.value); setOpen(false); }}
+                    onPress={() => { onChange(o.value); sheet.close(); }}
                     accessibilityRole="radio"
                     accessibilityState={{ checked: selected }}
                     style={({ pressed }) => ({
@@ -501,8 +542,8 @@ export function Select({ label, title, value, options, onChange, placeholder = "
                 );
               })}
             </ScrollView>
-          </Pressable>
-        </Pressable>
+          </Animated.View>
+        </View>
       </Modal>
     </View>
   );

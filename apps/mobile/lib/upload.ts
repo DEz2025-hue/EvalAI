@@ -1,5 +1,6 @@
 import { apiFetch } from "./api";
 import { getSupabase } from "./supabase";
+import { readLocalFile } from "./localFile";
 
 export type UploadResult = { id: string; storageKey: string; itemId: string | null; sizeBytes: number; mimeType: string };
 
@@ -16,7 +17,8 @@ export function normalizeMime(mime: string): string {
  */
 export async function uploadEvidence(opts: Opts): Promise<UploadResult> {
   const mimeType = normalizeMime(opts.mimeType);
-  const bytes = await (await fetch(opts.uri)).arrayBuffer();
+  const bytes = await readLocalFile(opts.uri);
+  if (bytes.byteLength === 0) throw new Error("The file couldn't be read from this phone (0 bytes). Try again.");
 
   const prep = await apiFetch("/api/evidence/upload-url", {
     method: "POST",
