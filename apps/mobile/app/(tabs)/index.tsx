@@ -27,18 +27,18 @@ function QuickAction({ icon, title, subtitle, onPress, primary }: { icon: IconNa
         padding: space.md,
         gap: space.sm,
         borderRadius: radius.md,
-        backgroundColor: primary ? colors.accent : colors.surface,
+        backgroundColor: primary ? colors.brand : colors.surface,
         borderWidth: 1,
-        borderColor: primary ? colors.accent : colors.border,
+        borderColor: primary ? colors.brand : colors.border,
         opacity: pressed ? 0.85 : 1,
       })}
     >
-      <View style={{ width: 36, height: 36, borderRadius: radius.sm, backgroundColor: primary ? "rgba(255,255,255,0.2)" : colors.surfaceMuted, alignItems: "center", justifyContent: "center" }}>
-        <Icon name={icon} size={20} color={primary ? colors.textOnDark : colors.text} />
+      <View style={{ width: 36, height: 36, borderRadius: radius.sm, backgroundColor: primary ? colors.onBrandWash : colors.surfaceMuted, alignItems: "center", justifyContent: "center" }}>
+        <Icon name={icon} size={20} color={primary ? colors.onBrand : colors.text} />
       </View>
       <View style={{ gap: 2 }}>
-        <Text variant="bodyStrong" color={primary ? colors.textOnDark : colors.text}>{title}</Text>
-        <Text variant="caption" color={primary ? colors.accentSoft : colors.textMuted}>{subtitle}</Text>
+        <Text variant="bodyStrong" color={primary ? colors.onBrand : colors.text}>{title}</Text>
+        <Text variant="caption" color={primary ? colors.onBrandMuted : colors.textMuted}>{subtitle}</Text>
       </View>
     </Pressable>
   );
@@ -114,8 +114,8 @@ export default function HomeScreen() {
 
   return (
     <Screen onRefresh={onRefresh} refreshing={refreshing}>
-      <View style={{ backgroundColor: colors.brand, borderRadius: radius.lg, padding: space.lg, gap: space.xs }}>
-        <Text variant="overline" color={colors.textSubtle}>{workspaceName ?? "Workspace"}</Text>
+      <View style={{ backgroundColor: colors.heroBg, borderRadius: radius.lg, padding: space.lg, gap: space.xs }}>
+        <Text variant="overline" color={colors.heroMuted}>{workspaceName ?? "Workspace"}</Text>
         <Text variant="display" color={colors.textOnDark}>
           {greeting}
           {userLabel ? `, ${userLabel}` : ""}

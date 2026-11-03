@@ -1,11 +1,13 @@
 import "react-native-url-polyfill/auto";
-import { useEffect } from "react";
-import { ActivityIndicator, View } from "react-native";
+import { Fragment, useEffect, type ReactNode } from "react";
+import { useColorScheme, View } from "react-native";
 import { Stack, useRouter, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { SessionProvider, useSession } from "../lib/session";
-import { colors } from "../lib/theme";
+import type { SchemeName } from "@eval-ai/shared";
+import { applyScheme, colors, radius, space } from "../lib/theme";
+import { Skeleton, SkeletonGroup, SkeletonList, SkeletonStats } from "../components/skeleton";
 
 // Expo inlines EXPO_PUBLIC_* only when the dev server starts — say so loudly instead of failing quietly later.
 if (__DEV__) {
@@ -36,8 +38,12 @@ function AuthGate() {
 
   if (loading) {
     return (
-      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.bg }}>
-        <ActivityIndicator color={colors.accent} />
+      <View style={{ flex: 1, backgroundColor: colors.bg, padding: space.lg, paddingTop: space.xxl * 2 }}>
+        <SkeletonGroup label="Loading" style={{ gap: space.md }}>
+          <Skeleton height={96} rounded={radius.lg} />
+          <SkeletonStats count={2} />
+          <SkeletonList rows={3} />
+        </SkeletonGroup>
       </View>
     );
   }
@@ -53,12 +59,26 @@ function AuthGate() {
   );
 }
 
+/**
+ * Follows the device's light or dark setting. The colour objects in lib/theme are rewritten in place for the new scheme, and the
+ * screens below are remounted (the key) so they are drawn again with the new colours. A theme switch is rare, so losing a screen's
+ * transient state at that moment is accepted.
+ */
+function ThemeRoot({ children }: { children: ReactNode }) {
+  const system = useColorScheme();
+  const scheme: SchemeName = system === "dark" ? "dark" : "light";
+  applyScheme(scheme);
+  return <Fragment key={scheme}>{children}</Fragment>;
+}
+
 export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <SessionProvider>
-        <StatusBar style="auto" />
-        <AuthGate />
+        <ThemeRoot>
+          <StatusBar style="auto" />
+          <AuthGate />
+        </ThemeRoot>
       </SessionProvider>
     </SafeAreaProvider>
   );

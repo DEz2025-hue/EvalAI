@@ -186,6 +186,24 @@ On a phone (to be run by a person):
 | W7 | Prepare my report from the summary opens the report preparation | not run |
 | W8 | Holding the phone: is the Now card readable and are the buttons easy to hit with a glove or one hand? Note what to change | not run |
 
+### Look and feel: monochrome, Liquid Glass, skeletons (D-033)
+
+Automated (2026-11-03): theme.test.ts (the three brand colours, a monochrome grey scale, WCAG AA contrast for text on the page, the surface, subtle fills and glass in light and dark, status colours, the phone's named colours), theme-parity.test.ts (the web CSS variables equal the shared tokens; glass classes have solid fallbacks; the skeleton stops animating under reduced motion).
+
+Checked in a browser on 2026-11-03: the web app and the phone's web build in light and dark (Charcoal page, glass cards, pill buttons, status chip readable; the phone's dark mode switches live).
+
+Not run (needs a person with the devices):
+
+| # | Check | Result |
+|---|---|---|
+| L1 | iPhone on iOS 26 or later, after a rebuild: the tab bar and header use Apple's glass; text on them is readable | not run |
+| L2 | iPhone on an older iOS: a frosted blur is used instead | not run |
+| L3 | Android: surfaces are near-opaque and readable; no slowdown scrolling a long checklist | not run |
+| L4 | Settings > Accessibility > Reduce Transparency on: glass becomes solid everywhere | not run |
+| L5 | Switch the phone between light and dark: every screen redraws with the right colours (the screen resets) | not run |
+| L6 | Slow network: each list and detail screen shows skeletons in the right shape, then the content, without jumping | not run |
+| L7 | Screen reader: a loading screen is announced once as "Loading" | not run |
+
 ### Office report style (D-031): test record
 
 Automated (2026-11-02): reportTemplate.test.ts (a report with no template has the same content as captured before the feature, for four sample reports; normalising; bad colour, logo and section rejected; reorder, hide, rename, escape; office name, logo, colour, header and footer text; older layout; interview section can be moved or hidden; review status, sign-off and notice survive hiding every section; header text cannot inject markup; the preview key changes with the style), pdf-template.test.ts (order, hide, rename, office name, header and footer text, accent colour only when set, PNG logo, unreadable logo not fatal, status and notice always printed), report-template-store.test.ts (saved clean and complete, reset, a draft gets a copy, later changes do not alter it until re-applied, re-apply with no style removes it, a finalized report keeps its style and refuses restyling, restyling a draft does not make sign-off think the facts changed), report-template-route.test.ts (everyone reads, only owner or admin changes or resets, bad colour or logo or oversize or malformed body refused, re-apply refused for a finalized report). The existing reportLayout, reportContent, pdf and report-review tests still pass unchanged.

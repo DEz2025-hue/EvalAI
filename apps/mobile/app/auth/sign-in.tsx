@@ -38,8 +38,8 @@ export default function SignIn() {
   return (
     <KeyboardScroll style={{ flex: 1, backgroundColor: colors.bg }} contentContainerStyle={{ flexGrow: 1, padding: space.lg, justifyContent: "center", gap: space.xl }}>
         <View style={{ alignItems: "center", gap: space.sm }}>
-          <View style={{ width: 56, height: 56, borderRadius: radius.lg, backgroundColor: colors.brand, alignItems: "center", justifyContent: "center" }}>
-            <Icon name="shield-checkmark" size={28} color={colors.accent} />
+          <View style={{ width: 56, height: 56, borderRadius: radius.lg, backgroundColor: colors.heroBg, alignItems: "center", justifyContent: "center" }}>
+            <Icon name="shield-checkmark" size={28} color={colors.heroAccent} />
           </View>
           <Text variant="display">EvalAI</Text>
           <Text variant="caption">Site assessments and inspections</Text>

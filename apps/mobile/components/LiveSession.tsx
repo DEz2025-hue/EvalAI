@@ -559,7 +559,7 @@ export function LiveSession({
               {jumpOpen ? <ItemChips label="Go to item" items={items} value={itemId} onChange={(id) => goTo(items.findIndex((i) => i.id === id))} allowNone={false} /> : null}
             </Card>
           ) : null}
-          <View style={{ height: 340, borderRadius: radius.md, overflow: "hidden", backgroundColor: colors.brand }}>
+          <View style={{ height: 340, borderRadius: radius.md, overflow: "hidden", backgroundColor: colors.heroBg }}>
             {handle.preview}
             <View style={{ position: "absolute", top: space.sm, left: space.sm, flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "rgba(15,23,42,0.78)", paddingHorizontal: space.sm, paddingVertical: 4, borderRadius: radius.pill }}>
               <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: colors.danger }} />

@@ -73,7 +73,7 @@ export default function ProfileScreen() {
     <Screen>
       <Card>
         <View style={{ flexDirection: "row", alignItems: "center", gap: space.md }}>
-          <View style={{ width: 52, height: 52, borderRadius: 26, backgroundColor: colors.brand, alignItems: "center", justifyContent: "center" }}>
+          <View style={{ width: 52, height: 52, borderRadius: 26, backgroundColor: colors.heroBg, alignItems: "center", justifyContent: "center" }}>
             <Text variant="title" color={colors.textOnDark}>{initials(name || email || "")}</Text>
           </View>
           <View style={{ flex: 1, gap: 2 }}>

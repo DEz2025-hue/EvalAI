@@ -1,4 +1,4 @@
-import { forwardRef, useCallback, useEffect, useRef, useState, type ComponentProps, type ComponentRef, type ReactNode } from "react";
+import { createContext, forwardRef, useCallback, useContext, useEffect, useRef, useState, type ComponentProps, type ComponentRef, type ReactNode } from "react";
 import {
   ActivityIndicator,
   Animated,
@@ -8,6 +8,7 @@ import {
   Pressable,
   RefreshControl,
   ScrollView,
+  StyleSheet,
   Text as RNText,
   TextInput,
   useWindowDimensions,
@@ -20,6 +21,8 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { colors, radius, space, statusTone, tones, typography, type Tone } from "../lib/theme";
 import { KeyboardScroll, useKeyboardReveal } from "./keyboard";
+import { GlassSurface } from "./glass";
+import { SkeletonCard, SkeletonGroup, SkeletonList, SkeletonRow, SkeletonText } from "./skeleton";
 
 export type IconName = ComponentProps<typeof Ionicons>["name"];
 
@@ -37,12 +40,16 @@ export function Text({ variant = "body", color, style, ...rest }: ComponentProps
 
 /* ---------- Layout ---------- */
 
+/** How much room the floating tab bar takes at the bottom of a screen (0 outside the tabs). Set by the tab layout. */
+export const TabBarInsetContext = createContext(0);
+
 /** Scrollable screen body with standard padding and optional pull-to-refresh. Keeps the focused field above the keyboard. */
 export function Screen({ children, onRefresh, refreshing = false, contentStyle }: { children: ReactNode; onRefresh?: () => void; refreshing?: boolean; contentStyle?: StyleProp<ViewStyle> }) {
+  const tabInset = useContext(TabBarInsetContext);
   return (
     <KeyboardScroll
       style={{ flex: 1, backgroundColor: colors.bg }}
-      contentContainerStyle={[{ padding: space.lg, gap: space.md, paddingBottom: space.xxl }, contentStyle]}
+      contentContainerStyle={[{ padding: space.lg, gap: space.md, paddingBottom: space.xxl + tabInset }, contentStyle]}
       refreshControl={onRefresh ? <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} /> : undefined}
     >
       {children}
@@ -50,7 +57,15 @@ export function Screen({ children, onRefresh, refreshing = false, contentStyle }
   );
 }
 
-export function Card({ children, style, padded = true }: { children: ReactNode; style?: StyleProp<ViewStyle>; padded?: boolean }) {
+/** A content card. Solid by default (long lists stay readable and cheap to draw); pass `glass` for a Liquid Glass card. */
+export function Card({ children, style, padded = true, glass = false }: { children: ReactNode; style?: StyleProp<ViewStyle>; padded?: boolean; glass?: boolean }) {
+  if (glass) {
+    return (
+      <GlassSurface cornerRadius={radius.md} elevated style={[padded ? { padding: space.lg, gap: space.md } : null, style]}>
+        {children}
+      </GlassSurface>
+    );
+  }
   return (
     <View
       style={[
@@ -80,13 +95,20 @@ export function SectionHeader({ title, subtitle, action }: { title: string; subt
 
 type ButtonVariant = "primary" | "accent" | "secondary" | "ghost" | "danger";
 
-const buttonColors: Record<ButtonVariant, { bg: string; fg: string; border: string }> = {
-  primary: { bg: colors.brand, fg: colors.textOnDark, border: colors.brand },
-  accent: { bg: colors.accent, fg: colors.textOnDark, border: colors.accent },
-  secondary: { bg: colors.surface, fg: colors.text, border: colors.border },
-  ghost: { bg: "transparent", fg: colors.accent, border: "transparent" },
-  danger: { bg: colors.surface, fg: colors.danger, border: colors.dangerBorder },
-};
+function buttonColors(variant: ButtonVariant): { bg: string; fg: string; border: string } {
+  switch (variant) {
+    case "primary":
+      return { bg: colors.brand, fg: colors.onBrand, border: colors.brand };
+    case "accent":
+      return { bg: colors.accent, fg: colors.onBrand, border: colors.accent };
+    case "secondary":
+      return { bg: colors.surface, fg: colors.text, border: colors.border };
+    case "ghost":
+      return { bg: "transparent", fg: colors.text, border: "transparent" };
+    case "danger":
+      return { bg: colors.surface, fg: colors.danger, border: colors.dangerBorder };
+  }
+}
 
 export const Button = forwardRef<ComponentRef<typeof View>, {
   title: string;
@@ -99,7 +121,7 @@ export const Button = forwardRef<ComponentRef<typeof View>, {
   fullWidth?: boolean;
   style?: StyleProp<ViewStyle>;
 }>(function Button({ title, onPress, variant = "primary", size = "md", icon, loading, disabled, fullWidth, style }, ref) {
-  const c = buttonColors[variant];
+  const c = buttonColors(variant);
   const off = disabled || loading;
   const pad = size === "sm" ? { paddingVertical: 7, paddingHorizontal: 12 } : size === "lg" ? { paddingVertical: 14, paddingHorizontal: 18 } : { paddingVertical: 11, paddingHorizontal: 16 };
   const fontSize = size === "sm" ? 12 : 14;
@@ -116,7 +138,7 @@ export const Button = forwardRef<ComponentRef<typeof View>, {
           backgroundColor: off && variant !== "ghost" ? (variant === "secondary" || variant === "danger" ? colors.surfaceMuted : colors.disabled) : c.bg,
           borderWidth: 1,
           borderColor: off && variant !== "ghost" ? "transparent" : c.border,
-          borderRadius: radius.sm,
+          borderRadius: radius.pill,
           flexDirection: "row",
           alignItems: "center",
           justifyContent: "center",
@@ -127,7 +149,7 @@ export const Button = forwardRef<ComponentRef<typeof View>, {
         style,
       ]}
     >
-      {loading ? <ActivityIndicator size="small" color={variant === "secondary" || variant === "ghost" || variant === "danger" ? c.fg : colors.textOnDark} /> : icon ? <Icon name={icon} size={fontSize + 3} color={off ? colors.textMuted : c.fg} /> : null}
+      {loading ? <ActivityIndicator size="small" color={variant === "secondary" || variant === "ghost" || variant === "danger" ? c.fg : colors.onBrand} /> : icon ? <Icon name={icon} size={fontSize + 3} color={off ? colors.textMuted : c.fg} /> : null}
       <Text style={{ fontSize, fontWeight: "700", color: off && variant !== "primary" && variant !== "accent" ? colors.textMuted : c.fg }}>{title}</Text>
     </Pressable>
   );
@@ -201,7 +223,7 @@ export function Chip({ label, active, onPress, tone, icon }: { label: string; ac
   const t = tone ? tones[tone] : null;
   const bg = active ? (t ? t.bg : colors.brand) : colors.surface;
   const border = active ? (t ? t.fg : colors.brand) : colors.border;
-  const fg = active ? (t ? t.fg : colors.textOnDark) : colors.textMuted;
+  const fg = active ? (t ? t.fg : colors.onBrand) : colors.textMuted;
   return (
     <Pressable
       onPress={onPress}
@@ -363,12 +385,16 @@ export function EmptyState({ icon = "file-tray-outline", title, message, action 
   );
 }
 
-export function Loading({ label }: { label?: string }) {
+/**
+ * The loading state of a screen or a section: placeholders in the shape of what is coming, not a spinner.
+ * `variant` picks the shape: "list" (rows, the default), "card" (a heading and text), "text" (a few lines) or "inline"
+ * (one row, for a small area). The label is read out by screen readers.
+ */
+export function Loading({ label, variant = "list", rows }: { label?: string; variant?: "list" | "card" | "text" | "inline"; rows?: number }) {
   return (
-    <View style={{ paddingVertical: space.xl, alignItems: "center", gap: space.sm }}>
-      <ActivityIndicator color={colors.accent} />
-      {label ? <Text variant="caption">{label}</Text> : null}
-    </View>
+    <SkeletonGroup label={label ?? "Loading"} style={{ paddingVertical: variant === "inline" ? space.sm : space.xs }}>
+      {variant === "list" ? <SkeletonList rows={rows ?? 4} /> : variant === "card" ? <SkeletonCard lines={rows ?? 3} /> : variant === "text" ? <SkeletonText lines={rows ?? 3} /> : <SkeletonRow last />}
+    </SkeletonGroup>
   );
 }
 
@@ -498,9 +524,10 @@ export function Select({ label, title, value, options, onChange, placeholder = "
 
       <Modal visible={sheet.mounted} transparent animationType="none" statusBarTranslucent onRequestClose={sheet.close}>
         <View style={{ flex: 1, justifyContent: "flex-end" }}>
-          <Animated.View pointerEvents="none" style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, backgroundColor: "rgba(15,23,42,0.45)", opacity: sheet.progress }} />
+          <Animated.View pointerEvents="none" style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, backgroundColor: "rgba(21,21,21,0.45)", opacity: sheet.progress }} />
           <Pressable onPress={sheet.close} style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0 }} accessibilityLabel="Close" />
-          <Animated.View style={{ backgroundColor: colors.surface, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, paddingBottom: space.xl, maxHeight: "70%", transform: [{ translateY: slide }] }}>
+          <Animated.View style={{ borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, overflow: "hidden", paddingBottom: space.xl, maxHeight: "70%", transform: [{ translateY: slide }] }}>
+            <GlassSurface edge="top" cornerRadius={0} style={StyleSheet.absoluteFill} />
             <View style={{ alignItems: "center", paddingTop: space.sm }}>
               <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: colors.borderStrong }} />
             </View>
@@ -523,7 +550,7 @@ export function Select({ label, title, value, options, onChange, placeholder = "
                       gap: space.md,
                       paddingHorizontal: space.lg,
                       paddingVertical: space.md,
-                      backgroundColor: selected ? colors.accentSoft : pressed ? colors.surfaceMuted : colors.surface,
+                      backgroundColor: selected ? colors.accentSoft : pressed ? colors.surfaceMuted : "transparent",
                       borderTopWidth: i === 0 ? 0 : 1,
                       borderTopColor: colors.divider,
                     })}

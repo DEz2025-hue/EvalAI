@@ -123,7 +123,7 @@ Do not expose administration options to unauthorized users. Route protection mus
 
 Each relevant screen must define:
 
-- **Loading:** skeleton or progress indicator, without flashing misleading empty-state content.
+- **Loading:** a skeleton in the shape of the content (D-033), without flashing misleading empty-state content. Web: `components/Skeleton.tsx` and a `loading.tsx` per route; phone: `components/skeleton.tsx` and `<Loading variant=…>`. Spinners are only for a button that is saving.
 - **Empty:** explain why there is no content and offer a relevant next action if permitted.
 - **Error:** concise message, safe retry action, and no secret/internal stack trace.
 - **Permission denied:** explain lack of access without leaking the existence or contents of restricted records.

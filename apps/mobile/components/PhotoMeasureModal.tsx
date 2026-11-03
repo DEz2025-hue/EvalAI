@@ -217,7 +217,7 @@ export function PhotoMeasureModal({ visible, title = "Measure from a photo", ass
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose} statusBarTranslucent>
       <View style={{ flex: 1, backgroundColor: colors.bg }}>
-        <View style={{ backgroundColor: colors.brand, paddingTop: Math.max(insets.top, space.lg), paddingBottom: space.md, paddingHorizontal: space.lg, flexDirection: "row", alignItems: "center", gap: space.sm }}>
+        <View style={{ backgroundColor: colors.heroBg, paddingTop: Math.max(insets.top, space.lg), paddingBottom: space.md, paddingHorizontal: space.lg, flexDirection: "row", alignItems: "center", gap: space.sm }}>
           <Text variant="heading" color={colors.textOnDark} style={{ flex: 1 }}>{title}</Text>
           <IconButton icon="close" label="Close" onPress={onClose} />
         </View>

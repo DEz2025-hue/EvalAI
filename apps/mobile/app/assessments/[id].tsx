@@ -148,10 +148,10 @@ export default function AssessmentDetail() {
     <Screen>
       <Stack.Screen options={{ title: capitalize(row.mode) }} />
 
-      <View style={{ backgroundColor: colors.brand, borderRadius: radius.lg, padding: space.lg, gap: space.sm }}>
+      <View style={{ backgroundColor: colors.heroBg, borderRadius: radius.lg, padding: space.lg, gap: space.sm }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
-          <Icon name={systemIcon(row.pack)} size={16} color={colors.accent} />
-          <Text variant="overline" color={colors.textSubtle} style={{ flex: 1 }}>System: {system} · {capitalize(row.mode)} · {scenarioLabel(scenario)}</Text>
+          <Icon name={systemIcon(row.pack)} size={16} color={colors.heroAccent} />
+          <Text variant="overline" color={colors.heroMuted} style={{ flex: 1 }}>System: {system} · {capitalize(row.mode)} · {scenarioLabel(scenario)}</Text>
           <View style={{ backgroundColor: tones[status.tone].bg, paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.pill }}>
             <Text style={{ fontSize: 11, fontWeight: "700", color: tones[status.tone].fg }}>{status.label}</Text>
           </View>
@@ -163,7 +163,7 @@ export default function AssessmentDetail() {
             <Text variant="caption" color={colors.textOnDarkMuted} style={{ flex: 1 }}>{row.sites.address}</Text>
           </View>
         ) : null}
-        <Text variant="caption" color={colors.textSubtle}>Updated {timeAgo(row.updated_at)}</Text>
+        <Text variant="caption" color={colors.heroMuted}>Updated {timeAgo(row.updated_at)}</Text>
       </View>
 
       {scenario === null ? (
