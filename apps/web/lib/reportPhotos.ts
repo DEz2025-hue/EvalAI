@@ -14,7 +14,8 @@ import type { ReportPhoto } from "@eval-ai/shared";
 
 /** Most photos one report carries (cost, time and report size). */
 export const REPORT_PHOTO_LIMIT = 12;
-export const AI_PHOTO_SIDE = 1024;
+// Large enough that a nameplate or breaker label photographed close up can still be read (D-035).
+export const AI_PHOTO_SIDE = 1600;
 export const REPORT_PHOTO_SIDE = 640;
 const SHRINK_TIMEOUT_MS = 20_000;
 const IMAGE_MIMES = new Set(["image/jpeg", "image/png", "image/webp"]);
@@ -119,6 +120,8 @@ export type SavedPhotoReview = {
   cannotTell: string[];
   itemId: string | null;
   at: string;
+  /** The PHOTO_REVIEW_VERSION that made this review. Missing on reviews made before versions existed (treated as 1). */
+  v?: number;
 };
 
 /** The person's answer per photo: true = add to the report, false = leave out. A photo with no answer is NOT in the report. */

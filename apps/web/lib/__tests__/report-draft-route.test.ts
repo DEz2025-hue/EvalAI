@@ -65,7 +65,8 @@ beforeEach(() => {
   draftReportSummary.mockResolvedValue({ summary: "New summary", openItems: "New open items", unverifiedFigures: [], requiresHumanReview: true });
   loadFacts.mockResolvedValue({
     assessment: { siteName: "Hillside School", mode: "assessment", pack: "solar", context: { photoReview: { "ev-1": {} }, photoChoices: { "ev-1": true, "ev-2": false } } },
-    scenario: "new_install",
+    // An existing system: a new solar installation gets the design proposal instead (D-036, tested in solar-proposal.test.ts).
+    scenario: "existing",
     items: [{ id: "item-1", title: "Roof", instructions: "Look at the roof surface." }],
     responses: [],
     evidenceIds: ["ev-1"],
@@ -89,7 +90,7 @@ describe("POST /api/ai/report-draft (analyze)", () => {
     expect(sent.checklist[2].measured).toEqual({ value: 48, unit: "V" });
     expect(sent.materials).toHaveLength(1);
     expect(sent.photos).toEqual([{ id: "ev-1", itemTitle: "Roof", caption: "A rusty edge", observations: ["Rust"], possibleIssues: ["May be structural"], cannotTell: ["Underside"] }]);
-    expect(sent.scenario).toBe("new_install");
+    expect(sent.scenario).toBe("existing");
   });
 
   it("returns the findings with ids, marked as AI drafts, plus the summary, overview, open items and what was left out", async () => {

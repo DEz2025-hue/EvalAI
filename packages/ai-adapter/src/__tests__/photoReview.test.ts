@@ -70,7 +70,8 @@ describe("photoReview", () => {
     expect(system).toMatch(/its apparent condition in plain words/);
     expect(system).toMatch(/label or text you can actually read, quoted exactly/);
     expect(system).toMatch(/Describe what you can see, not what you assume/);
-    expect(system).toMatch(/Never give dimensions, counts, ratings, ages or capacities as facts/);
+    // D-035: printed label values may be read; the model's own estimates of sizes and capacities are still banned.
+    expect(system).toMatch(/Never give dimensions, areas, angles, ages or capacities from your own estimate \(values printed on a label are allowed as readings\)/);
     expect(system).toMatch(/never say anything passes, fails or is compliant/);
     expect(system).toMatch(/never invent details that are not visible/);
   });
@@ -134,5 +135,32 @@ describe("the report summary sees the photo notes as unverified", () => {
     fetchMock.mockClear();
     await draftReportNarrative(job);
     expect(JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body)).messages.find((m: { role: string }) => m.role === "user").content).toContain('"photoNotes":[]');
+  });
+});
+
+describe("photoReview reads each photo for its item (D-035)", () => {
+  const withLookFor = { ...base, checklist: [{ id: I1, title: "Load details — appliances and ratings", status: "not_checked", lookFor: "List each appliance with its rating from the nameplate." }], siteBrief: { intake: "Two-bedroom house" } };
+  const sentBody = () => JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body)) as { messages: Array<{ role: string; content: string | Array<{ type: string; text?: string }> }> };
+
+  it("sends the item's look-for text, the site brief and the matching lens", async () => {
+    fetchMock.mockResolvedValue(reply([one(E1), one(E2)]));
+    await photoReview(withLookFor);
+    const body = sentBody();
+    const user = JSON.parse((body.messages.find((m) => m.role === "user")!.content as Array<{ text?: string }>)[0].text!);
+    expect(user.photos[0]).toMatchObject({ linkedItem: "Load details — appliances and ratings", itemLookFor: "List each appliance with its rating from the nameplate.", lookAt: ["loads", "solarGeneral"] });
+    expect(user.photos[1].lookAt).toEqual(["solarGeneral"]);
+    expect(user.siteBrief).toEqual({ intake: "Two-bedroom house" });
+    const system = String(body.messages.find((m) => m.role === "system")!.content);
+    expect(system).toMatch(/study the photo FOR THAT PURPOSE/);
+    expect(system).toMatch(/LOADS AND APPLIANCES/);
+    expect(system).not.toMatch(/CCTV COVERAGE/);
+  });
+
+  it("keeps label readings and suggestions, marked as such, with the observations", async () => {
+    fetchMock.mockResolvedValue(reply([one(E1, { readings: [{ label: "AC outdoor unit - cooling capacity", value: "18000 BTU/h" }, { label: "x", value: "" }], suggestions: ["Add this unit to the load list."] }), one(E2)]));
+    const out = await photoReview(withLookFor);
+    expect(out.photos[0].observations).toContain("Label reading - AC outdoor unit - cooling capacity: 18000 BTU/h");
+    expect(out.photos[0].observations).toContain("Suggestion, to confirm on site: Add this unit to the load list.");
+    expect(out.photos[0].observations.filter((o) => o.startsWith("Label reading"))).toHaveLength(1);
   });
 });

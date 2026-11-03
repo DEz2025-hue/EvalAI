@@ -10,6 +10,7 @@ export type Operation =
   | "siteIntake"
   | "photoReview"
   | "draftReport"
+  | "draftDesign"
   | "proposeMaterials"
   | "interview"
   | "transcribeAudio"
@@ -132,7 +133,8 @@ export function buildAdapterConfig(env: Env): AdapterConfig {
       clarifyContext: { model: pick(env.AI_MODEL_CLARIFY, spark), reasoningEffort: effort(env.AI_EFFORT_CLARIFY, "low"), maxCompletionTokens: num(env.AI_MAX_TOKENS_CLARIFY, 4000), timeoutMs: 45_000 },
       proposeChecklist: { model: pick(env.AI_MODEL_CHECKLIST, spark), reasoningEffort: effort(env.AI_EFFORT_CHECKLIST, "medium"), maxCompletionTokens: num(env.AI_MAX_TOKENS_CHECKLIST, 8000), timeoutMs: 55_000 },
       analyzeAssessment: { model: pick(env.AI_MODEL_ANALYZE, spark), reasoningEffort: effort(env.AI_EFFORT_ANALYZE, "high"), maxCompletionTokens: num(env.AI_MAX_TOKENS_ANALYZE, 16000), timeoutMs: 55_000 },
-      analyzeImage: { model: pick(env.AI_MODEL_IMAGE, spark), reasoningEffort: effort(env.AI_EFFORT_IMAGE, "low"), maxCompletionTokens: num(env.AI_MAX_TOKENS_IMAGE, 4000), timeoutMs: 45_000 },
+      // One photo studied for its checklist item (D-035): medium reasoning, room for readings, suggestions and a draft note.
+      analyzeImage: { model: pick(env.AI_MODEL_IMAGE, spark), reasoningEffort: effort(env.AI_EFFORT_IMAGE, "medium"), maxCompletionTokens: num(env.AI_MAX_TOKENS_IMAGE, 8000), timeoutMs: 55_000 },
       // Live session frames: one small still every few seconds, so keep it fast and cheap.
       liveFrame: { model: pick(env.AI_MODEL_LIVE, spark), reasoningEffort: effort(env.AI_EFFORT_LIVE, "low"), maxCompletionTokens: num(env.AI_MAX_TOKENS_LIVE, 2000), timeoutMs: 30_000 },
       // Site intake: one call at the start of a job from a description and a few photos.
@@ -141,6 +143,9 @@ export function buildAdapterConfig(env: Env): AdapterConfig {
       // Photo review for the report: a few photos per call.
       photoReview: { model: pick(env.AI_MODEL_PHOTOS, spark), reasoningEffort: effort(env.AI_EFFORT_PHOTOS, "low"), maxCompletionTokens: num(env.AI_MAX_TOKENS_PHOTOS, 7000), timeoutMs: 55_000 },
       draftReport: { model: pick(env.AI_MODEL_REPORT, spark), reasoningEffort: effort(env.AI_EFFORT_REPORT, "low"), maxCompletionTokens: num(env.AI_MAX_TOKENS_REPORT, 12000), timeoutMs: 58_000 },
+      // Design proposal for a new CCTV installation (D-034), in two calls (plan, then write-up), each inside one request's minute. One call at
+      // medium reasoning timed out on a real job, so low is the default; raise AI_EFFORT_DESIGN once the timings allow it.
+      draftDesign: { model: pick(env.AI_MODEL_DESIGN, spark), reasoningEffort: effort(env.AI_EFFORT_DESIGN, "low"), maxCompletionTokens: num(env.AI_MAX_TOKENS_DESIGN, 12000), timeoutMs: 55_000 },
       // Materials: one call that reads the whole record. Low reasoning keeps the answer inside the token budget; quantities are computed by code afterwards.
       proposeMaterials: { model: pick(env.AI_MODEL_MATERIALS, spark), reasoningEffort: effort(env.AI_EFFORT_MATERIALS, "low"), maxCompletionTokens: num(env.AI_MAX_TOKENS_MATERIALS, 10000), timeoutMs: 58_000 },
       // Site interview: one short question per call (fast), or one digest of the whole conversation at the end.

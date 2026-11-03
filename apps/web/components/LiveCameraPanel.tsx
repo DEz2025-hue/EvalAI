@@ -1,8 +1,9 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { photoAnalysisText, type PhotoAnalysis } from "@eval-ai/shared";
 import { uploadEvidence } from "../lib/clientUpload";
 
-type Analysis = { summary: string; observations?: string[]; limitations?: string[]; uncertainty?: string; fallback?: boolean };
+type Analysis = PhotoAnalysis & { fallback?: boolean };
 
 /**
  * Honest gated live camera.
@@ -76,7 +77,7 @@ export function LiveCameraPanel({ assessmentId, itemId }: { assessmentId: string
       const res = await fetch("/api/ai/analyze-image", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageBase64: b64, mimeType: "image/jpeg", assessmentId, prompt: "Describe visible conditions relevant to this inspection. Never invent measurements or hidden conditions." }),
+        body: JSON.stringify({ imageBase64: b64, mimeType: "image/jpeg", assessmentId, itemId, prompt: "A live camera frame: say what matters for this item and job right now." }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error((data as { error?: string }).error ?? "Frame analysis failed");
@@ -140,9 +141,7 @@ export function LiveCameraPanel({ assessmentId, itemId }: { assessmentId: string
       {analysis ? (
         <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs">
           <div className="font-semibold text-slate-900">Frame suggestion — requires human review{analysis.fallback ? " (fallback, provider unreachable)" : ""}</div>
-          <p className="mt-1 text-slate-700">{analysis.summary}</p>
-          {analysis.observations?.length ? <ul className="mt-1 list-disc pl-4 text-slate-600">{analysis.observations.map((o, i) => <li key={i}>{o}</li>)}</ul> : null}
-          <p className="mt-1 text-slate-500">Uncertainty: {analysis.uncertainty ?? "—"}. {analysis.limitations?.join(" ") ?? ""}</p>
+          <p className="mt-1 whitespace-pre-wrap text-slate-700">{photoAnalysisText(analysis)}</p>
         </div>
       ) : null}
     </div>

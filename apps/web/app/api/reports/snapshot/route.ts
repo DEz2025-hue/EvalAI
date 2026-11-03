@@ -96,6 +96,10 @@ const NarrativeBody = z
         recommendations: z.string().max(5000).optional(),
         openItems: z.string().max(5000).optional(),
         notes: z.string().max(5000).optional(),
+        // A design proposal (D-034); null removes it. Its content is checked field by field in the store (cleanDesign).
+        design: z.unknown().optional(),
+        // A solar design (D-036); null removes it. Checked field by field in the store (cleanSolarDesign).
+        solar: z.unknown().optional(),
       })
       .optional(),
     /** Evidence ids of photos to take out of this draft. */

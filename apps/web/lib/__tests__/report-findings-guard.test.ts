@@ -9,7 +9,7 @@ const read = (rel: string) => fs.readFileSync(path.join(root, rel), "utf8");
 describe("key findings in the report screens", () => {
   it("web and mobile both draft the findings when a draft is created and save them with the draft", () => {
     const web = read("apps/web/components/ReportView.tsx");
-    expect(web).toContain("narrative: { ...text, keyFindings }");
+    expect(web).toContain("narrative: { ...text, keyFindings, ...(design ? { design } : {}), ...(solar ? { solar } : {}) }");
     expect(web).toContain('stage: "summary"');
     expect(web).toContain("Rewrite summary from my findings");
     const mobile = read("apps/mobile/app/assessments/[id]/report.tsx");

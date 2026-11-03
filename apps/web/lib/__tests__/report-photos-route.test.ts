@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { AiAdapterError } from "@eval-ai/ai-adapter";
+import { AiAdapterError, PHOTO_REVIEW_VERSION } from "@eval-ai/ai-adapter";
 
 const photoReview = vi.fn();
 vi.mock("@eval-ai/ai-adapter", async (orig) => {
@@ -17,6 +17,8 @@ const updateContext = vi.fn();
 vi.mock("../store", () => ({
   listEvidenceLocal: (...a: unknown[]) => listEvidenceLocal(...a),
   updateAssessmentContextLocal: (...a: unknown[]) => updateContext(...a),
+  // The site facts sent with the photos (D-035).
+  buildSiteBrief: () => ({ address: "1 Test Road", intakeText: "Flat roof" }),
 }));
 const preparePhotos = vi.fn();
 vi.mock("../reportPhotos", async (orig) => {
@@ -58,15 +60,32 @@ describe("POST /api/ai/report-photos", () => {
     const sent = photoReview.mock.calls[0][0];
     expect(sent).toMatchObject({ mode: "assessment", pack: "solar", scenario: "existing", goal: "Check the array" });
     expect(sent.checklist).toEqual([{ id: "i1", title: "Inverter", status: "fail", notes: "Error shown" }]);
+    expect(sent.siteBrief).toMatchObject({ address: "1 Test Road", intake: "Flat roof" });
     expect(sent.photos).toHaveLength(2);
     const saved = updateContext.mock.calls[0][1].context.photoReview;
     expect(Object.keys(saved)).toEqual(["e1", "e2"]);
-    expect(saved.e1).toMatchObject({ caption: "Caption e1", itemId: "i1" });
+    expect(saved.e1).toMatchObject({ caption: "Caption e1", itemId: "i1", v: PHOTO_REVIEW_VERSION });
+  });
+
+  it("looks again at photos whose saved review was made the older way, and keeps current ones", async () => {
+    loadFacts.mockResolvedValue({
+      assessment: { mode: "assessment", pack: "solar", context: { photoReview: { e1: { ...result("e1"), itemId: null, at: "t" }, e2: { ...result("e2"), itemId: null, at: "t", v: PHOTO_REVIEW_VERSION } } } },
+      scenario: undefined,
+      items: [],
+      responses: [],
+      evidenceIds: [],
+    });
+    listEvidenceLocal.mockResolvedValue({ items: [ev("e1"), ev("e2")], persisted: true });
+    preparePhotos.mockResolvedValue(prepared(["e1"]));
+    photoReview.mockResolvedValue({ photos: [result("e1")], notAnalyzed: [], requiresHumanReview: true });
+    expect(await (await call({ assessmentId: "job-1" })).json()).toMatchObject({ analyzed: 1, cached: 1 });
+    expect(preparePhotos.mock.calls[0][1].map((e: { id: string }) => e.id)).toEqual(["e1"]);
+    expect(updateContext.mock.calls[0][1].context.photoReview.e1.v).toBe(PHOTO_REVIEW_VERSION);
   });
 
   it("does not pay twice for a photo that was already reviewed, unless forced", async () => {
     loadFacts.mockResolvedValue({
-      assessment: { mode: "assessment", pack: "solar", context: { photoReview: { e1: { ...result("e1"), itemId: null, at: "t" } } } },
+      assessment: { mode: "assessment", pack: "solar", context: { photoReview: { e1: { ...result("e1"), itemId: null, at: "t", v: PHOTO_REVIEW_VERSION } } } },
       scenario: undefined,
       items: [],
       responses: [],
@@ -85,7 +104,7 @@ describe("POST /api/ai/report-photos", () => {
   });
 
   it("with everything already reviewed it calls nothing", async () => {
-    loadFacts.mockResolvedValue({ assessment: { mode: "assessment", pack: "solar", context: { photoReview: { e1: { ...result("e1"), itemId: null, at: "t" } } } }, scenario: undefined, items: [], responses: [], evidenceIds: [] });
+    loadFacts.mockResolvedValue({ assessment: { mode: "assessment", pack: "solar", context: { photoReview: { e1: { ...result("e1"), itemId: null, at: "t", v: PHOTO_REVIEW_VERSION } } } }, scenario: undefined, items: [], responses: [], evidenceIds: [] });
     listEvidenceLocal.mockResolvedValue({ items: [ev("e1")], persisted: true });
     expect(await (await call({ assessmentId: "job-1" })).json()).toMatchObject({ analyzed: 0, cached: 1 });
     expect(photoReview).not.toHaveBeenCalled();

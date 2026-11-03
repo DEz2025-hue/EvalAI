@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Alert, Image, Pressable, View } from "react-native";
 import { Stack, useLocalSearchParams, useFocusEffect, useRouter } from "expo-router";
-import { NARRATIVE_SECTIONS, checklistGlance, downloadGate, glanceSentence, groupByCategory, keyFindingsFor, photoNumbers, recommendedActions, reportLayout, siteBriefLines, statusLabel, PRIORITY_LABEL, type ReportInput, type ReportKeyFinding, type ReportNarrative } from "@eval-ai/shared";
+import { NARRATIVE_SECTIONS, type NarrativeTextKey, checklistGlance, downloadGate, glanceSentence, groupByCategory, keyFindingsFor, photoNumbers, recommendedActions, reportLayout, siteBriefLines, statusLabel, PRIORITY_LABEL, type ReportInput, type ReportKeyFinding, type ReportNarrative } from "@eval-ai/shared";
 import { KeyFindingView, KeyFindingsEditorMobile } from "../../../components/KeyFindingsMobile";
+import { DesignViewMobile } from "../../../components/DesignViewMobile";
+import { SolarViewMobile } from "../../../components/SolarViewMobile";
 import { apiFetch, apiBase } from "../../../lib/api";
 import { useRole } from "../../../lib/role";
 import { downloadReportPdf } from "../../../lib/reportDownload";
@@ -201,9 +203,20 @@ export default function MobileReport() {
 
       setPreparing("summary");
       try {
-        const t = (await post("/api/ai/report-draft", { assessmentId: jobId, snapshotId: d.snapshot.id })) as ReportNarrative & { unverifiedFigures?: string[]; droppedFindings?: string[] };
-        // The key findings, summary, site overview and open items the AI drafted; extra recommendations and reviewer notes stay the person's own.
-        const text: ReportNarrative = { keyFindings: t.keyFindings ?? [] };
+        type Drafted = ReportNarrative & { unverifiedFigures?: string[]; droppedFindings?: string[]; continueWith?: "designWrite" };
+        let t = (await post("/api/ai/report-draft", { assessmentId: jobId, snapshotId: d.snapshot.id })) as Drafted;
+        // A design proposal comes in two steps (D-034): the camera plan, then the write-up around it. If the write-up fails, the plan is kept.
+        if (t.continueWith === "designWrite" && (t.design || t.solar)) {
+          const plan = t;
+          try {
+            t = (await post("/api/ai/report-draft", { assessmentId: jobId, snapshotId: d.snapshot.id, stage: "designWrite", ...(plan.design ? { design: plan.design } : { solar: plan.solar }) })) as Drafted;
+          } catch (e) {
+            notes.push("The design plan was drafted, but the summary, options, equipment and open items were not: " + (e instanceof Error ? e.message : String(e)) + " You can redraft them on the web report screen.");
+          }
+        }
+        // The key findings (or, for a new CCTV installation, the design proposal, D-034), summary, site overview and open items the AI
+        // drafted; extra recommendations and reviewer notes stay the person's own.
+        const text: ReportNarrative = { keyFindings: t.keyFindings ?? [], ...(t.design ? { design: t.design } : {}), ...(t.solar ? { solar: t.solar } : {}) };
         for (const k of ["summary", "siteOverview", "openItems"] as const) if (typeof t[k] === "string" && t[k]!.trim()) text[k] = t[k];
         await post("/api/reports/snapshot", { snapshotId: d.snapshot.id, narrative: text }, "PATCH");
         const figures = (t.unverifiedFigures ?? []).filter(Boolean);
@@ -270,7 +283,7 @@ export default function MobileReport() {
   });
 
   /** One labelled text box for a written section. */
-  const textField = (key: Exclude<keyof ReportNarrative, "keyFindings">) => {
+  const textField = (key: NarrativeTextKey) => {
     const s = NARRATIVE_SECTIONS.find((x) => x.key === key)!;
     return <Field key={key} label={s.label} multiline value={narrative[key] ?? ""} onChangeText={(t) => setNarrative((n) => ({ ...n, [key]: t }))} maxLength={s.max} />;
   };
@@ -377,7 +390,27 @@ export default function MobileReport() {
 
           {p.narrative?.summary ? <Text variant="body">{p.narrative.summary}</Text> : null}
 
-          {reportLayout(p) === "findings" ? (
+          {reportLayout(p) === "solar" && p.narrative?.solar ? (
+            <>
+              <ReportSection title="Site and scope">
+                {p.narrative.siteOverview ? <Text variant="caption" color={colors.text}>{p.narrative.siteOverview}</Text> : null}
+                {siteBriefLines(p.siteBrief, p.context?.goal ?? p.context?.scope).map((l) => <Bullet key={l.label}>{l.label}: {l.value}</Bullet>)}
+              </ReportSection>
+              <ReportSection title="Solar design and sizing">
+                <SolarViewMobile design={p.narrative.solar} />
+              </ReportSection>
+            </>
+          ) : reportLayout(p) === "design" && p.narrative?.design ? (
+            <>
+              <ReportSection title="Site and scope">
+                {p.narrative.siteOverview ? <Text variant="caption" color={colors.text}>{p.narrative.siteOverview}</Text> : null}
+                {siteBriefLines(p.siteBrief, p.context?.goal ?? p.context?.scope).map((l) => <Bullet key={l.label}>{l.label}: {l.value}</Bullet>)}
+              </ReportSection>
+              <ReportSection title="Design proposal">
+                <DesignViewMobile design={p.narrative.design} />
+              </ReportSection>
+            </>
+          ) : reportLayout(p) === "findings" ? (
             <>
               <Text variant="caption" color={colors.textMuted}>At a glance: {glanceSentence(checklistGlance(p.checklist))}</Text>
               <ReportSection title="Site and scope">
@@ -506,10 +539,14 @@ export default function MobileReport() {
           <SectionHeader title="Edit this draft" />
           {/* Summary and site first, then the findings the report is built around, then the extras. Older free-text sections only show when they hold text. */}
           {(["summary", "siteOverview"] as const).map((k) => textField(k))}
-          <KeyFindingsEditorMobile value={narrative.keyFindings ?? []} onChange={(keyFindings) => setNarrative((n) => ({ ...n, keyFindings }))} photoNumber={photoNumbers({ photos: selected?.payload?.photos })} />
+          {narrative.design || narrative.solar ? (
+            <Text variant="caption">This report is a design proposal. Edit the {narrative.solar ? "loads, sizing inputs" : "cameras, decisions"} and open items on the web report screen.</Text>
+          ) : (
+            <KeyFindingsEditorMobile value={narrative.keyFindings ?? []} onChange={(keyFindings) => setNarrative((n) => ({ ...n, keyFindings }))} photoNumber={photoNumbers({ photos: selected?.payload?.photos })} />
+          )}
           {(["recommendations", "openItems", "notes"] as const).map((k) => textField(k))}
           {NARRATIVE_SECTIONS.filter((s) => s.legacy && narrative[s.key]?.trim()).map((s) => textField(s.key))}
-          <Button title={busy === "summary" ? "Writing…" : "Rewrite summary from my findings"} icon="sparkles-outline" variant="secondary" onPress={rewriteSummary} loading={busy === "summary"} disabled={busy !== null} />
+          {narrative.design || narrative.solar ? null : <Button title={busy === "summary" ? "Writing…" : "Rewrite summary from my findings"} icon="sparkles-outline" variant="secondary" onPress={rewriteSummary} loading={busy === "summary"} disabled={busy !== null} />}
           <Button title={busy === "save" ? "Saving…" : "Save edits"} icon="save-outline" variant="secondary" onPress={saveNarrative} loading={busy === "save"} disabled={busy !== null} />
           <Button title={busy === "finalize" ? "Finalizing…" : "Sign off & finalize"} icon="shield-checkmark-outline" variant="primary" onPress={finalize} loading={busy === "finalize"} disabled={busy !== null} />
           <Text variant="caption">You can't finalize while the progress check shows anything that must be fixed, or if the job changed after this draft was created.</Text>

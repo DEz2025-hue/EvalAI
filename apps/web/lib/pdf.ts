@@ -1,5 +1,5 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
-import { DEFAULT_ACCENT, PRIORITY_LABEL, REPORT_DISCLAIMER, resolveTemplate, type SectionId, checklistGlance, glanceSentence, groupByCategory, keyFindingsFor, photoNumbers, recommendedActions, reportLayout, scenarioFor, scenarioLabel, siteBriefLines, statusLabel, type ReportChecklistRow, type ReportInput, type ReportPhoto, type ReportSnapshot } from "@eval-ai/shared";
+import { DORI_LABEL, SYSTEM_RANGES, cameraFix, cctvSizedEquipment, cctvSizing, CAMERA_TYPE_LABEL, DECISION_BASIS_LABEL, LOAD_SOURCE_LABEL, SIZING_RANGES, SYSTEM_TYPE_LABEL, designCounts, kilo, sizedEquipment, solarSizing, DEFAULT_ACCENT, PRIORITY_LABEL, REPORT_DISCLAIMER, resolveTemplate, type SectionId, checklistGlance, glanceSentence, groupByCategory, keyFindingsFor, photoNumbers, recommendedActions, reportLayout, scenarioFor, scenarioLabel, siteBriefLines, statusLabel, type ReportChecklistRow, type ReportInput, type ReportPhoto, type ReportSnapshot } from "@eval-ai/shared";
 
 // Deterministic PDF from a versioned snapshot — no AI regeneration at export.
 // Uses saved facts + snapshot versions only; later edits create new snapshots.
@@ -95,6 +95,39 @@ export async function buildReportPdf(snapshot: ReportSnapshot, input: ReportInpu
     draw(t, { bold: true, size: 11, ...(accent ? { color: accent } : {}) });
   };
 
+  /**
+   * A table with wrapped cells. `widths` are fractions of the page width. A row never splits across pages; the header row is drawn
+   * again at the top of each new page.
+   */
+  const table = (head: string[], rows: string[][], widths: number[], o: { size?: number; boldFirst?: boolean } = {}) => {
+    if (rows.length === 0) return;
+    const size = o.size ?? 8;
+    const pad = 3;
+    const lineH = size + 3;
+    const cols = widths.map((w) => w * maxWidth);
+    const drawRow = (cells: string[], isHead: boolean) => {
+      const fontOf = (i: number) => (isHead || (o.boldFirst && i === 0) ? bold : font);
+      const wrapped = cells.map((c, i) => wrap(clean(c), fontOf(i), size, cols[i] - pad * 2));
+      const h = Math.max(...wrapped.map((w) => w.length)) * lineH + pad * 2;
+      if (y - h < BOTTOM) {
+        newPage();
+        if (!isHead) drawRow(head, true);
+      }
+      if (isHead) page.drawRectangle({ x: MARGIN, y: y - h, width: maxWidth, height: h, color: rgb(0.97, 0.98, 0.99) });
+      let x = MARGIN;
+      wrapped.forEach((lines, i) => {
+        lines.forEach((line, j) => page.drawText(line, { x: x + pad, y: y - pad - size - j * lineH + 1, size, font: fontOf(i), color: isHead ? rgb(...MUTED) : rgb(0.06, 0.1, 0.16) }));
+        x += cols[i];
+      });
+      y -= h;
+      page.drawLine({ start: { x: MARGIN, y }, end: { x: MARGIN + maxWidth, y }, thickness: 0.5, color: rgb(0.89, 0.91, 0.94) });
+    };
+    y -= 2;
+    drawRow(head, true);
+    for (const r of rows) drawRow(r, false);
+    y -= 6;
+  };
+
   const situation = scenarioFor(input.mode, input.context?.scenario);
   if (tpl.logo) {
     const m = /^data:image\/(png|jpeg);base64,([A-Za-z0-9+/=]+)$/.exec(tpl.logo);
@@ -109,7 +142,8 @@ export async function buildReportPdf(snapshot: ReportSnapshot, input: ReportInpu
       }
     }
   }
-  draw(`${tpl.officeName ?? "EvalAI"} - ${input.mode} report - ${input.pack}${situation ? " - " + scenarioLabel(situation) : ""}`, { size: 8, color: MUTED });
+  const kind = reportLayout(input) === "solar" ? "Solar design and sizing proposal" : reportLayout(input) === "design" ? "CCTV system design proposal" : `${input.mode} report - ${input.pack}${situation ? " - " + scenarioLabel(situation) : ""}`;
+  draw(`${tpl.officeName ?? "EvalAI"} - ${kind}`, { size: 8, color: MUTED });
   draw(input.siteName, { size: 16, bold: true, ...(accent ? { color: accent } : {}) });
   draw(
     `Snapshot ${snapshot.id} - Assessment v${snapshot.assessmentVersion} - Checklist ${snapshot.checklistVersion}` +
@@ -124,6 +158,11 @@ export async function buildReportPdf(snapshot: ReportSnapshot, input: ReportInpu
   const checklist = input.checklist ?? [];
   const glance = checklistGlance(checklist);
   const layout = reportLayout(input);
+  const design = layout === "design" ? narrative.design ?? null : null;
+  // The CCTV system sizing (D-037), worked out in code from the camera plan and settings.
+  const cz = design ? cctvSizing(design) : null;
+  const solar = layout === "solar" ? narrative.solar ?? null : null;
+  const sized = solar ? solarSizing(solar) : null;
   const numbers = photoNumbers(input);
   const photos = input.photos ?? [];
   const measuredText = (r: ReportChecklistRow) => (r.measured && Number.isFinite(Number(r.measured.value)) ? `Measured: ${r.measured.value} ${r.measured.unit}` : "");
@@ -184,7 +223,22 @@ export async function buildReportPdf(snapshot: ReportSnapshot, input: ReportInpu
         heading(T("summary", "Executive summary"));
         draw(narrative.summary!, { size: 9 });
       }
-      if (layout === "findings") {
+      if (solar && sized) {
+        // Every size is worked out by code from the load schedule and inputs (D-036), never taken from the AI's prose.
+        draw(`The proposed system: ${SYSTEM_TYPE_LABEL[solar.inputs.systemType]}`, { size: 9, bold: true });
+        table(
+          ["Solar array", "Panels", "Inverter", "Battery", "Daily need", "Daily production"],
+          [[kilo(sized.arrayWp, "Wp"), `${sized.panelCount} x ${solar.inputs.panelWatts.value} W`, kilo(sized.inverterW, "W"), sized.batteryNominalWh > 0 ? kilo(sized.batteryNominalWh, "Wh") : "None", kilo(sized.dailyWh, "Wh"), kilo(sized.dailyProductionWh, "Wh")]],
+          [0.17, 0.17, 0.15, 0.15, 0.17, 0.19],
+        );
+        draw("Expected production is an average day at the assumed sun hours; cloudy days produce less.", { size: 7, color: MUTED });
+      } else if (design) {
+        // Counted from the camera schedule, never taken from the AI's prose (D-034).
+        const c = designCounts(design);
+        draw(`The proposed system: ${c.total} camera${c.total === 1 ? "" : "s"}`, { size: 9, bold: true });
+        table(["Area", "Cameras"], [...c.byArea.map((a) => [a.name, String(a.count)]), ["Total", String(c.total)]], [0.7, 0.3]);
+        table(["Camera type", "Quantity", "Where"], c.byType.map((t) => [t.label, String(t.count), t.where.join(", ")]), [0.3, 0.12, 0.58]);
+      } else if (layout === "findings") {
         draw(`At a glance: ${glanceSentence(glance)}`, { size: 7, color: MUTED });
       } else {
         heading("Report at a glance");
@@ -198,6 +252,94 @@ export async function buildReportPdf(snapshot: ReportSnapshot, input: ReportInpu
     siteScope: drawSite,
     interview: drawInterview,
     keyFindings: async () => {
+      if (solar && sized) {
+        heading("Design basis");
+        table(["Item", "Decision", "Basis"], solar.basis.map((b) => [b.item, b.decision, DECISION_BASIS_LABEL[b.basis]]), [0.26, 0.6, 0.14], { boldFirst: true });
+        draw(`System type: ${SYSTEM_TYPE_LABEL[solar.inputs.systemType]}`, { size: 9 });
+        heading("Load schedule");
+        draw("Power per unit and daily hours, with where each figure came from. Typical values and assumptions must be confirmed.", { size: 7, color: MUTED });
+        table(
+          ["Load", "Qty", "Watts each", "Hours/day", "Wh/day", "Source"],
+          [...solar.loads.map((l) => [l.name + (l.motor ? " (start-up surge)" : ""), String(l.quantity), String(l.watts), String(l.hoursPerDay), String(Math.round(l.quantity * l.watts * l.hoursPerDay)), LOAD_SOURCE_LABEL[l.source]]), ["Total", "", String(Math.round(sized.connectedW)), "", String(Math.round(sized.dailyWh)), ""]],
+          [0.34, 0.08, 0.13, 0.12, 0.13, 0.2],
+          { boldFirst: true },
+        );
+        draw("What drives the size: " + sized.loadShares.slice(0, 4).map((l) => `${l.name} ${Math.round(l.share * 100)}%`).join(", "), { size: 8 });
+        heading("Sizing");
+        draw("Worked out by the app from the load schedule and the inputs, not written by the AI.", { size: 7, color: MUTED });
+        table(["Input", "Value", "Basis", "Note"], (Object.keys(SIZING_RANGES) as Array<keyof typeof SIZING_RANGES>).map((k) => [SIZING_RANGES[k].label, `${solar.inputs[k].value}${SIZING_RANGES[k].unit ? " " + SIZING_RANGES[k].unit : ""}`, DECISION_BASIS_LABEL[solar.inputs[k].basis], solar.inputs[k].note]), [0.3, 0.14, 0.14, 0.42], { boldFirst: true });
+        table(["Step", "How it is worked out", "Result"], sized.steps.map((st) => [st.label, st.formula, `${st.value.toLocaleString("en-US")} ${st.unit}`]), [0.26, 0.54, 0.2], { boldFirst: true });
+        if (solar.placement.length) {
+          heading("Panel placement");
+          for (const p of solar.placement) draw(`- ${p}`, { size: 9 });
+        }
+        if (solar.options.length) {
+          heading("Options for the client");
+          table(["Topic", "Choice", "What it would change"], solar.options.map((o) => [o.area, o.gap, o.option]), [0.22, 0.4, 0.38]);
+        }
+        return;
+      }
+      if (design) {
+        heading("Design basis");
+        table(["Item", "Decision", "Basis"], design.basis.map((b) => [b.item, b.decision, DECISION_BASIS_LABEL[b.basis]]), [0.26, 0.6, 0.14], { boldFirst: true });
+        if (design.basis.some((b) => b.basis === "assumption")) draw("Decisions marked Assumption were proposed by the designer and must be confirmed with the client.", { size: 7, color: MUTED });
+        if (design.approach.length) {
+          draw("Design approach", { size: 9, bold: true });
+          for (const a of design.approach) draw(`- ${a}`, { size: 9, indent: 8 });
+        }
+        heading("Camera plans");
+        for (const a of design.areas) {
+          y -= 4;
+          draw(`${a.name} - ${a.cameras.length} camera${a.cameras.length === 1 ? "" : "s"}`, { size: 10, bold: true });
+          table(
+            ["ID", "Location", "Type", "Purpose", "Detail needed"],
+            a.cameras.map((c) => {
+              const k = cz?.cameras.find((x) => x.id === c.id);
+              return [c.id, c.location, CAMERA_TYPE_LABEL[c.type], c.purpose, k ? `${DORI_LABEL[k.detail]} at ${k.distanceM} m - ${k.meets ? "ok" : "SHORT"} (${Math.round(k.pxPerM)} px/m)` : ""];
+            }),
+            [0.08, 0.3, 0.16, 0.24, 0.22],
+            { boldFirst: true },
+          );
+          for (const n of a.notes) draw(`- ${n}`, { size: 8, indent: 8 });
+          if (a.uncovered.length) draw(`- No camera inside: ${a.uncovered.join("; ")}.`, { size: 8, indent: 8 });
+        }
+        if (cz) {
+          const s = cz.system;
+          heading("System design");
+          draw("Worked out by the app from the camera plan and the settings, not written by the AI. Detail levels follow the published DORI pixel densities; assumed figures must be confirmed.", { size: 7, color: MUTED });
+          table(
+            ["Bandwidth", "Storage", "Drives", "Recorder", "PoE", "UPS"],
+            [[`${Math.round(cz.bandwidthMbps * 10) / 10} Mbps`, `${Math.round(cz.storageWithHeadroomTb * 10) / 10} TB`, `${cz.drives} x ${s.driveTb.value} TB`, `${cz.recorderChannels} ch`, `${cz.poeTotalW} W`, `${cz.upsVa} VA`]],
+            [0.17, 0.17, 0.17, 0.15, 0.14, 0.2],
+          );
+          if (cz.failing.length) {
+            draw("Cameras short of the detail they need", { size: 9, bold: true });
+            table(["Camera", "What to change"], cz.failing.map((c) => [`${c.id} ${c.location}`, cameraFix(c)]), [0.34, 0.66]);
+          } else draw("Every camera gives the detail it needs at its distance, as planned.", { size: 9 });
+          table(
+            ["Setting", "Value", "Basis", "Note"],
+            [
+              ["Codec", s.codec === "h264" ? "H.264" : "H.265", "", ""],
+              ["Recording", s.recording === "motion" ? "On motion" : "Continuous", "", ""],
+              ...(Object.keys(SYSTEM_RANGES) as Array<keyof typeof SYSTEM_RANGES>)
+                .filter((k) => k !== "motionShare" || s.recording === "motion")
+                .map((k) => [SYSTEM_RANGES[k].label, `${s[k].value}${SYSTEM_RANGES[k].unit ? " " + SYSTEM_RANGES[k].unit : ""}`, DECISION_BASIS_LABEL[s[k].basis], s[k].note]),
+            ],
+            [0.32, 0.18, 0.14, 0.36],
+            { boldFirst: true },
+          );
+          table(["Step", "How it is worked out", "Result"], cz.steps.map((st) => [st.label, st.formula, `${st.value.toLocaleString("en-US")} ${st.unit}`]), [0.24, 0.58, 0.18], { boldFirst: true });
+          table(["Switch point", "Cameras", "PoE load", "Switch"], cz.switches.map((w) => [w.area, String(w.cameras), `${w.poeW} W`, `${w.ports}-port, at least ${w.budgetW} W${w.needsAt ? ", 802.3at ports" : ""}`]), [0.3, 0.12, 0.14, 0.44], { boldFirst: true });
+        }
+        if (design.options.length) {
+          const c = designCounts(design);
+          heading("Coverage review and optional additions");
+          draw("These areas have no direct camera in the plan above. They are listed so the client can decide whether to add any. None of them are in the camera count.", { size: 8, color: MUTED });
+          table(["Area", "Gap", "Option", "Extra cameras"], design.options.map((o) => [o.area, o.gap, o.option, o.extraCameras ? String(o.extraCameras) : "-"]), [0.2, 0.42, 0.26, 0.12]);
+          if (c.optionalExtra) draw(`Taking all of them would add ${c.optionalExtra} camera${c.optionalExtra === 1 ? "" : "s"}, for a total of ${c.total + c.optionalExtra}.`, { size: 9 });
+        }
+        return;
+      }
       if (layout === "findings") {
         heading(T("keyFindings", "Key findings"));
         if (findings.length === 0) draw("No findings, issues or items needing attention were recorded.", { size: 9, color: MUTED });
@@ -249,6 +391,44 @@ export async function buildReportPdf(snapshot: ReportSnapshot, input: ReportInpu
       }
     },
     actions: () => {
+      if (solar && sized) {
+        heading("Equipment summary");
+        draw("Quantities for planning. Prices are not included. The panels, inverter and battery follow from the sizing.", { size: 7, color: MUTED });
+        table(["Item", "Qty", "Specification"], [...sizedEquipment(solar, sized), ...solar.equipment].map((e) => [e.item, e.quantity || "-", e.specification]), [0.32, 0.16, 0.52], { boldFirst: true });
+        if (solar.installation.length) {
+          heading("Installation approach");
+          for (const st of solar.installation) draw(`- ${st}`, { size: 9 });
+        }
+        if (solar.nextSteps.length) {
+          heading("Next steps");
+          for (const st of solar.nextSteps) draw(`- ${st}`, { size: 9 });
+        }
+        if (has(narrative.recommendations)) {
+          heading("Additional recommendations");
+          draw(narrative.recommendations!, { size: 9 });
+        }
+        return;
+      }
+      if (design) {
+        heading("Equipment summary");
+        draw("Quantities for planning. Prices are not included. Camera quantities are counted from the camera schedule.", { size: 7, color: MUTED });
+        const cameras = designCounts(design).byType.map((t) => [t.label, String(t.count), "From the camera schedule"]);
+        const sized = cz ? cctvSizedEquipment(cz).map((e) => [e.item, e.quantity, e.specification + " (from the sizing)"]) : [];
+        table(["Item", "Qty", "Specification"], [...cameras, ...sized, ...design.equipment.map((e) => [e.item, e.quantity || "-", e.specification])], [0.32, 0.16, 0.52], { boldFirst: true });
+        if (design.installation.length) {
+          heading("Installation approach");
+          for (const s of design.installation) draw(`- ${s}`, { size: 9 });
+        }
+        if (design.nextSteps.length) {
+          heading("Next steps");
+          for (const s of design.nextSteps) draw(`- ${s}`, { size: 9 });
+        }
+        if (has(narrative.recommendations)) {
+          heading("Additional recommendations");
+          draw(narrative.recommendations!, { size: 9 });
+        }
+        return;
+      }
       if (layout === "findings") {
         const actions = recommendedActions(findings);
         if (actions.length > 0) {
@@ -279,6 +459,8 @@ export async function buildReportPdf(snapshot: ReportSnapshot, input: ReportInpu
       }
     },
     materials: () => {
+      // A design lists its equipment itself; the materials schedule only shows when materials were added to this draft.
+      if ((design || solar) && !input.materials?.length && !input.quotation) return;
       heading(T("materials", "Materials - traceable"));
       if (input.materials?.length) {
         for (const mat of input.materials) {
@@ -293,6 +475,15 @@ export async function buildReportPdf(snapshot: ReportSnapshot, input: ReportInpu
       if (input.quotation) draw(`Quotation: ${input.quotation.supplier} - ${input.quotation.total} ${input.quotation.currency} (from supplied quotation)`, { size: 9 });
     },
     openItems: () => {
+      const open = design?.openItems ?? solar?.openItems;
+      if (open) {
+        heading(T("openItems", "Assumptions and open items"));
+        table(["Assumption or open item", "Status"], open.map((o) => [o.item, o.status]), [0.74, 0.26]);
+        if (has(narrative.openItems)) draw(narrative.openItems!, { size: 9 });
+        if (input.limitations.length) draw("Limits noted for this job:", { size: 8, color: MUTED });
+        for (const l of input.limitations) draw(`- ${l}`, { size: 9 });
+        return;
+      }
       heading(T("openItems", "Open items, limitations & uncertainty"));
       if (has(narrative.openItems)) draw(narrative.openItems!, { size: 9 });
       if (input.limitations.length === 0) draw("None stated.", { size: 9, color: MUTED });

@@ -2,7 +2,7 @@ import fs from "fs";
 import { canonicalJson } from "./canonicalJson";
 import path from "path";
 import { buildReportPhotos, type PhotoChoices, type SavedPhotoReview } from "./reportPhotos";
-import { FINDING_PRIORITIES, KEY_FINDING_LIMITS, NARRATIVE_SECTIONS, PACK_TEMPLATES, checklistFor, lookForFor, templateItemMeta, type FindingPriority, type IntakeSummary, type ReportChecklistRow, type ReportKeyFinding, type ReportSiteBrief, type ReportPhoto, type Scenario, buildReportHtml, type ReportNarrative, computeCompleteness, calculateMeasurement, quotationTotalAmount, type CompletenessResult, type FormulaId, type MeasurementInput, type MeasurementSource, type ArCapture, type PhotoCapture, LENGTH_UNITS, type LengthUnit, isAcceptableArCapture, hasArInput, hasPhotoInput, verifyPhotoReading, QUANTITY_TBD, InterviewStateSchema, interviewStatements, normalizeTemplate, hasTemplate, type ReportTemplate } from "@eval-ai/shared";
+import { FINDING_PRIORITIES, KEY_FINDING_LIMITS, NARRATIVE_SECTIONS, PACK_TEMPLATES, checklistFor, lookForFor, templateItemMeta, type FindingPriority, type IntakeSummary, type ReportChecklistRow, type ReportKeyFinding, type ReportSiteBrief, type ReportPhoto, type Scenario, buildReportHtml, type ReportNarrative, computeCompleteness, calculateMeasurement, quotationTotalAmount, type CompletenessResult, type FormulaId, type MeasurementInput, type MeasurementSource, type ArCapture, type PhotoCapture, LENGTH_UNITS, type LengthUnit, isAcceptableArCapture, hasArInput, hasPhotoInput, verifyPhotoReading, QUANTITY_TBD, InterviewStateSchema, interviewStatements, normalizeTemplate, hasTemplate, type ReportTemplate, cleanDesign, cleanSolarDesign } from "@eval-ai/shared";
 import type { ReportSnapshot, ReportInput } from "@eval-ai/shared";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -1796,6 +1796,9 @@ function cleanNarrative(n: ReportNarrative): ReportNarrative {
     out[key] = v.trim();
   }
   if (n.keyFindings !== undefined) out.keyFindings = cleanFindingList(n.keyFindings);
+  // A design that comes back empty (or null) removes the saved one.
+  if (n.design !== undefined) out.design = cleanDesign(n.design) ?? undefined;
+  if (n.solar !== undefined) out.solar = cleanSolarDesign(n.solar) ?? undefined;
   return out;
 }
 

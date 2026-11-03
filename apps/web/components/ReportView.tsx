@@ -1,16 +1,18 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { NARRATIVE_SECTIONS, downloadGate, photoNumbers, previewKey, type ReportKeyFinding, type ReportNarrative } from "@eval-ai/shared";
+import { NARRATIVE_SECTIONS, type NarrativeTextKey, downloadGate, photoNumbers, previewKey, type DesignProposal, type ReportKeyFinding, type ReportNarrative, type SolarDesign } from "@eval-ai/shared";
 import { useRole } from "./useRole";
 import { KeyFindingsEditor } from "./KeyFindingsEditor";
+import { DesignEditor } from "./DesignEditor";
+import { SolarDesignEditor } from "./SolarDesignEditor";
 import { ReportPhotoSteps } from "./ReportPhotoSteps";
 import { CardLoading } from "./Skeleton";
 
 type Narrative = ReportNarrative;
 /** What the AI said about its own draft, shown under the editor until the next draft. */
 type DraftNotes = { missing: string[]; assumptions: string[]; figures: string[]; dropped: string[] };
-type DraftResponse = Narrative & { missingInformation?: string[]; assumptions?: string[]; unverifiedFigures?: string[]; droppedFindings?: string[]; error?: string };
+type DraftResponse = Narrative & { design?: DesignProposal; solar?: SolarDesign; continueWith?: "designWrite"; missingInformation?: string[]; assumptions?: string[]; unverifiedFigures?: string[]; droppedFindings?: string[]; error?: string };
 type Snapshot = {
   id: string;
   assessmentId: string;
@@ -27,7 +29,7 @@ type Snapshot = {
   reviewNote?: string | null;
 };
 
-const HINTS: Record<Exclude<keyof Narrative, "keyFindings">, string> = {
+const HINTS: Record<NarrativeTextKey, string> = {
   summary: "A short plain-language overview: what was assessed, the overall picture, the top priorities and the next step. It should not repeat the findings.",
   siteOverview: "Where the site is and what the job covers.",
   recommendations: "Anything you want to add to the recommended actions, which are built from the findings above. AI drafts are only suggestions — write what you stand behind.",
@@ -91,16 +93,39 @@ export function ReportView({ id, basePath }: { id: string; basePath: "/assessmen
   }, [selected?.id, selected?.payload?.narrative]);
 
   /** Ask the AI to write the report sections for this draft. Throws with the reason when it can't. */
-  async function fetchWriteUp(snapshotId: string): Promise<{ text: Narrative; keyFindings: ReportKeyFinding[]; notes: DraftNotes }> {
-    const res = await fetch("/api/ai/report-draft", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ assessmentId: id, snapshotId }) });
-    const data = (await res.json().catch(() => ({}))) as DraftResponse;
-    if (!res.ok) throw new Error(data.error ?? "AI suggestions are unavailable");
+  async function fetchWriteUp(snapshotId: string): Promise<{ text: Narrative; keyFindings: ReportKeyFinding[]; design?: DesignProposal; solar?: SolarDesign; notes: DraftNotes }> {
+    const post = async (body: Record<string, unknown>) => {
+      const res = await fetch("/api/ai/report-draft", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ assessmentId: id, snapshotId, ...body }) });
+      const data = (await res.json().catch(() => ({}))) as DraftResponse;
+      if (!res.ok) throw new Error(data.error ?? "AI suggestions are unavailable");
+      return data;
+    };
+    let data = await post({});
+    // A design proposal comes in two steps (D-034): the camera plan, then the write-up around it. If the write-up fails, the plan is kept.
+    let writeUpError = "";
+    if (data.continueWith === "designWrite" && (data.design || data.solar)) {
+      const plan = data;
+      try {
+        data = await post({ stage: "designWrite", ...(plan.design ? { design: plan.design } : { solar: plan.solar }) });
+      } catch (e) {
+        writeUpError = e instanceof Error ? e.message : String(e);
+      }
+    }
     const text: Narrative = {};
     for (const k of DRAFTED) if (typeof data[k] === "string" && data[k]!.trim()) text[k] = data[k]!;
     return {
       text,
       keyFindings: data.keyFindings ?? [],
-      notes: { missing: (data.missingInformation ?? []).filter(Boolean), assumptions: (data.assumptions ?? []).filter(Boolean), figures: (data.unverifiedFigures ?? []).filter(Boolean), dropped: (data.droppedFindings ?? []).filter(Boolean) },
+      // A new CCTV installation gets a design proposal instead of key findings (D-034).
+      design: data.design,
+      // A new solar installation gets a solar design and sizing proposal (D-036).
+      solar: data.solar,
+      notes: {
+        missing: [...(writeUpError ? [`The design plan was drafted, but the summary, options, equipment and open items were not (${writeUpError}). Press Rewrite with AI to try again, or write them yourself.`] : []), ...(data.missingInformation ?? []).filter(Boolean)],
+        assumptions: (data.assumptions ?? []).filter(Boolean),
+        figures: (data.unverifiedFigures ?? []).filter(Boolean),
+        dropped: (data.droppedFindings ?? []).filter(Boolean),
+      },
     };
   }
 
@@ -146,8 +171,8 @@ export function ReportView({ id, basePath }: { id: string; basePath: "/assessmen
       setBusy("write");
       let note = "";
       try {
-        const { text, keyFindings, notes } = await fetchWriteUp(snapshotId);
-        const save = await fetch("/api/reports/snapshot", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ snapshotId, narrative: { ...text, keyFindings } }) });
+        const { text, keyFindings, design, solar, notes } = await fetchWriteUp(snapshotId);
+        const save = await fetch("/api/reports/snapshot", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ snapshotId, narrative: { ...text, keyFindings, ...(design ? { design } : {}), ...(solar ? { solar } : {}) } }) });
         if (!save.ok) throw new Error(((await save.json().catch(() => ({}))) as { error?: string }).error ?? "Could not save the written sections");
         setDraftNotes(notes);
         note = "The written sections were drafted by AI from your saved facts. Read each one, correct it, then press Save edits.";
@@ -184,14 +209,14 @@ export function ReportView({ id, basePath }: { id: string; basePath: "/assessmen
 
   async function suggestWithAi() {
     if (!selected) return;
-    const hasText = DRAFTED.some((k) => narrative[k]?.trim()) || !!narrative.keyFindings?.length;
-    if (hasText && !confirm("Replace the summary, site overview, key findings and open items in the editor with a new AI draft? Your saved version is not changed until you press Save edits. Reviewer notes and additional recommendations are kept.")) return;
+    const hasText = DRAFTED.some((k) => narrative[k]?.trim()) || !!narrative.keyFindings?.length || !!narrative.design || !!narrative.solar;
+    if (hasText && !confirm("Replace the summary, site overview, key findings or design, and open items in the editor with a new AI draft? Your saved version is not changed until you press Save edits. Reviewer notes and additional recommendations are kept.")) return;
     setBusy("suggest");
     setError(null);
     setMsg(null);
     try {
-      const { text, keyFindings, notes } = await fetchWriteUp(selected.id);
-      setNarrative((n) => ({ ...n, ...Object.fromEntries(DRAFTED.map((k) => [k, text[k] ?? ""])), keyFindings }));
+      const { text, keyFindings, design, solar, notes } = await fetchWriteUp(selected.id);
+      setNarrative((n) => ({ ...n, ...Object.fromEntries(DRAFTED.map((k) => [k, text[k] ?? ""])), keyFindings, ...(design ? { design } : {}), ...(solar ? { solar } : {}) }));
       setDraftNotes(notes);
       setMsg("AI draft added to the editor. It is a suggestion built from your saved facts — read it, correct it, then press Save edits.");
     } catch (e) {
@@ -264,7 +289,7 @@ export function ReportView({ id, basePath }: { id: string; basePath: "/assessmen
   }
 
   /** One labelled text box for a written section. */
-  const sectionField = (key: Exclude<keyof Narrative, "keyFindings">) => {
+  const sectionField = (key: NarrativeTextKey) => {
     const sec = NARRATIVE_SECTIONS.find((s) => s.key === key)!;
     return (
       <label key={key} className="block text-sm">{sec.label}
@@ -327,7 +352,13 @@ export function ReportView({ id, basePath }: { id: string; basePath: "/assessmen
           <div className="text-sm font-semibold">Edit this draft</div>
           {/* Summary and site first, then the findings the report is built around, then the extras. Older free-text sections only show when they hold text. */}
           {(["summary", "siteOverview"] as const).map((k) => sectionField(k))}
-          <KeyFindingsEditor value={narrative.keyFindings ?? []} onChange={(keyFindings) => setNarrative((n) => ({ ...n, keyFindings }))} photoNumber={photoNumbers({ photos: selected?.payload?.photos as never })} />
+          {narrative.solar ? (
+            <SolarDesignEditor value={narrative.solar} onChange={(solar) => setNarrative((n) => ({ ...n, solar }))} />
+          ) : narrative.design ? (
+            <DesignEditor value={narrative.design} onChange={(design) => setNarrative((n) => ({ ...n, design }))} />
+          ) : (
+            <KeyFindingsEditor value={narrative.keyFindings ?? []} onChange={(keyFindings) => setNarrative((n) => ({ ...n, keyFindings }))} photoNumber={photoNumbers({ photos: selected?.payload?.photos as never })} />
+          )}
           {(["recommendations", "openItems", "notes"] as const).map((k) => sectionField(k))}
           {NARRATIVE_SECTIONS.filter((s) => s.legacy && narrative[s.key]?.trim()).map((s) => sectionField(s.key))}
           {draftNotes?.dropped.length ? <p className="text-xs text-slate-600"><strong>The AI wrote findings that were left out</strong> because they were incomplete or had no source in your record: {draftNotes.dropped.join("; ")}.</p> : null}
@@ -341,7 +372,7 @@ export function ReportView({ id, basePath }: { id: string; basePath: "/assessmen
           <div className="flex flex-wrap gap-2">
             <button onClick={saveNarrative} disabled={busy !== null} className="btn-secondary text-xs">{busy === "save" ? "Saving…" : "Save edits"}</button>
             <button onClick={suggestWithAi} disabled={busy !== null} className="btn-secondary text-xs">{busy === "suggest" ? "Asking AI…" : "Rewrite with AI"}</button>
-            <button onClick={rewriteSummary} disabled={busy !== null} className="btn-secondary text-xs">{busy === "summary" ? "Writing…" : "Rewrite summary from my findings"}</button>
+            {narrative.design || narrative.solar ? null : <button onClick={rewriteSummary} disabled={busy !== null} className="btn-secondary text-xs">{busy === "summary" ? "Writing…" : "Rewrite summary from my findings"}</button>}
             <button onClick={restyle} disabled={busy !== null} className="btn-secondary text-xs" title="Use the office's current report style (set in Settings)">{busy === "style" ? "Applying…" : "Re-apply office style"}</button>
           </div>
           <p className="text-xs text-slate-500">AI drafts are built from your saved facts and photos and are suggestions: nothing is saved until you save, &ldquo;what it means&rdquo; may use general technical knowledge, and you are responsible for the final text.</p>

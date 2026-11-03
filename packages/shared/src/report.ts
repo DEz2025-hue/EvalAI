@@ -1,4 +1,6 @@
 import type { ReportTemplate } from "./reportTemplate";
+import type { DesignProposal } from "./design";
+import type { SolarDesign } from "./solarDesign";
 
 export type ReportSnapshot = {
   id: string;
@@ -46,6 +48,13 @@ export type ReportNarrative = {
   openItems?: string;
   /** Reviewer notes. */
   notes?: string;
+  /**
+   * A design proposal (D-034): for a new CCTV installation the report is a design (cameras, decisions, options, equipment) instead of
+   * pass/fail findings. Drafted by the AI, edited and signed off by a person.
+   */
+  design?: DesignProposal;
+  /** A solar design and sizing proposal (D-036): the loads, the sizing assumptions and the system that follows. Drafted by the AI, sized by code. */
+  solar?: SolarDesign;
 };
 
 export const FINDING_PRIORITIES = ["high", "medium", "low", "info"] as const;
@@ -78,8 +87,11 @@ export type ReportKeyFinding = {
 /** Limits for key findings, shared by the AI parser, the save route and the editors. */
 export const KEY_FINDING_LIMITS = { max: 20, title: 160, observed: 1500, meaning: 1500, action: 800, basis: 12, ref: 200 } as const;
 
+/** The written (text) sections of a narrative: everything except the key findings and the design. */
+export type NarrativeTextKey = Exclude<keyof ReportNarrative, "keyFindings" | "design" | "solar">;
+
 /** Narrative text fields in the order they appear in a report, with their editor labels. `legacy` fields are only shown for older reports. */
-export const NARRATIVE_SECTIONS: Array<{ key: Exclude<keyof ReportNarrative, "keyFindings">; label: string; max: number; legacy?: boolean }> = [
+export const NARRATIVE_SECTIONS: Array<{ key: NarrativeTextKey; label: string; max: number; legacy?: boolean }> = [
   { key: "summary", label: "Executive summary", max: 5000 },
   { key: "siteOverview", label: "Site and scope", max: 5000 },
   { key: "recommendations", label: "Additional recommendations", max: 5000 },

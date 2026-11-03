@@ -3,6 +3,7 @@ import { View, Image, Alert } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { uploadEvidence } from "../lib/upload";
 import { readLocalFile, toBase64 } from "../lib/localFile";
+import { photoAnalysisText, type PhotoAnalysis } from "@eval-ai/shared";
 import { apiFetch, apiBase } from "../lib/api";
 import { colors, radius, space } from "../lib/theme";
 import { Badge, Banner, Button, Card, IconButton, Text } from "./ui";
@@ -102,12 +103,12 @@ export function PhotoCaptureMobile({ assessmentId, itemId, onUploaded }: { asses
       const res = await apiFetch("/api/ai/analyze-image", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageBase64: toBase64(bytes), mimeType: s.mime, assessmentId }),
+        // The server reads the photo for this job and this checklist item (D-035).
+        body: JSON.stringify({ imageBase64: toBase64(bytes), mimeType: s.mime, assessmentId, itemId }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error((data as { error?: string }).error ?? "Analysis failed");
-      const d = data as { summary: string; limitations?: string[]; uncertainty?: string };
-      patch(s.key, { analysis: [d.summary, d.limitations?.length ? `Limitations: ${d.limitations.join("; ")}` : "", d.uncertainty ? `Confidence: ${d.uncertainty}` : ""].filter(Boolean).join("\n") });
+      patch(s.key, { analysis: photoAnalysisText(data as PhotoAnalysis) });
     } catch (e) {
       patch(s.key, { analysis: `Analysis unavailable: ${e instanceof Error ? e.message : String(e)}` });
     }

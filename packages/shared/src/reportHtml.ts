@@ -3,6 +3,10 @@ import { statusLabel } from "./checklist";
 import { PRIORITY_LABEL, checklistGlance, glanceSentence, groupByCategory, keyFindingsFor, photoNumbers, recommendedActions, reportLayout, siteBriefLines } from "./reportOverview";
 import { scenarioFor, scenarioLabel } from "./scenario";
 import { DEFAULT_ACCENT, resolveTemplate, type SectionId } from "./reportTemplate";
+import { CAMERA_TYPE_LABEL, DECISION_BASIS_LABEL, designCounts, type DesignProposal } from "./design";
+import { SYSTEM_RANGES, DORI_LABEL } from "./design";
+import { cameraFix, cctvSizedEquipment, cctvSizing, type CameraCheck } from "./cctvSizing";
+import { LOAD_SOURCE_LABEL, SIZING_RANGES, SYSTEM_TYPE_LABEL, kilo, sizedEquipment, solarSizing, type SolarDesign } from "./solarDesign";
 
 /** " · New installation" / " · Existing system", or nothing when the job has no situation (older jobs). */
 function situationSuffix(input: ReportInput): string {
@@ -85,6 +89,137 @@ ${sources.length ? `<div class="meta">Based on: ${sources.map((s) => esc(s)).joi
 ${f.evidenceCount === undefined ? "" : `<div class="meta">Evidence linked: ${safeNumber(f.evidenceCount)}</div>`}
 ${photos.map((p) => photoFigure(p, numbers.get(p.evidenceId) ?? 0, true)).join("")}
 </div>`;
+}
+
+/** A plain table: header labels and rows of already-escaped cells. */
+function table(head: string[], rows: string[][], widths: string[] = []): string {
+  if (rows.length === 0) return "";
+  return `<table><thead><tr>${head.map((h, i) => `<th style="text-align:left;${TH}${widths[i] ? ";width:" + widths[i] : ""}">${h}</th>`).join("")}</tr></thead><tbody>${rows.map((r) => `<tr>${r.map((c) => `<td style="${TD}">${c}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+}
+
+const bullets = (items: string[]) => (items.length ? `<ul>${items.map((i) => `<li>${escapeHtml(i)}</li>`).join("")}</ul>` : "");
+
+/**
+ * The sections of a design proposal (D-034). Camera totals and the type table are counted from the schedule here, never taken from the
+ * AI's prose, so the numbers in the report always match the cameras listed.
+ */
+function designParts(d: DesignProposal): { glance: string; design: string; delivery: string; openItems: string } {
+  const esc = escapeHtml;
+  const counts = designCounts(d);
+  // The system sizing (D-037): worked out in code from the camera plan and the settings.
+  const z = cctvSizing(d);
+  const checkOf = new Map<string, CameraCheck>(z.cameras.map((c) => [c.id, c]));
+  const detailCell = (id: string) => {
+    const c = checkOf.get(id);
+    if (!c) return "";
+    const mark = c.meets ? '<span style="color:#166534">&#10003;</span>' : '<span style="color:#b45309">&#9888;</span>';
+    return `${esc(DORI_LABEL[c.detail])} at ${safeNumber(c.distanceM)} m<div class="meta">${mark} ${safeNumber(Math.round(c.pxPerM))} px/m${c.assumed.length ? " · assumed " + esc(c.assumed.join(", ")) : ""}</div>`;
+  };
+  const glance = `<h3 style="font-size:13px;margin:12px 0 4px">The proposed system: ${counts.total} camera${counts.total === 1 ? "" : "s"}</h3>${table(
+    ["Area", "Cameras"],
+    [...counts.byArea.map((a) => [esc(a.name), safeNumber(a.count)]), ["<strong>Total</strong>", `<strong>${safeNumber(counts.total)}</strong>`]],
+    ["70%"],
+  )}${table(["Camera type", "Quantity", "Where"], counts.byType.map((t) => [esc(t.label), safeNumber(t.count), esc(t.where.join(", "))]), ["30%", "12%"])}`;
+
+  const areas = d.areas
+    .map((a) => {
+      const schedule = table(["ID", "Location", "Type", "Purpose", "Detail needed"], a.cameras.map((c) => [`<strong>${esc(c.id)}</strong>`, esc(c.location), esc(CAMERA_TYPE_LABEL[c.type]), esc(c.purpose), detailCell(c.id)]), ["8%", "30%", "16%", "", "20%"]);
+      const notes = [...a.notes, ...(a.uncovered.length ? ["No camera inside: " + a.uncovered.join("; ") + "."] : [])];
+      return `<h3 style="font-size:13px;margin:14px 0 4px">${esc(a.name)} <span class="meta">· ${safeNumber(a.cameras.length)} camera${a.cameras.length === 1 ? "" : "s"}</span></h3>${schedule || "<p class=\"meta\">No cameras in this area.</p>"}${bullets(notes)}`;
+    })
+    .join("");
+  const optionTotal = counts.total + counts.optionalExtra;
+  const options = d.options.length
+    ? `<section><h2>Coverage review and optional additions</h2><p class="meta">These areas have no direct camera in the plan above. They are listed so the client can decide whether to add any. None of them are in the camera count.</p>${table(
+        ["Area", "Gap", "Option", "Extra cameras"],
+        d.options.map((o) => [esc(o.area), esc(o.gap), esc(o.option), o.extraCameras ? safeNumber(o.extraCameras) : "-"]),
+        ["20%", "", "26%", "12%"],
+      )}${counts.optionalExtra ? `<p>Taking all of them would add ${safeNumber(counts.optionalExtra)} camera${counts.optionalExtra === 1 ? "" : "s"}, for a total of ${safeNumber(optionTotal)}.</p>` : ""}</section>`
+    : "";
+  const design = `<section><h2>Design basis</h2>${table(["Item", "Decision", "Basis"], d.basis.map((b) => [`<strong>${esc(b.item)}</strong>`, esc(b.decision), esc(DECISION_BASIS_LABEL[b.basis])]), ["26%", "", "14%"]) || "<p class=\"meta\">No decisions recorded.</p>"}${
+    d.basis.some((b) => b.basis === "assumption") ? `<p class="meta">Decisions marked Assumption were proposed by the designer and must be confirmed with the client.</p>` : ""
+  }${d.approach.length ? `<h3 style="font-size:13px;margin:12px 0 4px">Design approach</h3>${bullets(d.approach)}` : ""}</section>
+<section><h2>Camera plans</h2>${areas}</section>
+${systemSection(d, z)}
+${options}`;
+
+  const cameraRows = counts.byType.map((t) => [esc(t.label), safeNumber(t.count), `<span class="meta">From the camera schedule</span>`]);
+  const sizedRows = cctvSizedEquipment(z).map((e) => [esc(e.item), esc(e.quantity), esc(e.specification) + ` <span class="meta">(from the sizing)</span>`]);
+  const delivery = `<section><h2>Equipment summary</h2><p class="meta">Quantities for planning. Prices are not included. Camera quantities are counted from the camera schedule; the recorder, drives, switches and UPS follow from the system sizing.</p>${table(["Item", "Qty", "Specification"], [...cameraRows, ...sizedRows, ...d.equipment.map((e) => [esc(e.item), esc(e.quantity || "-"), esc(e.specification)])], ["32%", "16%"])}</section>${
+    d.installation.length ? `<section><h2>Installation approach</h2>${bullets(d.installation)}</section>` : ""
+  }${d.nextSteps.length ? `<section><h2>Next steps</h2>${bullets(d.nextSteps)}</section>` : ""}`;
+
+  const openItems = table(["Assumption or open item", "Status"], d.openItems.map((o) => [esc(o.item), esc(o.status)]), ["", "26%"]);
+  return { glance, design, delivery, openItems };
+}
+
+/** The CCTV system design section (D-037): settings, the worked steps, switch points and the cameras that fall short of their detail. */
+function systemSection(d: DesignProposal, z: ReturnType<typeof cctvSizing>): string {
+  const esc = escapeHtml;
+  const s = z.system;
+  const settingRows = [
+    ["<strong>Codec</strong>", s.codec === "h264" ? "H.264" : "H.265", "", ""],
+    ["<strong>Recording</strong>", s.recording === "motion" ? "On motion" : "Continuous", "", ""],
+    ...(Object.keys(SYSTEM_RANGES) as Array<keyof typeof SYSTEM_RANGES>)
+      .filter((k) => k !== "motionShare" || s.recording === "motion")
+      .map((k) => [`<strong>${esc(SYSTEM_RANGES[k].label)}</strong>`, `${safeNumber(s[k].value)}${SYSTEM_RANGES[k].unit ? " " + esc(SYSTEM_RANGES[k].unit) : ""}`, esc(DECISION_BASIS_LABEL[s[k].basis]), esc(s[k].note)]),
+  ];
+  const short = z.failing.length
+    ? `<h3 style="font-size:13px;margin:12px 0 4px">Cameras short of the detail they need</h3>${table(["Camera", "What to change"], z.failing.map((c) => [`<strong>${esc(c.id)}</strong> ${esc(c.location)}`, esc(cameraFix(c))]), ["34%"])}`
+    : `<p>Every camera gives the detail it needs at its distance, as planned.</p>`;
+  return `<section><h2>System design</h2><p class="meta">Worked out by the app from the camera plan and the settings below, not written by the AI. Detail levels follow the published DORI pixel densities; figures marked assumed use planning defaults and must be confirmed.</p>
+<div style="display:flex;flex-wrap:wrap;gap:8px;margin:6px 0">${[
+    ["Bandwidth", `${safeNumber(Math.round(z.bandwidthMbps * 10) / 10)} Mbps`],
+    ["Storage", `${safeNumber(Math.round(z.storageWithHeadroomTb * 10) / 10)} TB`],
+    ["Drives", `${safeNumber(z.drives)} x ${safeNumber(s.driveTb.value)} TB`],
+    ["Recorder", `${safeNumber(z.recorderChannels)} channels`],
+    ["PoE", `${safeNumber(z.poeTotalW)} W`],
+    ["UPS", `${safeNumber(z.upsVa)} VA`],
+  ].map(([l, v]) => `<div style="flex:1;min-width:110px;border:1px solid #e2e8f0;border-radius:6px;padding:8px"><div class="meta">${l}</div><div style="font-size:16px;font-weight:700">${v}</div></div>`).join("")}</div>
+${short}
+<h3 style="font-size:13px;margin:12px 0 4px">Recording and power settings</h3>${table(["Setting", "Value", "Basis", "Note"], settingRows, ["30%", "16%", "14%"])}
+<h3 style="font-size:13px;margin:12px 0 4px">How it is worked out</h3>${table(["Step", "How it is worked out", "Result"], z.steps.map((st) => [`<strong>${esc(st.label)}</strong>`, esc(st.formula), `${safeNumber(st.value)} ${esc(st.unit)}`]), ["24%", "", "18%"])}
+<h3 style="font-size:13px;margin:12px 0 4px">Network and PoE, by switch point</h3>${table(["Switch point", "Cameras", "PoE load", "Switch"], z.switches.map((w) => [esc(w.area), safeNumber(w.cameras), `${safeNumber(w.poeW)} W`, `${safeNumber(w.ports)}-port, at least ${safeNumber(w.budgetW)} W budget${w.needsAt ? ", 802.3at ports" : ""}`]), ["30%", "12%", "14%"])}</section>`;
+}
+
+/** A horizontal bar for the simple charts in a solar proposal. `share` is 0 to 1. */
+function bar(label: string, share: number, value: string, colour: string): string {
+  const w = Math.max(1, Math.min(100, Math.round(share * 100)));
+  return `<div style="display:flex;align-items:center;gap:8px;margin:3px 0;font-size:12px"><div style="width:34%;text-align:right">${label}</div><div style="flex:1;background:#f1f5f9;border-radius:4px;height:14px"><div style="width:${w}%;background:${colour};height:14px;border-radius:4px"></div></div><div style="width:22%">${value}</div></div>`;
+}
+
+/**
+ * The sections of a solar design proposal (D-036). Every size comes from solarSizing, worked out in code from the load schedule and the inputs,
+ * and is printed with its formula; the AI's prose never supplies a size.
+ */
+function solarParts(d: SolarDesign): { glance: string; design: string; delivery: string; openItems: string } {
+  const esc = escapeHtml;
+  const s = solarSizing(d);
+  const tile = (label: string, value: string) => `<div style="flex:1;min-width:120px;border:1px solid #e2e8f0;border-radius:6px;padding:8px"><div class="meta">${label}</div><div style="font-size:16px;font-weight:700">${value}</div></div>`;
+  const max = Math.max(s.dailyWh, s.dailyProductionWh, 1);
+  const glance = `<h3 style="font-size:13px;margin:12px 0 4px">The proposed system: ${esc(SYSTEM_TYPE_LABEL[d.inputs.systemType])}</h3>
+<div style="display:flex;flex-wrap:wrap;gap:8px;margin:6px 0">${tile("Solar array", `${kilo(s.arrayWp, "Wp")}`)}${tile("Panels", `${safeNumber(s.panelCount)} x ${safeNumber(d.inputs.panelWatts.value)} W`)}${tile("Inverter", kilo(s.inverterW, "W"))}${tile("Battery", s.batteryNominalWh > 0 ? kilo(s.batteryNominalWh, "Wh") : "None")}${tile("Daily energy need", kilo(s.dailyWh, "Wh"))}</div>
+<div style="margin:8px 0">${bar("Daily energy need", s.dailyWh / max, kilo(s.dailyWh, "Wh"), "#475569")}${bar("Expected daily production", s.dailyProductionWh / max, kilo(s.dailyProductionWh, "Wh"), "#16a34a")}</div>
+<p class="meta">Expected production is an average day at the assumed sun hours; cloudy days produce less.</p>`;
+
+  const loadRows = d.loads.map((l) => [esc(l.name) + (l.motor ? ` <span class="meta">(start-up surge)</span>` : "") + (l.note ? `<div class="meta">${esc(l.note)}</div>` : ""), safeNumber(l.quantity), safeNumber(l.watts), safeNumber(l.hoursPerDay), safeNumber(Math.round(l.quantity * l.watts * l.hoursPerDay)), esc(LOAD_SOURCE_LABEL[l.source])]);
+  loadRows.push(["<strong>Total</strong>", "", `<strong>${safeNumber(Math.round(s.connectedW))}</strong>`, "", `<strong>${safeNumber(Math.round(s.dailyWh))}</strong>`, ""]);
+  const shares = s.loadShares.slice(0, 6).map((l) => bar(esc(l.name), l.share, `${Math.round(l.share * 100)}%`, "#f59e0b")).join("");
+  const inputRows = (Object.keys(SIZING_RANGES) as Array<keyof typeof SIZING_RANGES>).map((k) => {
+    const r = SIZING_RANGES[k];
+    const v = d.inputs[k];
+    return [`<strong>${esc(r.label)}</strong>`, `${safeNumber(v.value)}${r.unit ? " " + esc(r.unit) : ""}`, esc(DECISION_BASIS_LABEL[v.basis]), esc(v.note)];
+  });
+  const design = `<section><h2>Design basis</h2>${table(["Item", "Decision", "Basis"], d.basis.map((b) => [`<strong>${esc(b.item)}</strong>`, esc(b.decision), esc(DECISION_BASIS_LABEL[b.basis])]), ["26%", "", "14%"])}<p><strong>System type:</strong> ${esc(SYSTEM_TYPE_LABEL[d.inputs.systemType])}</p></section>
+<section><h2>Load schedule</h2><p class="meta">Power per unit and daily hours, with where each figure came from. Label readings are as printed on the appliance; typical values and assumptions must be confirmed.</p>${table(["Load", "Qty", "Watts each", "Hours/day", "Wh/day", "Source"], loadRows, ["34%", "8%", "12%", "12%", "12%"])}<h3 style="font-size:13px;margin:12px 0 4px">What drives the size</h3>${shares}</section>
+<section><h2>Sizing</h2><p class="meta">Worked out by the app from the load schedule and the inputs below, not written by the AI.</p>${table(["Input", "Value", "Basis", "Note"], inputRows, ["30%", "14%", "14%"])}${table(["Step", "How it is worked out", "Result"], s.steps.map((st) => [`<strong>${esc(st.label)}</strong>`, esc(st.formula), `${safeNumber(st.value)} ${esc(st.unit)}`]), ["26%", "", "20%"])}</section>
+${d.placement.length ? `<section><h2>Panel placement</h2>${bullets(d.placement)}</section>` : ""}
+${d.options.length ? `<section><h2>Options for the client</h2>${table(["Topic", "Choice", "What it would change"], d.options.map((o) => [esc(o.area), esc(o.gap), esc(o.option)]), ["22%"])}</section>` : ""}`;
+  const delivery = `<section><h2>Equipment summary</h2><p class="meta">Quantities for planning. Prices are not included. The panels, inverter and battery follow from the sizing.</p>${table(["Item", "Qty", "Specification"], [...sizedEquipment(d, s), ...d.equipment].map((e) => [esc(e.item), esc(e.quantity || "-"), esc(e.specification)]), ["32%", "16%"])}</section>${
+    d.installation.length ? `<section><h2>Installation approach</h2>${bullets(d.installation)}</section>` : ""
+  }${d.nextSteps.length ? `<section><h2>Next steps</h2>${bullets(d.nextSteps)}</section>` : ""}`;
+  const openItems = table(["Assumption or open item", "Status"], d.openItems.map((o) => [esc(o.item), esc(o.status)]), ["", "26%"]);
+  return { glance, design, delivery, openItems };
 }
 
 export function buildReportHtml(snapshot: ReportSnapshot, input: ReportInput): string {
@@ -203,7 +338,16 @@ export function buildReportHtml(snapshot: ReportSnapshot, input: ReportInput): s
     appendixChecklist: `<section><h2>${H("appendixChecklist", "Appendix A — Checklist results")}</h2><table><thead><tr><th style="text-align:left;${TH}">Item</th><th style="${TH}">Result</th><th style="${TH}">Notes</th><th style="${TH}">Photos</th></tr></thead><tbody>${appendixRows || `<tr><td colspan="4" style="padding:12px;text-align:center;color:#64748b">No checklist items recorded</td></tr>`}</tbody></table><p style="font-size:12px;color:#64748b">Not Checked ≠ Pass. Pass requires actual check + supporting evidence.</p></section>`,
     appendixMeasurements: `<section><h2>${H("appendixMeasurements", "Appendix B — Measurements")}</h2><table><thead><tr><th style="text-align:left;${TH}">Name</th><th style="${TH}">Value</th></tr></thead><tbody>${measurements}</tbody></table></section>`,
   };
-  if (layout === "findings") {
+  const designish = (layout === "solar" && narrative.solar) || (layout === "design" && narrative.design);
+  if (designish) {
+    const dp = layout === "solar" ? solarParts(narrative.solar!) : designParts(narrative.design!);
+    parts.summary = `<section><h2>${H("summary", "Executive summary")}</h2>${para(narrative.summary)}${dp.glance}</section>`;
+    parts.keyFindings = dp.design;
+    // A design lists its equipment itself; the materials schedule only shows when materials were added to this draft.
+    if (!input.materials?.length && !input.quotation) parts.materials = "";
+    parts.actions = dp.delivery + "\n" + narrativeSection("Additional recommendations", narrative.recommendations);
+    parts.openItems = `<section><h2>${H("openItems", "Assumptions and open items")}</h2>${dp.openItems}${para(narrative.openItems)}${input.limitations.length ? `<p class="meta" style="margin-bottom:2px">Limits noted for this job:</p>${lims}` : ""}</section>`;
+  } else if (layout === "findings") {
     const findings = keyFindingsFor(input);
     const actions = recommendedActions(findings);
     parts.summary = `${narrativeSection(H("summary", "Executive summary"), narrative.summary)}${glanceLine}`;
@@ -235,7 +379,7 @@ export function buildReportHtml(snapshot: ReportSnapshot, input: ReportInput): s
 <style>body{font-family:system-ui,-apple-system,sans-serif;max-width:800px;margin:24px auto;padding:0 16px;color:#0f172a;font-size:14px;line-height:1.5} h1{font-size:20px;margin:0} h2{font-size:15px;margin:16px 0 8px;border-bottom:1px solid #e2e8f0;padding-bottom:4px} table{width:100%;border-collapse:collapse;margin:8px 0} .meta{color:#64748b;font-size:12px}${tpl.accentColor !== DEFAULT_ACCENT ? ` h1,h2{color:${tpl.accentColor}}` : ""}</style>
 </head><body>
 <header style="border-bottom:2px solid ${tpl.accentColor};padding-bottom:12px;margin-bottom:16px">
-${tpl.logo ? `<img src="${esc(tpl.logo)}" alt="${esc(tpl.officeName ?? "Logo")}" style="max-height:56px;max-width:220px;display:block;margin-bottom:8px">\n` : ""}<div style="font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:#64748b">${esc(tpl.officeName ?? "EvalAI")} — ${esc(input.mode)} report · ${esc(input.pack)}${esc(situationSuffix(input))}</div>
+${tpl.logo ? `<img src="${esc(tpl.logo)}" alt="${esc(tpl.officeName ?? "Logo")}" style="max-height:56px;max-width:220px;display:block;margin-bottom:8px">\n` : ""}<div style="font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:#64748b">${esc(tpl.officeName ?? "EvalAI")} — ${layout === "solar" ? "Solar design and sizing proposal" : layout === "design" ? "CCTV system design proposal" : `${esc(input.mode)} report · ${esc(input.pack)}${esc(situationSuffix(input))}`}</div>
 <h1>${esc(input.siteName)}</h1>
 <div class="meta">Snapshot ${esc(snapshot.id)} · Assessment v${safeNumber(snapshot.assessmentVersion)} · Checklist ${esc(snapshot.checklistVersion)}${snapshot.materialsVersion ? ` · Materials v${safeNumber(snapshot.materialsVersion)}` : ""}${snapshot.quotationVersion ? ` · Quotation v${safeNumber(snapshot.quotationVersion)}` : ""} · ${snapshot.finalized ? "Finalized (immutable)" : "Draft"} · ${esc(snapshot.createdAt)}</div>
 ${tpl.headerText ? `<div class="meta" style="margin-top:4px">${esc(tpl.headerText)}</div>\n` : ""}</header>

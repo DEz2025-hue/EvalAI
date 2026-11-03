@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { photoReview, PHOTO_REVIEW_BATCH } from "@eval-ai/ai-adapter";
+import { photoReview, PHOTO_REVIEW_BATCH, PHOTO_REVIEW_VERSION } from "@eval-ai/ai-adapter";
 import { requireAuth, requireWriter } from "../../../../lib/auth";
 import { aiError, aiGuard, aiRunHook, loadAssessmentFacts } from "../../../../lib/aiRoute";
 import { listEvidenceLocal, updateAssessmentContextLocal } from "../../../../lib/store";
+import { photoSiteBrief } from "../../../../lib/photoContext";
 import { preparePhotos, selectReportPhotos, type PhotoChoices, type SavedPhotoReview } from "../../../../lib/reportPhotos";
 
 // Several photos per request: batches run in parallel, so allow the full serverless time.
@@ -57,13 +58,16 @@ export async function POST(req: Request) {
     const { items: evidence } = await listEvidenceLocal(assessmentId, auth.ctx);
     const { chosen, skipped } = selectReportPhotos(evidence);
     const saved = { ...((facts.assessment.context.photoReview as Record<string, SavedPhotoReview> | undefined) ?? {}) };
-    const todoIds = chosen.filter((id) => force || !saved[id]);
+    // A photo is looked at again when forced, or when its saved review was made by an older way of reading photos (D-035).
+    const todoIds = chosen.filter((id) => force || !saved[id] || (saved[id].v ?? 1) < PHOTO_REVIEW_VERSION);
     const cached = chosen.length - todoIds.length;
     if (todoIds.length === 0) return NextResponse.json({ analyzed: 0, cached, skipped, failed: [], total: chosen.length });
 
     const { photos: prepared, failed: unreadable } = await preparePhotos(assessmentId, evidence.filter((e) => todoIds.includes(e.id)), { thumbnail: false });
     const byItem = new Map(facts.responses.map((r) => [r.itemId, r]));
-    const checklist = facts.items.map((it) => ({ id: it.id, title: it.title, status: byItem.get(it.id)?.status ?? "not_checked", notes: byItem.get(it.id)?.notes }));
+    // Each item carries what it asks for, so a photo linked to it is read for that purpose (D-035).
+    const checklist = facts.items.map((it) => ({ id: it.id, title: it.title, status: byItem.get(it.id)?.status ?? "not_checked", notes: byItem.get(it.id)?.notes, category: it.category, lookFor: it.instructions?.slice(0, 1500) }));
+    const siteBrief = photoSiteBrief(facts);
     const goal = typeof facts.assessment.context.goal === "string" ? facts.assessment.context.goal : undefined;
     const onRun = aiRunHook(auth, assessmentId);
 
@@ -78,11 +82,11 @@ export async function POST(req: Request) {
       for (let batch = queue.shift(); batch; batch = queue.shift()) {
         try {
           const out = await photoReview(
-            { mode: facts.assessment.mode, pack: facts.assessment.pack, scenario: facts.scenario, goal, checklist, photos: batch.map((p) => ({ evidenceId: p.evidenceId, itemId: p.itemId, imageBase64: p.aiBase64, mimeType: "image/jpeg" })) },
+            { mode: facts.assessment.mode, pack: facts.assessment.pack, scenario: facts.scenario, goal, siteBrief, checklist, photos: batch.map((p) => ({ evidenceId: p.evidenceId, itemId: p.itemId, imageBase64: p.aiBase64, mimeType: "image/jpeg" })) },
             { onRun },
           );
           for (const p of out.photos) {
-            saved[p.evidenceId] = { ...p, itemId: batch.find((b) => b.evidenceId === p.evidenceId)?.itemId ?? null, at: now };
+            saved[p.evidenceId] = { ...p, itemId: batch.find((b) => b.evidenceId === p.evidenceId)?.itemId ?? null, at: now, v: PHOTO_REVIEW_VERSION };
             analyzed += 1;
           }
           out.notAnalyzed.forEach((id) => failed.add(id));

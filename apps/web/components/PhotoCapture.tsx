@@ -1,5 +1,6 @@
 "use client";
 import { useRef, useState } from "react";
+import { photoAnalysisText, type PhotoAnalysis } from "@eval-ai/shared";
 import { uploadEvidence } from "../lib/clientUpload";
 
 export function PhotoCapture({ assessmentId, itemId, items, onUploaded }: { assessmentId: string; itemId?: string; items?: Array<{ id: string; title: string }>; onUploaded: (key: string, linkedItemId?: string) => void }): JSX.Element {
@@ -9,6 +10,7 @@ export function PhotoCapture({ assessmentId, itemId, items, onUploaded }: { asse
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [analyze, setAnalyze] = useState<string | null>(null);
+  const [note, setNote] = useState("");
 
   function onPick(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0];
@@ -46,14 +48,15 @@ export function PhotoCapture({ assessmentId, itemId, items, onUploaded }: { asse
     const file = fileRef.current?.files?.[0];
     if (!file || !preview) return;
     const base64 = await fileToBase64(file);
-    setAnalyze("Analyzing — suggestion only, not a verified measurement...");
+    setAnalyze(`Analyzing for this job${selectedItem ? " and item" : ""} — suggestion only, not a verified measurement...`);
+    setNote("");
     try {
-      const res = await fetch("/api/ai/analyze-image", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ imageBase64: base64, mimeType: file.type, assessmentId }) });
-      const data = await res.json();
+      // The server reads the photo for this job and the selected checklist item (D-035).
+      const res = await fetch("/api/ai/analyze-image", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ imageBase64: base64, mimeType: file.type, assessmentId, itemId: selectedItem || undefined }) });
+      const data = (await res.json()) as PhotoAnalysis & { error?: string };
       if (!res.ok) throw new Error(data.error);
-      setAnalyze(`${data.summary}
-Limitations: ${(data.limitations ?? []).join("; ")}
-Confidence: ${data.uncertainty}`);
+      setAnalyze(photoAnalysisText(data));
+      setNote(data.suggestedNote ?? "");
     } catch (e) {
       setAnalyze(`Analysis unavailable: ${e instanceof Error ? e.message : String(e)}`);
     }
@@ -79,7 +82,8 @@ Confidence: ${data.uncertainty}`);
       </div>
       <p className="mt-2 text-xs text-slate-500">Photos are stored privately and shared only with your workspace. AI image analysis is a suggestion — always confirm measurements yourself.</p>
       {error && <p className="mt-2 rounded bg-red-50 px-3 py-2 text-xs text-red-700">{error}</p>}
-      {analyze && <pre className="mt-2 whitespace-pre-wrap rounded bg-amber-50 px-3 py-2 text-xs text-amber-900">{analyze}</pre>}
+      {analyze && <pre className="mt-2 whitespace-pre-wrap rounded bg-amber-50 px-3 py-2 font-sans text-xs text-amber-900">{analyze}</pre>}
+      {analyze && note ? <button onClick={() => void navigator.clipboard?.writeText(note)} className="btn-secondary mt-2 text-xs">Copy suggested note</button> : null}
     </div>
   );
 }

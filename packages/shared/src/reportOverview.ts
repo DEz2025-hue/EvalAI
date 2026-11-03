@@ -1,4 +1,6 @@
 import { statusLabel } from "./checklist";
+import { hasDesign } from "./design";
+import { hasSolarDesign } from "./solarDesign";
 import { FINDING_PRIORITIES, KEY_FINDING_LIMITS, type FindingPriority, type ReportChecklistRow, type ReportInput, type ReportKeyFinding, type ReportSiteBrief } from "./report";
 
 // Deterministic summaries of the checklist, shared by the HTML report, the PDF, the phone preview and the AI input, so they
@@ -105,11 +107,13 @@ export function buildKeyFindings(input: ReportInput): ReportKeyFinding[] {
 }
 
 /**
- * Which layout a report uses: "findings" (the written key findings, or ones built from the record) or "legacy" for an older report whose
- * observations and issues were written as free text and have no key findings.
+ * Which layout a report uses: "solar" for a solar design proposal (D-036), "design" for a CCTV design proposal (D-034), "findings" (the written key findings, or ones built from the record)
+ * or "legacy" for an older report whose observations and issues were written as free text and have no key findings.
  */
-export function reportLayout(input: ReportInput): "findings" | "legacy" {
+export function reportLayout(input: ReportInput): "solar" | "design" | "findings" | "legacy" {
   const n = input.narrative ?? {};
+  if (hasSolarDesign(n.solar)) return "solar";
+  if (hasDesign(n.design)) return "design";
   if (n.keyFindings?.length) return "findings";
   return (n.observations ?? "").trim() || (n.issues ?? "").trim() ? "legacy" : "findings";
 }

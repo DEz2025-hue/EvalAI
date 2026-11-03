@@ -103,11 +103,18 @@ export function imageSchema(): JsonSchema {
     type: "object",
     properties: {
       summary: str,
+      fit: { type: "string", enum: ["yes", "partly", "no", "no_item"] },
+      relevance: str,
+      better_items: strArray,
       observations: strArray,
+      readings: { type: "array", maxItems: 20, items: { type: "object", properties: { label: str, value: str }, required: ["label", "value"], additionalProperties: false } },
+      suggestions: strArray,
+      possible_issues: strArray,
+      suggested_note: str,
       limitations: strArray,
       uncertainty: { type: "string", enum: ["low", "medium", "high"] },
     },
-    required: ["summary", "observations", "limitations", "uncertainty"],
+    required: ["summary", "fit", "relevance", "better_items", "observations", "readings", "suggestions", "possible_issues", "suggested_note", "limitations", "uncertainty"],
     additionalProperties: false,
   };
 }
@@ -124,6 +131,8 @@ export function photoReviewSchema(): JsonSchema {
             evidence_id: str,
             caption: str,
             observations: strArray,
+            readings: { type: "array", maxItems: 12, items: { type: "object", properties: { label: str, value: str }, required: ["label", "value"], additionalProperties: false } },
+            suggestions: strArray,
             possible_issues: {
               type: "array",
               items: {
@@ -135,7 +144,7 @@ export function photoReviewSchema(): JsonSchema {
             },
             cannot_tell: strArray,
           },
-          required: ["evidence_id", "caption", "observations", "possible_issues", "cannot_tell"],
+          required: ["evidence_id", "caption", "observations", "readings", "suggestions", "possible_issues", "cannot_tell"],
           additionalProperties: false,
         },
       },
@@ -349,6 +358,144 @@ export function reportSummarySchema(): JsonSchema {
     type: "object",
     properties: { summary: str, open_items: str },
     required: ["summary", "open_items"],
+    additionalProperties: false,
+  };
+}
+
+const sizingValue = { type: "object", properties: { value: { type: "number" }, basis: { type: "string", enum: ["client", "site", "assumption"] }, note: str }, required: ["value", "basis", "note"], additionalProperties: false } as const;
+
+const rows = (properties: Record<string, unknown>, maxItems: number) => ({
+  type: "array",
+  maxItems,
+  items: { type: "object", properties, required: Object.keys(properties), additionalProperties: false },
+});
+
+/** Step 1 of a design proposal (D-034): the decisions, the approach and the cameras area by area. Camera totals are counted by the app. */
+export function designPlanSchema(): JsonSchema {
+  return {
+    type: "object",
+    properties: {
+      basis: rows({ item: str, decision: str, basis: { type: "string", enum: ["client", "site", "assumption"] } }, 30),
+      approach: { type: "array", items: str, maxItems: 15 },
+      areas: rows(
+        {
+          name: str,
+          cameras: rows(
+            {
+              id: str,
+              location: str,
+              type: { type: "string", enum: ["indoor_dome", "outdoor_dome", "turret", "outdoor_bullet", "ptz", "lpr", "fisheye", "other"] },
+              purpose: str,
+              detail: { type: "string", enum: ["detect", "observe", "recognise", "identify"] },
+              distance_m: { type: "number" },
+              megapixels: { type: "number" },
+              fov_deg: { type: "number" },
+            },
+            60,
+          ),
+          uncovered: { type: "array", items: str, maxItems: 30 },
+          notes: { type: "array", items: str, maxItems: 10 },
+        },
+        20,
+      ),
+      system: {
+        type: "object",
+        properties: {
+          codec: { type: "string", enum: ["h264", "h265"] },
+          recording: { type: "string", enum: ["continuous", "motion"] },
+          fps: sizingValue,
+          motion_share: sizingValue,
+          retention_days: sizingValue,
+          bitrate_per_mp: sizingValue,
+          drive_tb: sizingValue,
+          ups_minutes: sizingValue,
+        },
+        required: ["codec", "recording", "fps", "motion_share", "retention_days", "bitrate_per_mp", "drive_tb", "ups_minutes"],
+        additionalProperties: false,
+      },
+    },
+    required: ["basis", "approach", "areas", "system"],
+    additionalProperties: false,
+  };
+}
+
+/** Step 2 of a design proposal: the write-up around a settled plan. */
+export function designWriteSchema(): JsonSchema {
+  return {
+    type: "object",
+    properties: {
+      summary: str,
+      site_overview: str,
+      options: rows({ area: str, gap: str, option: str, extra_cameras: { type: "integer" } }, 20),
+      equipment: rows({ item: str, quantity: str, specification: str }, 40),
+      installation: { type: "array", items: str, maxItems: 15 },
+      open_items: rows({ item: str, status: str }, 30),
+      next_steps: { type: "array", items: str, maxItems: 15 },
+      missing_information: strArray,
+      assumptions: strArray,
+    },
+    required: ["summary", "site_overview", "options", "equipment", "installation", "open_items", "next_steps", "missing_information", "assumptions"],
+    additionalProperties: false,
+  };
+}
+
+
+/** Step 1 of a solar design (D-036): loads, sizing inputs, placement and decisions. No sizes: the app works them out. */
+export function solarPlanSchema(): JsonSchema {
+  return {
+    type: "object",
+    properties: {
+      basis: rows({ item: str, decision: str, basis: { type: "string", enum: ["client", "site", "assumption"] } }, 30),
+      loads: rows(
+        {
+          name: str,
+          quantity: { type: "integer" },
+          watts: { type: "number" },
+          hours_per_day: { type: "number" },
+          source: { type: "string", enum: ["label", "client", "typical", "assumption"] },
+          motor: bool,
+          note: str,
+        },
+        60,
+      ),
+      inputs: {
+        type: "object",
+        properties: {
+          system_type: { type: "string", enum: ["grid_tied", "hybrid", "off_grid"] },
+          peak_sun_hours: sizingValue,
+          system_losses: sizingValue,
+          panel_watts: sizingValue,
+          battery_voltage: sizingValue,
+          depth_of_discharge: sizingValue,
+          autonomy_days: sizingValue,
+          simultaneity: sizingValue,
+        },
+        required: ["system_type", "peak_sun_hours", "system_losses", "panel_watts", "battery_voltage", "depth_of_discharge", "autonomy_days", "simultaneity"],
+        additionalProperties: false,
+      },
+      placement: { type: "array", items: str, maxItems: 10 },
+    },
+    required: ["basis", "loads", "inputs", "placement"],
+    additionalProperties: false,
+  };
+}
+
+/** Step 2 of a solar design: the write-up around the sizing the app worked out. */
+export function solarWriteSchema(): JsonSchema {
+  return {
+    type: "object",
+    properties: {
+      summary: str,
+      site_overview: str,
+      options: rows({ area: str, gap: str, option: str }, 15),
+      equipment: rows({ item: str, quantity: str, specification: str }, 40),
+      installation: { type: "array", items: str, maxItems: 15 },
+      open_items: rows({ item: str, status: str }, 30),
+      next_steps: { type: "array", items: str, maxItems: 15 },
+      missing_information: strArray,
+      assumptions: strArray,
+    },
+    required: ["summary", "site_overview", "options", "equipment", "installation", "open_items", "next_steps", "missing_information", "assumptions"],
     additionalProperties: false,
   };
 }

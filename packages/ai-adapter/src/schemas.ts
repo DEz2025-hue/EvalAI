@@ -277,16 +277,46 @@ export const DraftReportOutput = z.object({
   requiresHumanReview: z.literal(true).default(true),
 });
 
+/** The job a photo belongs to, assembled on the server from stored data (D-035). */
+export const PhotoJobContext = z.object({
+  pack: z.enum(["solar", "cctv"]),
+  mode: z.enum(["assessment", "inspection"]),
+  scenario: ScenarioField,
+  siteName: z.string().max(200).optional(),
+  goal: z.string().max(1500).optional(),
+  /** Short facts about the site: address, existing equipment, constraints, what was described at intake, interview details. */
+  siteBrief: z.record(z.unknown()).optional(),
+  /** The checklist item the photo is linked to: what it asks for, and what the person has recorded so far. */
+  item: z.object({ title: z.string().max(300), category: z.string().max(100).optional(), lookFor: z.string().max(1500).optional(), status: z.string().max(40).optional(), notes: z.string().max(2000).optional() }).nullable().optional(),
+  /** Titles of the job's other checklist items, so the model can say where a photo fits better. */
+  otherItems: z.array(z.string().max(300)).max(200).default([]),
+});
+export type PhotoJobContext = z.infer<typeof PhotoJobContext>;
+
 export const AnalyzeImageInput = z.object({
   imageBase64: z.string().min(1),
   mimeType: z.string().default("image/jpeg"),
+  /** Extra focus from the screen (for example the live camera). Untrusted text. */
   prompt: z.string().optional(),
-  assessmentContext: z.record(z.unknown()).optional(),
+  context: PhotoJobContext.optional(),
 });
 
 export const AnalyzeImageOutput = z.object({
   summary: z.string(),
+  /** Does the photo show what its checklist item asks for? */
+  fit: z.enum(["yes", "partly", "no", "no_item"]).default("no_item"),
+  /** How the photo helps the item and the job, in a sentence or two. */
+  relevance: z.string().default(""),
+  /** Other checklist items (titles, exactly as given) this photo would answer better. */
+  betterItems: z.array(z.string()).default([]),
   observations: z.array(z.string()).default([]),
+  /** Text read from labels, nameplates and displays, quoted as printed. Readings, not verified measurements. */
+  readings: z.array(z.object({ label: z.string(), value: z.string() })).default([]),
+  /** What the photo suggests for the job (where panels look best, where a camera should go). To confirm on site. */
+  suggestions: z.array(z.string()).default([]),
+  possibleIssues: z.array(z.string()).default([]),
+  /** A draft note the person can put on the checklist item. */
+  suggestedNote: z.string().default(""),
   limitations: z.array(z.string()).default([]),
   uncertainty: z.enum(["low", "medium", "high"]).default("high"),
   evidenceRef: z.string().optional(),
