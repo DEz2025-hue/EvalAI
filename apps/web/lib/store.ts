@@ -1,4 +1,5 @@
 import fs from "fs";
+import { canonicalJson } from "./canonicalJson";
 import path from "path";
 import { buildReportPhotos, type PhotoChoices, type SavedPhotoReview } from "./reportPhotos";
 import { FINDING_PRIORITIES, KEY_FINDING_LIMITS, NARRATIVE_SECTIONS, PACK_TEMPLATES, checklistFor, lookForFor, templateItemMeta, type FindingPriority, type IntakeSummary, type ReportChecklistRow, type ReportKeyFinding, type ReportSiteBrief, type ReportPhoto, type Scenario, buildReportHtml, type ReportNarrative, computeCompleteness, calculateMeasurement, quotationTotalAmount, type CompletenessResult, type FormulaId, type MeasurementInput, type MeasurementSource, type ArCapture, type PhotoCapture, LENGTH_UNITS, type LengthUnit, isAcceptableArCapture, hasArInput, hasPhotoInput, verifyPhotoReading, QUANTITY_TBD, InterviewStateSchema, interviewStatements, normalizeTemplate, hasTemplate, type ReportTemplate } from "@eval-ai/shared";
@@ -1806,7 +1807,8 @@ function factsFingerprint(input: ReportInput): string {
   void _narrative;
   void _photos;
   void _template;
-  return JSON.stringify(facts);
+  // Compared as canonical JSON: a draft read back from the database has the same content with its keys in another order.
+  return canonicalJson(facts);
 }
 
 async function writeDraftSnapshot(snapshotId: string, patch: { payload?: ReportInput; htmlPreview?: string; review?: { by: string | null; label: string | null; at: string; note: string | null; finalized: true } }, ctx?: StoreCtx): Promise<void> {
