@@ -24,7 +24,8 @@ export async function POST(req: Request) {
       assessmentId: body.assessmentId,
       mode: facts.assessment.mode,
       pack: facts.assessment.pack,
-      context: { ...facts.assessment.context, ...(body.context ?? {}) },
+      context: { ...facts.assessment.context, ...(body.context ?? {}), scenario: facts.scenario },
+      scenario: facts.scenario,
       existingChecklist: facts.items.map((i) => ({ title: i.title })),
     }, { onRun: aiRunHook(auth, body.assessmentId) });
     return NextResponse.json(result);

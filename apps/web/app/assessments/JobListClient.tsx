@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { scenarioFor, scenarioLabel } from "@eval-ai/shared";
 
 type Job = { id: string; siteName?: string; mode: string; pack: string; status: string; context?: Record<string, unknown>; createdAt?: string };
 
@@ -37,7 +38,7 @@ export function JobListClient({ mode, newHref, emptyHint, limit }: { mode: "asse
         <Link key={j.id} href={`${baseFor(j.mode)}/${j.id}`} className="card flex items-center justify-between p-3 hover:bg-slate-50">
           <div>
             <div className="text-sm font-medium">{(j.context as { siteName?: string } | undefined)?.siteName ?? j.siteName ?? j.id.slice(0, 8)}</div>
-            <div className="text-xs text-slate-500">{j.pack.toUpperCase()} · {j.mode} · {j.createdAt ? new Date(j.createdAt).toLocaleString() : ""}</div>
+            <div className="text-xs text-slate-500">{j.pack.toUpperCase()} · {j.mode}{(() => { const sc = scenarioFor(j.mode === "inspection" ? "inspection" : "assessment", j.context?.scenario); return sc ? " · " + scenarioLabel(sc) : ""; })()} · {j.createdAt ? new Date(j.createdAt).toLocaleString() : ""}</div>
           </div>
           <span className={`rounded px-2 py-0.5 text-xs ${j.status === "finalized" ? "bg-green-100 text-green-700" : j.status === "draft" ? "bg-amber-100 text-amber-800" : "bg-slate-100 text-slate-600"}`}>{j.status}</span>
         </Link>

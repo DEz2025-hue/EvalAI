@@ -48,6 +48,97 @@ describe("report review and sign-off", () => {
     await expect(store.updateSnapshotNarrativeLocal(snapshot.id, { notes: "x".repeat(5001) })).rejects.toThrow(/limited to 5000/);
   });
 
+  it("a draft carries what was saved about the job, not just the checklist rows", async () => {
+    const job = await newJob();
+    await store.updateAssessmentContextLocal(job.id, {
+      context: {
+        existingEquipment: "None yet",
+        constraints: "Ladder access only",
+        clarificationAnswers: { q3: "Roof is steep", ai_1: "School term ends in July", q2: " " },
+        clarificationQuestions: { ai_1: "When must the work be finished?" },
+        intake: { at: "2026-11-01T00:00:00.000Z", mode: "review", description: "Tin roof, tree to the north-west", startHere: null, visible: ["Tin roof"], limitations: ["Roof strength unknown"], evidenceIds: [], added: 0, updated: 0 },
+      },
+    });
+    await store.saveResponsesLocal(job.id, [
+      { itemId: job.items[0].id, status: "needs_attention", notes: "Tree shades the array", measuredValue: 4.2, measuredUnit: "m" },
+      { itemId: job.items[1].id, status: "pass" },
+    ]);
+    const { snapshot: created } = await store.createReportSnapshotLocal({ assessmentId: job.id });
+    const snapshot = (await store.getSnapshotLocal(created.id))!;
+    const p = snapshot.payload;
+
+    expect(p.siteBrief).toMatchObject({ goal: "Check roof", existingEquipment: "None yet", constraints: "Ladder access only", intakeText: "Tin roof, tree to the north-west", intakeVisible: ["Tin roof"], intakeLimits: ["Roof strength unknown"] });
+    expect(p.siteBrief?.answers).toEqual([
+      { question: "Access constraints or follow-up checks", answer: "Roof is steep" },
+      { question: "When must the work be finished?", answer: "School term ends in July" },
+    ]);
+    expect(p.checklist[0]).toMatchObject({ status: "needs_attention", notes: "Tree shades the array", measured: { value: 4.2, unit: "m" }, evidenceCount: 0 });
+    expect(typeof p.checklist[0].required).toBe("boolean");
+    expect(p.checklist.some((c) => c.category)).toBe(true);
+
+    // Limitations say what is missing in words; a flagged item is an issue, not a limitation.
+    expect(p.limitations.some((l) => /not checked yet \(required\)/.test(l))).toBe(true);
+    expect(p.limitations.join(" ")).not.toMatch(/needs_attention|not_checked| — fail/);
+    expect(p.limitations.join(" ")).not.toContain(p.checklist[0].title);
+    expect(snapshot.htmlPreview).toContain("At a glance:");
+    expect(snapshot.htmlPreview).toContain("Key findings");
+    expect(snapshot.htmlPreview).toContain("Tree shades the array");
+    expect(snapshot.htmlPreview).toContain("School term ends in July");
+  });
+
+  it("the longer written sections can be saved, trimmed and limited, and do not count as changed facts at sign-off", async () => {
+    const job = await newJob();
+    await checkEverything(job.id, job.items);
+    const { snapshot } = await store.createReportSnapshotLocal({ assessmentId: job.id });
+    const updated = await store.updateSnapshotNarrativeLocal(snapshot.id, { siteOverview: " A school. ", observations: "x".repeat(8000), issues: "Shading.", openItems: "Load audit still to do." });
+    expect(updated.payload.narrative).toMatchObject({ siteOverview: "A school.", issues: "Shading.", openItems: "Load audit still to do." });
+    expect(updated.payload.narrative?.observations).toHaveLength(8000);
+    await expect(store.updateSnapshotNarrativeLocal(snapshot.id, { observations: "x".repeat(8001) })).rejects.toThrow(/limited to 8000/);
+    await expect(store.updateSnapshotNarrativeLocal(snapshot.id, { issues: "x".repeat(5001) })).rejects.toThrow(/limited to 5000/);
+    const done = await store.finalizeSnapshotLocal(snapshot.id, undefined, reviewer);
+    expect(done.finalized).toBe(true);
+  });
+
+  it("key findings are saved whole, cleaned, shown in the preview, and don't count as changed facts at sign-off", async () => {
+    const job = await newJob();
+    await checkEverything(job.id, job.items);
+    const { snapshot } = await store.createReportSnapshotLocal({ assessmentId: job.id });
+    const updated = await store.updateSnapshotNarrativeLocal(snapshot.id, {
+      keyFindings: [
+        { id: "f1", title: "  Afternoon shading  ", priority: "medium", observed: " A tree shades the roof. ", meaning: "Shade lowers output.", action: "Have it assessed.", basis: [{ kind: "item", ref: job.items[0].title }], source: "ai" },
+        { id: "f1", title: "Second finding", priority: "low", observed: "x", meaning: "", action: "", basis: [], source: "person", confirmed: true, evidenceCount: 2 },
+      ],
+    });
+    const saved = updated.payload.narrative?.keyFindings ?? [];
+    expect(saved.map((f) => f.title)).toEqual(["Afternoon shading", "Second finding"]);
+    expect(saved[0].observed).toBe("A tree shades the roof.");
+    expect(new Set(saved.map((f) => f.id)).size).toBe(2); // a repeated id is made unique
+    expect(saved[1]).toMatchObject({ confirmed: true, evidenceCount: 2 });
+    expect(updated.htmlPreview).toContain("Afternoon shading");
+    expect(updated.htmlPreview).toContain("Recommended actions");
+    // editing the text sections later keeps the findings
+    const again = await store.updateSnapshotNarrativeLocal(snapshot.id, { summary: "Summary." });
+    expect(again.payload.narrative?.keyFindings).toHaveLength(2);
+    const done = await store.finalizeSnapshotLocal(snapshot.id, undefined, reviewer);
+    expect(done.finalized).toBe(true);
+    expect((await store.getSnapshotLocal(snapshot.id))?.payload.narrative?.keyFindings).toHaveLength(2);
+  });
+
+  it("refuses key findings that are incomplete or too big, and an empty list clears them", async () => {
+    const job = await newJob();
+    const { snapshot } = await store.createReportSnapshotLocal({ assessmentId: job.id });
+    const ok = { title: "T", priority: "high", observed: "o", meaning: "m", action: "a", basis: [], source: "person" } as const;
+    const save = (keyFindings: unknown) => store.updateSnapshotNarrativeLocal(snapshot.id, { keyFindings } as never);
+    await expect(save([{ ...ok, title: "   " }])).rejects.toThrow(/needs a title/);
+    await expect(save([{ ...ok, priority: "urgent" }])).rejects.toThrow(/priority/);
+    await expect(save([{ ...ok, action: "x".repeat(801) }])).rejects.toThrow(/action is limited to 800/);
+    await expect(save([{ ...ok, basis: [{ kind: "wish", ref: "x" }] }])).rejects.toThrow(/unknown type/);
+    await expect(save(Array.from({ length: 21 }, () => ok))).rejects.toThrow(/at most 20/);
+    await expect(save("not a list")).rejects.toThrow(/must be a list/);
+    await save([ok]);
+    expect((await save([])).payload.narrative?.keyFindings).toEqual([]);
+  });
+
   it("cannot be finalized while required items are still Not Checked", async () => {
     const job = await newJob();
     const { snapshot } = await store.createReportSnapshotLocal({ assessmentId: job.id });

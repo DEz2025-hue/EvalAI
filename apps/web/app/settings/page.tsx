@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { displayName } from "@eval-ai/shared";
 import { getNotifPrefs, setNotifPrefs, type NotifPrefs } from "../../lib/prefs";
 import DeleteAccountSection from "../../components/DeleteAccountSection";
+import ReportStyleCard from "../../components/ReportStyleCard";
 
 type Workspace = { id: string; name: string; role: string; createdAt: string };
 type Member = { userId: string; role: string; createdAt: string };
@@ -197,6 +198,8 @@ export default function SettingsPage(): JSX.Element {
           </ul>
         )}
       </section>
+
+      <ReportStyleCard />
 
       <section aria-label="Notification preferences" className="card p-5">
         <h2 className="text-sm font-semibold">Notification preferences</h2>

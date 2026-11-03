@@ -10,7 +10,7 @@ const Item = z.object({
   quantity: z.number().positive().finite(),
   unit: z.string().min(1).max(30),
   rationale: z.string().min(3).max(1000), // traceable
-  source: z.enum(["measurement", "finding", "rule", "user_input"]),
+  source: z.enum(["measurement", "finding", "rule", "user_input", "ai_suggested"]),
   provisional: z.boolean().optional(),
   assumptions: z.array(z.string().max(500)).max(20).optional(),
 });
@@ -23,7 +23,7 @@ export async function POST(req: Request) {
   try {
     const body = Body.parse(await req.json());
     const { saveMaterialsLocal } = await import("../../../lib/store");
-    const result = await saveMaterialsLocal(body.assessmentId, body.items as Array<{ description: string; specification?: string; quantity: number; unit: string; rationale: string; source: "measurement"|"finding"|"rule"|"user_input"; provisional?: boolean; assumptions?: string[]; findingId?: string }>, body.version, workspaceIdFor(auth, (body as unknown as { workspaceId?: string }).workspaceId), auth.ctx);
+    const result = await saveMaterialsLocal(body.assessmentId, body.items as Array<{ description: string; specification?: string; quantity: number; unit: string; rationale: string; source: "measurement"|"finding"|"rule"|"user_input"|"ai_suggested"; provisional?: boolean; assumptions?: string[]; findingId?: string }>, body.version, workspaceIdFor(auth, (body as unknown as { workspaceId?: string }).workspaceId), auth.ctx);
     return NextResponse.json({ ok: true, assessmentId: body.assessmentId, version: result.version, items: body.items.length, provisionalCount: result.provisionalCount, persisted: result.persisted, note: result.persisted ? "Persisted to Supabase — prior quotations now stale" : "Persisted to deterministic file fallback — prior quotations marked stale" });
   } catch (e) {
     return storeError(e);

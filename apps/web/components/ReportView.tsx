@@ -1,9 +1,15 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { NARRATIVE_SECTIONS, downloadGate, photoNumbers, previewKey, type ReportKeyFinding, type ReportNarrative } from "@eval-ai/shared";
 import { useRole } from "./useRole";
+import { KeyFindingsEditor } from "./KeyFindingsEditor";
+import { ReportPhotoSteps } from "./ReportPhotoSteps";
 
-type Narrative = { summary?: string; recommendations?: string; notes?: string };
+type Narrative = ReportNarrative;
+/** What the AI said about its own draft, shown under the editor until the next draft. */
+type DraftNotes = { missing: string[]; assumptions: string[]; figures: string[]; dropped: string[] };
+type DraftResponse = Narrative & { missingInformation?: string[]; assumptions?: string[]; unverifiedFigures?: string[]; droppedFindings?: string[]; error?: string };
 type Snapshot = {
   id: string;
   assessmentId: string;
@@ -14,17 +20,24 @@ type Snapshot = {
   finalized: boolean;
   createdAt: string;
   htmlPreview?: string;
-  payload?: { narrative?: Narrative };
+  payload?: { narrative?: Narrative; photos?: Array<{ evidenceId: string }> };
   reviewedByLabel?: string | null;
   reviewedAt?: string | null;
   reviewNote?: string | null;
 };
 
-const SECTIONS: Array<{ key: keyof Narrative; label: string; hint: string }> = [
-  { key: "summary", label: "Summary", hint: "A short plain-language overview of what was assessed and what was found." },
-  { key: "recommendations", label: "Recommendations", hint: "What should happen next, in your words. AI drafts are only suggestions — write what you stand behind." },
-  { key: "notes", label: "Reviewer notes", hint: "Anything the reader should know about scope, access or caveats." },
-];
+const HINTS: Record<Exclude<keyof Narrative, "keyFindings">, string> = {
+  summary: "A short plain-language overview: what was assessed, the overall picture, the top priorities and the next step. It should not repeat the findings.",
+  siteOverview: "Where the site is and what the job covers.",
+  recommendations: "Anything you want to add to the recommended actions, which are built from the findings above. AI drafts are only suggestions — write what you stand behind.",
+  openItems: "What is unknown or still to be checked.",
+  notes: "Anything the reader should know about scope, access or caveats.",
+  observations: "Written before the report had key findings. It is still shown in the report.",
+  issues: "Written before the report had key findings. It is still shown in the report.",
+};
+
+/** The text sections an AI draft fills in (the key findings are drafted too; reviewer notes are always the person's own). */
+const DRAFTED = ["summary", "siteOverview", "openItems"] as const;
 
 /** Report workflow shared by Assessments and Inspections: create drafts, edit, review, sign off, download. */
 export function ReportView({ id, basePath }: { id: string; basePath: "/assessments" | "/inspections" }): JSX.Element {
@@ -38,7 +51,12 @@ export function ReportView({ id, basePath }: { id: string; basePath: "/assessmen
   const [includeMaterials, setIncludeMaterials] = useState(false);
   const [narrative, setNarrative] = useState<Narrative>({});
   const [confirmReviewed, setConfirmReviewed] = useState(false);
+  // Preview before download (D-024): a draft can be downloaded only after this exact version was looked through.
+  const [previewed, setPreviewed] = useState<Record<string, string>>({});
   const [reviewNote, setReviewNote] = useState("");
+  const [draftNotes, setDraftNotes] = useState<DraftNotes | null>(null);
+  // Photos the AI looked at that the person has not yet answered "Add" or "Leave out" for (D-024): a draft waits for those answers.
+  const [photosWaiting, setPhotosWaiting] = useState(0);
 
   const load = useCallback(
     async (keepSelection = true) => {
@@ -71,17 +89,73 @@ export function ReportView({ id, basePath }: { id: string; basePath: "/assessmen
     setConfirmReviewed(false);
   }, [selected?.id, selected?.payload?.narrative]);
 
+  /** Ask the AI to write the report sections for this draft. Throws with the reason when it can't. */
+  async function fetchWriteUp(snapshotId: string): Promise<{ text: Narrative; keyFindings: ReportKeyFinding[]; notes: DraftNotes }> {
+    const res = await fetch("/api/ai/report-draft", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ assessmentId: id, snapshotId }) });
+    const data = (await res.json().catch(() => ({}))) as DraftResponse;
+    if (!res.ok) throw new Error(data.error ?? "AI suggestions are unavailable");
+    const text: Narrative = {};
+    for (const k of DRAFTED) if (typeof data[k] === "string" && data[k]!.trim()) text[k] = data[k]!;
+    return {
+      text,
+      keyFindings: data.keyFindings ?? [],
+      notes: { missing: (data.missingInformation ?? []).filter(Boolean), assumptions: (data.assumptions ?? []).filter(Boolean), figures: (data.unverifiedFigures ?? []).filter(Boolean), dropped: (data.droppedFindings ?? []).filter(Boolean) },
+    };
+  }
+
+  /** Rewrite only the summary and open items from the key findings as they are now (the person's edits are saved first, so the AI reads them). */
+  async function rewriteSummary() {
+    if (!selected) return;
+    setBusy("summary");
+    setError(null);
+    setMsg(null);
+    try {
+      const save = await fetch("/api/reports/snapshot", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ snapshotId: selected.id, narrative: { keyFindings: narrative.keyFindings ?? [] } }) });
+      if (!save.ok) throw new Error(((await save.json().catch(() => ({}))) as { error?: string }).error ?? "Could not save your findings first");
+      const res = await fetch("/api/ai/report-draft", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ assessmentId: id, snapshotId: selected.id, stage: "summary" }) });
+      const data = (await res.json().catch(() => ({}))) as DraftResponse;
+      if (!res.ok) throw new Error(data.error ?? "AI suggestions are unavailable");
+      setNarrative((n) => ({ ...n, summary: data.summary ?? n.summary, openItems: data.openItems ?? n.openItems }));
+      setDraftNotes({ missing: [], assumptions: [], figures: (data.unverifiedFigures ?? []).filter(Boolean), dropped: [] });
+      await load();
+      setMsg("The summary and open items were rewritten from your findings and added to the editor. Read them, then press Save edits.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function createDraft() {
+    if (photosWaiting > 0) {
+      setError(`${photosWaiting} photo${photosWaiting === 1 ? " is" : "s are"} waiting for your answer. Open "Photos for the report" and choose Add to report or Leave out for each, then save your choices.`);
+      return;
+    }
     setBusy("create");
     setError(null);
     setMsg(null);
+    setDraftNotes(null);
     try {
       const res = await fetch("/api/reports/snapshot", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ assessmentId: id, includeMaterials }) });
       const data = (await res.json().catch(() => ({}))) as { snapshot?: Snapshot; error?: string };
       if (!res.ok || !data.snapshot) throw new Error(data.error ?? "Could not create the draft");
+      const snapshotId = data.snapshot.id;
+      // Write the report out of the saved facts straight away. If the AI is unavailable the draft is still a complete
+      // record of the saved facts, and the sections can be written by hand.
+      setBusy("write");
+      let note = "";
+      try {
+        const { text, keyFindings, notes } = await fetchWriteUp(snapshotId);
+        const save = await fetch("/api/reports/snapshot", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ snapshotId, narrative: { ...text, keyFindings } }) });
+        if (!save.ok) throw new Error(((await save.json().catch(() => ({}))) as { error?: string }).error ?? "Could not save the written sections");
+        setDraftNotes(notes);
+        note = "The written sections were drafted by AI from your saved facts. Read each one, correct it, then press Save edits.";
+      } catch (e) {
+        note = `The report was assembled from your saved facts, but the written sections could not be drafted (${e instanceof Error ? e.message : String(e)}). You can write them yourself, or try “Rewrite with AI”.`;
+      }
       await load(false);
-      setSelectedId(data.snapshot.id);
-      setMsg("New draft created from the current saved facts. Edit the sections below, review it, then sign off.");
+      setSelectedId(snapshotId);
+      setMsg(`New draft created. ${note}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -109,18 +183,35 @@ export function ReportView({ id, basePath }: { id: string; basePath: "/assessmen
 
   async function suggestWithAi() {
     if (!selected) return;
-    const hasText = !!(narrative.summary?.trim() || narrative.recommendations?.trim());
-    if (hasText && !confirm("Replace the current summary and recommendations in the editor with an AI suggestion? Your saved version is not changed until you press Save edits.")) return;
+    const hasText = DRAFTED.some((k) => narrative[k]?.trim()) || !!narrative.keyFindings?.length;
+    if (hasText && !confirm("Replace the summary, site overview, key findings and open items in the editor with a new AI draft? Your saved version is not changed until you press Save edits. Reviewer notes and additional recommendations are kept.")) return;
     setBusy("suggest");
     setError(null);
     setMsg(null);
     try {
-      const res = await fetch("/api/ai/report-draft", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ assessmentId: id }) });
-      const data = (await res.json().catch(() => ({}))) as { summary?: string; recommendations?: string; missingInformation?: string[]; error?: string };
-      if (!res.ok) throw new Error(data.error ?? "AI suggestions are unavailable — write the sections yourself");
-      setNarrative((n) => ({ ...n, summary: data.summary ?? n.summary, recommendations: data.recommendations ?? n.recommendations }));
-      const gaps = (data.missingInformation ?? []).filter(Boolean);
-      setMsg("AI draft added to the editor. It is a suggestion built only from confirmed findings and recorded facts — read it, correct it, then press Save edits." + (gaps.length ? " The AI noted missing information: " + gaps.slice(0, 3).join("; ") : ""));
+      const { text, keyFindings, notes } = await fetchWriteUp(selected.id);
+      setNarrative((n) => ({ ...n, ...Object.fromEntries(DRAFTED.map((k) => [k, text[k] ?? ""])), keyFindings }));
+      setDraftNotes(notes);
+      setMsg("AI draft added to the editor. It is a suggestion built from your saved facts — read it, correct it, then press Save edits.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  /** Puts the office's current report style into this draft (a finalized report is never restyled). */
+  async function restyle() {
+    if (!selected) return;
+    setBusy("style");
+    setError(null);
+    setMsg(null);
+    try {
+      const res = await fetch("/api/reports/template-apply", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ snapshotId: selected.id }) });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Could not apply the style");
+      await load(true);
+      setMsg("The office report style is applied to this draft. Preview it again before downloading.");
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -171,8 +262,20 @@ export function ReportView({ id, basePath }: { id: string; basePath: "/assessmen
     }
   }
 
+  /** One labelled text box for a written section. */
+  const sectionField = (key: Exclude<keyof Narrative, "keyFindings">) => {
+    const sec = NARRATIVE_SECTIONS.find((s) => s.key === key)!;
+    return (
+      <label key={key} className="block text-sm">{sec.label}
+        <textarea value={narrative[key] ?? ""} onChange={(e) => setNarrative((n) => ({ ...n, [key]: e.target.value }))} rows={key === "notes" || key === "openItems" ? 3 : key === "observations" ? 8 : 4} maxLength={sec.max} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+        <span className="text-xs text-slate-500">{HINTS[key]}</span>
+      </label>
+    );
+  };
+
   const draft = selected && !selected.finalized;
   const editable = !!draft && canWrite;
+  const gate = downloadGate(selected ? { id: selected.id, finalized: selected.finalized, payload: selected.payload } : null, selected ? previewed[selected.id] : null);
 
   return (
     <div className="mx-auto max-w-3xl space-y-4">
@@ -182,10 +285,10 @@ export function ReportView({ id, basePath }: { id: string; basePath: "/assessmen
           {canWrite ? (
             <>
               <label className="flex items-center gap-1 text-xs"><input type="checkbox" checked={includeMaterials} onChange={(e) => setIncludeMaterials(e.target.checked)} /> include materials</label>
-              <button onClick={createDraft} disabled={busy !== null} className="btn-primary text-xs">{busy === "create" ? "Creating…" : "Create new draft"}</button>
+              <button onClick={createDraft} disabled={busy !== null} className="btn-primary text-xs">{busy === "create" ? "Creating…" : busy === "write" ? "Writing the report…" : "Create new draft"}</button>
             </>
           ) : null}
-          <button onClick={downloadPdf} disabled={!selected || busy !== null} className="btn-secondary text-xs">{busy === "pdf" ? "Generating…" : "Download PDF"}</button>
+          <button onClick={downloadPdf} disabled={!selected || busy !== null || gate.locked} title={gate.reason ?? undefined} className="btn-secondary text-xs">{busy === "pdf" ? "Generating…" : "Download PDF"}</button>
           <button onClick={() => window.print()} className="btn-secondary text-xs">Print</button>
         </div>
       </div>
@@ -194,6 +297,8 @@ export function ReportView({ id, basePath }: { id: string; basePath: "/assessmen
       {error ? <div role="alert" className="rounded bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-700">{error}</div> : null}
       {msg ? <div role="status" className="rounded bg-green-50 border border-green-200 px-3 py-2 text-xs text-green-800">{msg}</div> : null}
       {loading ? <div className="card p-6 text-sm text-slate-500">Loading reports…</div> : null}
+
+      <ReportPhotoSteps assessmentId={id} canWrite={canWrite} onUnanswered={setPhotosWaiting} />
 
       {snapshots.length > 0 ? (
         <div className="card p-3 space-y-2">
@@ -219,17 +324,26 @@ export function ReportView({ id, basePath }: { id: string; basePath: "/assessmen
       {draft && canWrite ? (
         <div className="card p-3 space-y-3">
           <div className="text-sm font-semibold">Edit this draft</div>
-          {SECTIONS.map((sec) => (
-            <label key={sec.key} className="block text-sm">{sec.label}
-              <textarea value={narrative[sec.key] ?? ""} onChange={(e) => setNarrative((n) => ({ ...n, [sec.key]: e.target.value }))} rows={sec.key === "notes" ? 3 : 4} maxLength={5000} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
-              <span className="text-xs text-slate-500">{sec.hint}</span>
-            </label>
-          ))}
+          {/* Summary and site first, then the findings the report is built around, then the extras. Older free-text sections only show when they hold text. */}
+          {(["summary", "siteOverview"] as const).map((k) => sectionField(k))}
+          <KeyFindingsEditor value={narrative.keyFindings ?? []} onChange={(keyFindings) => setNarrative((n) => ({ ...n, keyFindings }))} photoNumber={photoNumbers({ photos: selected?.payload?.photos as never })} />
+          {(["recommendations", "openItems", "notes"] as const).map((k) => sectionField(k))}
+          {NARRATIVE_SECTIONS.filter((s) => s.legacy && narrative[s.key]?.trim()).map((s) => sectionField(s.key))}
+          {draftNotes?.dropped.length ? <p className="text-xs text-slate-600"><strong>The AI wrote findings that were left out</strong> because they were incomplete or had no source in your record: {draftNotes.dropped.join("; ")}.</p> : null}
+          {draftNotes?.figures.length ? (
+            <div role="alert" className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+              <strong>Check these figures before you rely on them:</strong> {draftNotes.figures.join("; ")}. They are not in your saved data, so the AI may have made them up.
+            </div>
+          ) : null}
+          {draftNotes?.missing.length ? <p className="text-xs text-slate-600"><strong>The AI noted missing information:</strong> {draftNotes.missing.join("; ")}</p> : null}
+          {draftNotes?.assumptions.length ? <p className="text-xs text-slate-600"><strong>Assumptions the AI made:</strong> {draftNotes.assumptions.join("; ")}</p> : null}
           <div className="flex flex-wrap gap-2">
             <button onClick={saveNarrative} disabled={busy !== null} className="btn-secondary text-xs">{busy === "save" ? "Saving…" : "Save edits"}</button>
-            <button onClick={suggestWithAi} disabled={busy !== null} className="btn-secondary text-xs">{busy === "suggest" ? "Asking AI…" : "Suggest draft with AI"}</button>
+            <button onClick={suggestWithAi} disabled={busy !== null} className="btn-secondary text-xs">{busy === "suggest" ? "Asking AI…" : "Rewrite with AI"}</button>
+            <button onClick={rewriteSummary} disabled={busy !== null} className="btn-secondary text-xs">{busy === "summary" ? "Writing…" : "Rewrite summary from my findings"}</button>
+            <button onClick={restyle} disabled={busy !== null} className="btn-secondary text-xs" title="Use the office's current report style (set in Settings)">{busy === "style" ? "Applying…" : "Re-apply office style"}</button>
           </div>
-          <p className="text-xs text-slate-500">AI suggestions use only confirmed findings and recorded facts. They are drafts: nothing is saved until you save, and you are responsible for the final text.</p>
+          <p className="text-xs text-slate-500">AI drafts are built from your saved facts and photos and are suggestions: nothing is saved until you save, &ldquo;what it means&rdquo; may use general technical knowledge, and you are responsible for the final text.</p>
         </div>
       ) : null}
 
@@ -238,6 +352,18 @@ export function ReportView({ id, basePath }: { id: string; basePath: "/assessmen
           <div className="border-b border-slate-200 bg-slate-50 px-4 py-2 text-xs font-medium">Preview — built from the stored snapshot (no AI regeneration)</div>
           {/* Sandboxed with no permissions: report text can never run script or reach the app. */}
           <iframe title="Report preview" sandbox="" srcDoc={selected.htmlPreview} className="h-[760px] w-full bg-white" />
+          {!selected.finalized ? (
+            <div className="flex flex-wrap items-center gap-3 border-t border-slate-200 bg-slate-50 px-4 py-2">
+              {gate.locked ? (
+                <>
+                  <button onClick={() => setPreviewed((p) => ({ ...p, [selected.id]: previewKey({ id: selected.id, finalized: selected.finalized, payload: selected.payload }) }))} className="btn-primary text-xs">I&apos;ve looked through this preview</button>
+                  <span className="text-xs text-slate-600">{gate.reason} Download PDF unlocks after you confirm.</span>
+                </>
+              ) : (
+                <span className="text-xs text-green-800">Previewed — you can download this version. Change anything and you will be asked to look again.</span>
+              )}
+            </div>
+          ) : null}
         </div>
       ) : null}
 

@@ -82,7 +82,7 @@ export function splitWav(wav: Uint8Array, chunkSeconds = CHUNK_SECONDS): Uint8Ar
  * Input and output go through temp files because MP4/M4A recordings often keep their index at the end and cannot be piped.
  */
 export async function toTranscribableWavChunks(input: Uint8Array): Promise<Uint8Array[]> {
-  if (input.length < 100) throw new AiAdapterError("The recording is empty", "unsupported_audio");
+  if (input.length < 100) throw new AiAdapterError(`The recording was empty (${input.length} bytes reached the server)`, "unsupported_audio");
   if (input.length > 50 * 1024 * 1024) throw new AiAdapterError("The recording is too large", "unsupported_audio");
 
   let wav: Uint8Array;

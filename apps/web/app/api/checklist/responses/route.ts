@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { saveResponsesLocal, getResponsesLocal, verifyAssessmentWorkspace } from "../../../../lib/store";
+import { responseProblem } from "@eval-ai/shared";
+import { saveResponsesLocal, getResponsesLocal, getChecklistItemsLocal, verifyAssessmentWorkspace, type ResponseInput } from "../../../../lib/store";
 import { requireAuth, storeError, requireWriter } from "../../../../lib/auth";
 
 const Body = z.object({
@@ -11,6 +12,8 @@ const Body = z.object({
     notes: z.string().max(2000).optional(),
     measuredValue: z.number().finite().optional(),
     measuredUnit: z.string().max(20).optional(),
+    /** The answer's saved time as the screen loaded it (null = never saved). A newer stored answer makes the save a 409. */
+    baseUpdatedAt: z.string().max(40).nullable().optional(),
   })).max(500),
 });
 
@@ -23,8 +26,17 @@ export async function POST(req: Request) {
     for (const r of body.responses) {
       if (!["pass", "fail", "needs_attention", "not_applicable", "not_checked"].includes(r.status)) throw new Error(`Invalid status ${r.status}`);
     }
-    const result = await saveResponsesLocal(body.assessmentId, body.responses as Array<{ itemId: string; status: string; notes?: string; measuredValue?: number; measuredUnit?: string }>, auth.ctx);
-    return NextResponse.json({ ok: true, assessmentId: body.assessmentId, saved: result.saved, persisted: result.persisted });
+    // The same answer rules as the screens, enforced here so no client can skip them.
+    await verifyAssessmentWorkspace(auth.ctx, body.assessmentId);
+    const items = new Map((await getChecklistItemsLocal(body.assessmentId, auth.ctx)).map((it) => [it.id, it]));
+    for (const r of body.responses) {
+      const item = items.get(r.itemId);
+      if (!item) return NextResponse.json({ error: "This checklist item no longer exists — reload the checklist" }, { status: 400 });
+      const problem = responseProblem({ status: r.status as string, notes: r.notes, measuredValue: r.measuredValue, measuredUnit: r.measuredUnit }, item);
+      if (problem) return NextResponse.json({ error: problem }, { status: 400 });
+    }
+    const result = await saveResponsesLocal(body.assessmentId, body.responses as ResponseInput[], auth.ctx);
+    return NextResponse.json({ ok: true, assessmentId: body.assessmentId, saved: result.saved, persisted: result.persisted, updatedAt: result.updatedAt });
   } catch (e) {
     return storeError(e);
   }

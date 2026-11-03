@@ -9,7 +9,7 @@ export function LiveCameraPlaceholder({ compact = false }: { compact?: boolean }
         <span className="text-xs font-medium text-slate-700">Live Camera Analysis</span>
       </div>
       <p className="mt-2 text-xs leading-5 text-slate-600">
-        Continuous live-camera guidance isn&apos;t available in this release — no live stream is active. Use photo capture and on-demand analysis today.
+        Live camera analysis on the web isn&apos;t available yet — no live stream is active here. A live session is in beta on the mobile app. On the web, use photo capture and on-demand analysis.
       </p>
     </div>
   );

@@ -1,37 +1,46 @@
 import { NextResponse } from "next/server";
+import { isAiConfigured } from "@eval-ai/ai-adapter";
+import { LIVE_DEFAULT_INTERVAL_S, LIVE_INTERVALS_S, LIVE_MAX_FRAMES, LIVE_MAX_SECONDS } from "@eval-ai/shared";
 
-// Phase 7 — Live camera remains Coming Soon. This endpoint documents the gate
-// and proves no working live-stream is exposed. Any future live implementation
-// must pass the gate below and add a real streaming/frame route.
+// Live session status and release gate (D-015). Live is NOT video: the phone shows a camera preview and takes a still
+// every few seconds (or on tap); each still goes to /api/ai/live-frame for a reviewable suggestion. This endpoint is the
+// only /api/live route; the frame route lives under /api/ai with the other AI operations.
 
 export async function GET() {
-  const frameAnalysis = !!process.env.AI_PROVIDER_API_KEY;
+  const frameAnalysis = isAiConfigured();
   return NextResponse.json({
-    status: "coming_soon",
-    feature: "continuous live-camera AI guidance",
-    available: false,
-    message: "Live camera guidance is Coming Soon — not a working feature until provider, privacy, and reliability gate passes. Manual single-frame capture + suggestion-only analysis is available in the app today.",
-    manualFrameCapture: {
-      available: true,
-      analysisAvailable: frameAnalysis,
-      how: "In-app Live camera panel: explicit Start opens preview only (never recorded), Capture sends one frame to /api/ai/analyze-image (suggestion, requiresHumanReview), optional save to private evidence.",
-      analysisNote: frameAnalysis ? "AI_PROVIDER_API_KEY is set — frame analysis active." : "AI_PROVIDER_API_KEY not set — frames can be captured and saved as evidence, analysis returns a labelled fallback.",
+    status: "beta",
+    feature: "live session: periodic and manual frames (not video)",
+    available: true,
+    platforms: { mobile: "beta", web: "coming_soon", glasses: "design_only" },
+    message:
+      "Live session is in beta on the mobile app. A camera preview shows on the phone with a still every few seconds (or when you tap Capture). You can narrate: your voice is recorded in short pieces and transcribed into notes you review (D-017). Optionally the stills also go to the AI for suggestions. Video is never recorded, and pictures are not kept unless you save one. Web live session and Meta glasses are not available yet.",
+    pattern: {
+      chosen: "periodic_and_manual_frames",
+      decision: "D-015",
+      frameRoute: "/api/ai/live-frame",
+      intervalSeconds: LIVE_INTERVALS_S,
+      defaultIntervalSeconds: LIVE_DEFAULT_INTERVAL_S,
+      limits: { maxMinutes: LIVE_MAX_SECONDS / 60, maxFrames: LIVE_MAX_FRAMES, requestsInFlight: 1, requestsPerMinutePerWorkspace: 8 },
     },
-    gate: {
-      required: [
-        "provider supported image/video interaction pattern confirmed (docs + synthetic data)",
-        "product chooses one of: selected frames (manual capture), periodic frames, or provider live stream — documented in DECISIONS.md",
-        "privacy & consent: camera/mic permission asked only when needed, visible active indicator, no background recording, disclosure of external processing/retention",
-        "data retention & storage: frame/audio retention policy documented, private storage, short-lived signed URLs only after authz",
-        "network / latency / battery / cost measured and bounded",
-        "interruption & provider failure have safe fallbacks (preserve work, show safe error, retry, manual fallback)",
-        "all TEST_PLAN.md §8 live-camera acceptance tests pass",
-      ],
-      decision_needed: "D-005 future pattern choice",
-      docs: ["eval-ai md/AI_AND_VOICE.md §6", "eval-ai md/SECURITY.md §6", "eval-ai md/TEST_PLAN.md §8"],
+    frameAnalysis: {
+      configured: frameAnalysis,
+      note: frameAnalysis ? "AI provider key is set. One synthetic picture was analysed by Muse Spark 1.3 through OpenRouter (D-018); not yet verified on Meta's own API or on a phone." : "No AI provider key: the session works as capture-only.",
     },
-    alternatives_today: [
-      "Capture/upload photo → private Storage → user requests /api/ai/analyze-image (suggestion, with uncertainty/limitations, requiresHumanReview=true)",
+    gate: [
+      { requirement: "pattern chosen and documented", state: "done", note: "D-015" },
+      { requirement: "provider interaction confirmed with synthetic data", state: "partly_done", note: "Image analysis checked once with a synthetic picture through OpenRouter (D-018). Voice transcription and Meta's own API are not verified (Meta billing not set up)." },
+      { requirement: "privacy and consent: consent step, visible LIVE indicator, no background capture, disclosure of external processing", state: "implemented_pending_device_test" },
+      { requirement: "retention: frames sent inline, never stored or logged unless the person saves one", state: "implemented" },
+      { requirement: "network, latency, battery and cost bounded", state: "limits_implemented_latency_and_battery_pending_device_test", note: "Interval, 30 minute and 90 frame limits, one request at a time, rate limit and daily cap." },
+      { requirement: "interruption and provider failure have safe fallbacks", state: "implemented_and_unit_tested", note: "Capture-only mode, pause and retry, stop on background." },
+      { requirement: "TEST_PLAN section 8 acceptance tests", state: "automated_parts_pass_device_checklist_pending" },
     ],
+    glasses: {
+      state: "design_only",
+      decision: "D-016",
+      note: "Meta glasses would be a second frame source for the same session. Not built: Meta's toolkit is a developer preview and apps using it can't be published yet.",
+    },
+    docs: ["eval-ai md/AI_AND_VOICE.md section 6", "eval-ai md/SECURITY.md section 6", "eval-ai md/TEST_PLAN.md section 8", "eval-ai md/DECISIONS.md D-015, D-016"],
   });
 }

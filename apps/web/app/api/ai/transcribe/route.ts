@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { transcribeWav, AiAdapterError } from "@eval-ai/ai-adapter";
+import { transcribeWav, getAdapterConfig, AiAdapterError } from "@eval-ai/ai-adapter";
 import { keywordsFor } from "@eval-ai/shared";
 import { requireWriter } from "../../../../lib/auth";
 import { aiError, aiGuard, aiRunHook, aiWorkspaceKey } from "../../../../lib/aiRoute";
@@ -32,6 +32,10 @@ export async function POST(req: Request) {
   try {
     const body = Body.parse(await req.json());
     if (!body.storageKey && !body.audioBase64) return NextResponse.json({ error: "No recording provided" }, { status: 400 });
+    // OpenRouter has no Muse Voice Transcribe (D-018): say so plainly instead of the generic "key or model" message.
+    if (getAdapterConfig().provider === "openrouter") {
+      return NextResponse.json({ error: "Voice transcription is not available while the AI runs through OpenRouter (test setup). It needs Meta's own API.", code: "voice_unavailable", fallback: "Use text input — the original audio is preserved", isUnconfirmed: true }, { status: 503 });
+    }
 
     let bytes: Uint8Array;
     if (body.storageKey) {

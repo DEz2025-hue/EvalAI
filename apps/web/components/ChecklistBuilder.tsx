@@ -62,12 +62,16 @@ export function ChecklistBuilder({ id, basePath }: { id: string; basePath: "/ass
     // Editing a pack requirement makes it your wording, so it no longer claims to be the standard text.
     change((prev) => prev.map((it, i) => (i === idx ? { ...it, title, source: it.source === "established" ? "user" : it.source } : it)));
   }
+  function updateLookFor(idx: number, instructions: string) {
+    change((prev) => prev.map((it, i) => (i === idx ? { ...it, instructions } : it)));
+  }
   function toggleRequired(idx: number) {
     change((prev) => prev.map((it, i) => (i === idx ? { ...it, required: !it.required } : it)));
   }
   function removeAt(idx: number) {
     const it = items[idx];
-    if (it.required && !confirm(`Remove required item "${it.title}"? Responses recorded against it will be deleted.`)) return;
+    // Saving removes the item's answer for good; photos stay with the job but are no longer linked to it.
+    if (!confirm(`Remove ${it.required ? "required " : ""}item "${it.title}"? Any answer recorded for it is removed when you confirm the checklist. Photos stay with the job.`)) return;
     change((prev) => prev.filter((_, i) => i !== idx));
   }
   function move(idx: number, dir: -1 | 1) {
@@ -91,17 +95,19 @@ export function ChecklistBuilder({ id, basePath }: { id: string; basePath: "/ass
     setError(null);
     setNotice(null);
     try {
-      const res = await fetch("/api/ai/checklist", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ assessmentId: id }) });
-      const data = (await res.json().catch(() => ({}))) as { items?: Array<{ title: string; rationale?: string; category?: string; instructions?: string }>; error?: string; warnings?: string[] };
+      const res = await fetch("/api/ai/checklist", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ assessmentId: id, currentItems: items.map((i) => ({ title: i.title, instructions: i.instructions, category: i.category })) }) });
+      const data = (await res.json().catch(() => ({}))) as { skipped?: Array<{ title: string; duplicateOf: string }>; items?: Array<{ title: string; rationale?: string; category?: string; instructions?: string }>; error?: string; warnings?: string[] };
       if (!res.ok) throw new Error(data.error ?? "AI suggestions are unavailable — continue with the checklist you have");
+      // The server already leaves out repeats by meaning; this catches an exact title typed since.
+      const skippedCount = (data.skipped ?? []).length;
       const existing = new Set(items.map((i) => i.title.trim().toLowerCase()));
       const fresh = (data.items ?? []).filter((s) => s.title && !existing.has(s.title.trim().toLowerCase())).slice(0, 10);
       if (fresh.length === 0) {
-        setNotice("No new suggestions — the checklist already covers what the AI proposed.");
+        setNotice(skippedCount > 0 ? `No new suggestions: all ${skippedCount} the AI proposed repeat items already on the checklist.` : "No new suggestions — the checklist already covers what the AI proposed.");
         return;
       }
       change((prev) => [...prev, ...fresh.map((s, i) => ({ id: `ai_${Date.now()}_${i}`, title: s.title, required: false, category: s.category ?? "AI suggested", instructions: s.instructions, source: "ai_suggested" as const, rationale: s.rationale }))]);
-      setNotice(`${fresh.length} AI suggestion(s) added at the end — review each one, then remove or keep it.`);
+      setNotice(`${fresh.length} AI suggestion(s) added at the end — review each one, then remove or keep it.${skippedCount > 0 ? " " + `${skippedCount} suggestion${skippedCount === 1 ? "" : "s"} left out because the checklist already covers ${skippedCount === 1 ? "it" : "them"}.` : ""}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -162,7 +168,11 @@ export function ChecklistBuilder({ id, basePath }: { id: string; basePath: "/ass
                 <SourceBadge source={it.source} />
                 {it.category ? <span className="text-xs bg-slate-100 px-2 py-0.5 rounded-full">{it.category}</span> : null}
               </div>
-              <input value={it.title} disabled={!canWrite} onChange={(e) => updateTitle(idx, e.target.value)} className="w-full rounded border border-slate-200 px-2 py-1 text-sm" />
+              <input value={it.title} disabled={!canWrite} onChange={(e) => updateTitle(idx, e.target.value)} aria-label="Item title" className="w-full rounded border border-slate-200 px-2 py-1 text-sm" />
+              <label className="block text-xs text-slate-600">
+                Look for
+                <textarea value={it.instructions ?? ""} disabled={!canWrite} onChange={(e) => updateLookFor(idx, e.target.value)} rows={2} maxLength={2000} placeholder="What to observe or record for this item (shown in the walk-through)" className="mt-0.5 w-full rounded border border-slate-200 px-2 py-1 text-xs" />
+              </label>
               {it.rationale ? <p className="text-xs text-slate-500">Why: {it.rationale}</p> : null}
             </div>
             {canWrite ? (

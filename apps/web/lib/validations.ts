@@ -7,6 +7,8 @@ export const CreateAssessmentSchema = z.object({
   address: z.string().max(200).optional(),
   goal: z.string().max(500).optional(),
   existingEquipment: z.string().max(1000).optional(),
+  /** New installation or existing system. Inspections are always "existing" (decided on the server). */
+  scenario: z.enum(["new_install", "existing"]).optional(),
 });
 
 export const ChecklistStatusSchema = z.enum(["pass", "fail", "needs_attention", "not_applicable", "not_checked"]);

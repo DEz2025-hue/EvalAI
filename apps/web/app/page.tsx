@@ -244,7 +244,7 @@ export default function DashboardPage(): JSX.Element {
         </section>
         <section aria-label="Live camera" className="card p-4">
           <h2 className="text-sm font-semibold">Live camera guidance <span className="ml-1 rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-800">Coming Soon</span></h2>
-          <p className="mt-1 text-sm leading-6 text-slate-600">Continuous AI guidance from a live camera is not available yet. Use photo capture and on-request analysis instead.</p>
+          <p className="mt-1 text-sm leading-6 text-slate-600">A live session (a picture every few seconds, with suggestions you review) is in beta on the mobile app. The web version isn&apos;t available yet; here, use photo capture and on-request analysis.</p>
         </section>
         {activity !== null && activity.length > 0 ? (
           <section aria-label="Recent activity" className="card p-4">

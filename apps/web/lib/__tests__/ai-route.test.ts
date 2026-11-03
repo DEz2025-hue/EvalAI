@@ -55,6 +55,55 @@ describe("provider failures become safe, actionable responses", () => {
     expect(bad.status).toBe(502);
     expect((await body(bad)).error).not.toMatch(/JSON/);
   });
+
+  it("a key with almost no credit says so and what to do, instead of blaming the request", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    vi.stubEnv("AI_PROVIDER", "openrouter");
+    vi.stubEnv("OPENROUTER_API_KEY", "sk-or-test");
+    const res = adapterErrorResponse(new AiAdapterError("The AI provider account has too little credit left for this request", "billing", 402, "402", 1039));
+    expect(res.status).toBe(503);
+    const out = await body(res);
+    expect(out.error).toMatch(/OpenRouter account has almost no credit/);
+    expect(out.error).toMatch(/Add credit at openrouter\.ai/);
+    expect(out.error).toMatch(/key's spending limit/);
+    expect(out.code).toBe("ai_billing");
+    expect(JSON.stringify(out)).not.toMatch(/1039|workspaces|keys\/|sk-or/);
+    vi.unstubAllEnvs();
+  });
+
+  it("billing and config errors name the provider that raised them, so a paid Meta plan isn't blamed for an empty OpenRouter account", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const billing = () => new AiAdapterError("billing", "billing", 402, "billing_not_configured");
+    vi.stubEnv("AI_PROVIDER", "openrouter");
+    vi.stubEnv("OPENROUTER_API_KEY", "sk-or-test");
+    expect((await body(adapterErrorResponse(billing()))).error).toMatch(/OpenRouter account has no credit.*openrouter\.ai/);
+    expect((await body(adapterErrorResponse(new AiAdapterError("x", "auth", 401)))).error).toMatch(/Provider in use: OpenRouter/);
+
+    vi.stubEnv("AI_PROVIDER", "meta");
+    vi.stubEnv("META_API_KEY", "LLM|test");
+    vi.stubEnv("OPENROUTER_API_KEY", "");
+    vi.stubEnv("AI_PROVIDER_BASE_URL", "");
+    const meta = (await body(adapterErrorResponse(billing()))).error;
+    expect(meta).toMatch(/Meta billing is not set up/);
+    expect(meta).not.toMatch(/OpenRouter/);
+    expect((await body(adapterErrorResponse(new AiAdapterError("x", "auth", 401)))).error).toMatch(/Provider in use: Meta/);
+    vi.unstubAllEnvs();
+  });
+
+  it("a cut-off answer says the AI ran out of room and suggests fewer photos, without provider internals; the log says why", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const cut = adapterErrorResponse(new AiAdapterError("The AI answer was cut off (token limit reached) — raise the limit or lower the reasoning effort", "invalid_response"));
+    expect(cut.status).toBe(502);
+    const text = (await body(cut)).error;
+    expect(text).toMatch(/ran out of room/);
+    expect(text).toMatch(/fewer photos/);
+    expect(text).not.toMatch(/token|reasoning|limit/i);
+    // The server log names the case, so a bug report doesn't have to guess between cut off, empty and broken JSON.
+    expect(log.mock.calls.some((c) => c.join(" ").includes("cut off"))).toBe(true);
+    // The generic message is unchanged for other unusable answers.
+    expect((await body(adapterErrorResponse(new AiAdapterError("The AI returned an empty answer", "invalid_response")))).error).toMatch(/unusable answer/);
+    log.mockRestore();
+  });
 });
 
 describe("aiGuard: rate limit and daily spend cap", () => {

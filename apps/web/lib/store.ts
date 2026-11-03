@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
-import { PACK_TEMPLATES, buildReportHtml, type ReportNarrative, computeCompleteness, calculateMeasurement, quotationTotalAmount, type CompletenessResult, type FormulaId, type MeasurementInput, type MeasurementSource, type ArCapture, type PhotoCapture, LENGTH_UNITS, type LengthUnit, isAcceptableArCapture, hasArInput, hasPhotoInput, verifyPhotoReading } from "@eval-ai/shared";
+import { buildReportPhotos, type PhotoChoices, type SavedPhotoReview } from "./reportPhotos";
+import { FINDING_PRIORITIES, KEY_FINDING_LIMITS, NARRATIVE_SECTIONS, PACK_TEMPLATES, checklistFor, lookForFor, templateItemMeta, type FindingPriority, type IntakeSummary, type ReportChecklistRow, type ReportKeyFinding, type ReportSiteBrief, type ReportPhoto, type Scenario, buildReportHtml, type ReportNarrative, computeCompleteness, calculateMeasurement, quotationTotalAmount, type CompletenessResult, type FormulaId, type MeasurementInput, type MeasurementSource, type ArCapture, type PhotoCapture, LENGTH_UNITS, type LengthUnit, isAcceptableArCapture, hasArInput, hasPhotoInput, verifyPhotoReading, QUANTITY_TBD, InterviewStateSchema, interviewStatements, normalizeTemplate, hasTemplate, type ReportTemplate } from "@eval-ai/shared";
 import type { ReportSnapshot, ReportInput } from "@eval-ai/shared";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -162,6 +163,8 @@ export async function createAssessmentLocal(input: {
   pack: "solar" | "cctv";
   goal?: string;
   existingEquipment?: string;
+  /** New installation or existing system. Already resolved for the mode (inspections are always "existing"); null = not set. */
+  scenario?: Scenario | null;
   ctx?: StoreCtx;
 }): Promise<{ id: string; persisted: boolean; items: ChecklistItemRecord[] }> {
   const workspaceId = workspaceOf(input.ctx, input.workspaceId);
@@ -180,20 +183,19 @@ export async function createAssessmentLocal(input: {
       }
       const { data: assessment, error } = await supabase
         .from("assessments")
-        .insert({ workspace_id: workspaceId, site_id: siteId, created_by: input.ctx?.userId, mode: input.mode, pack: input.pack, status: "draft", context: { siteName: input.siteName, goal: input.goal, existingEquipment: input.existingEquipment } })
+        .insert({ workspace_id: workspaceId, site_id: siteId, created_by: input.ctx?.userId, mode: input.mode, pack: input.pack, status: "draft", context: { siteName: input.siteName, goal: input.goal, existingEquipment: input.existingEquipment, ...(input.scenario ? { scenario: input.scenario } : {}) } })
         .select("id")
         .single();
       if (error) throw error;
       const id = assessment.id as string;
-      const tpl = PACK_TEMPLATES[input.pack];
-      const rows = tpl.checklist.map((title, i) => ({ assessment_id: id, title, required: i < 5, ord: i, category: i < 2 ? "Site" : "System", source: "established" }));
-      const { data: inserted, error: itemsErr } = await supabase.from("checklist_items").insert(rows).select("id, title, required, ord, category, source");
+      const rows = checklistFor(input.pack, input.scenario).map((title, i) => ({ assessment_id: id, title, instructions: lookForFor(title) ?? null, required: templateItemMeta(title)?.required ?? true, ord: i, category: templateItemMeta(title)?.category ?? null, source: "established" }));
+      const { data: inserted, error: itemsErr } = await supabase.from("checklist_items").insert(rows).select("id, title, instructions, required, ord, category, source");
       if (itemsErr) {
         await supabase.from("assessments").delete().eq("id", id); // no orphan job without its checklist
         throw itemsErr;
       }
       await auditEvent({ workspaceId, action: "assessment.created", targetType: "assessment", targetId: id, ctx: input.ctx });
-      const items: ChecklistItemRecord[] = ((inserted ?? []) as Array<{ id: string; title: string; required: boolean; ord: number; category: string | null }>).map((r) => ({ id: r.id, assessmentId: id, title: r.title, required: r.required, ord: r.ord, category: r.category ?? undefined }));
+      const items: ChecklistItemRecord[] = ((inserted ?? []) as Array<{ id: string; title: string; instructions: string | null; required: boolean; ord: number; category: string | null }>).map((r) => ({ id: r.id, assessmentId: id, title: r.title, instructions: r.instructions ?? undefined, required: r.required, ord: r.ord, category: r.category ?? undefined }));
       return { id, persisted: true, items };
     } catch (e) {
       throw dbError(e);
@@ -213,7 +215,7 @@ export async function createAssessmentLocal(input: {
     mode: input.mode,
     pack: input.pack,
     status: "draft",
-    context: { goal: input.goal, existingEquipment: input.existingEquipment },
+    context: { goal: input.goal, existingEquipment: input.existingEquipment, ...(input.scenario ? { scenario: input.scenario } : {}) },
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
@@ -221,10 +223,67 @@ export async function createAssessmentLocal(input: {
   writeJson(ASSESSMENTS_FILE, all);
   // seed checklist items for fallback
   const checklistFile = path.join(DATA_DIR, `checklist_${id}.json`);
-  const tpl = PACK_TEMPLATES[input.pack];
-  const seeded: ChecklistItemRecord[] = tpl.checklist.map((title, i) => ({ id: `${id}_item_${i}`, assessmentId: id, title, required: i < 5, ord: i, category: i < 2 ? "Site" : "System" }));
+  const seeded: ChecklistItemRecord[] = checklistFor(input.pack, input.scenario).map((title, i) => ({ id: `${id}_item_${i}`, assessmentId: id, title, instructions: lookForFor(title), required: templateItemMeta(title)?.required ?? true, ord: i, category: templateItemMeta(title)?.category }));
   writeJson(checklistFile, seeded);
   return { id, persisted: false, items: seeded };
+}
+
+// ---- Deleting a job (decision D-020) ----
+
+/** What the delete route needs to decide how strict to be: the site name to type, and whether a signed report exists. */
+export async function getDeletionInfo(id: string, ctx?: StoreCtx): Promise<{ siteName: string; hasFinalizedReport: boolean } | null> {
+  const assessment = await getAssessmentLocal(id, ctx);
+  if (!assessment) return null;
+  if (dbMode(ctx)) {
+    const supabase = await clientFor(ctx);
+    const { count, error } = await supabase.from("report_snapshots").select("id", { count: "exact", head: true }).eq("assessment_id", id).eq("finalized", true);
+    if (error) throw dbError(error);
+    return { siteName: assessment.siteName, hasFinalizedReport: (count ?? 0) > 0 };
+  }
+  const snaps = readJson<Array<{ assessmentId?: string; finalized?: boolean }>>(SNAPSHOTS_FILE, []);
+  return { siteName: assessment.siteName, hasFinalizedReport: snaps.some((s) => s.assessmentId === id && s.finalized) };
+}
+
+async function removeStorageKeys(bucket: string, keys: string[]): Promise<void> {
+  if (keys.length === 0 || !hasServiceRole()) return;
+  const admin = await serviceClient();
+  for (let i = 0; i < keys.length; i += 100) {
+    const { error } = await admin.storage.from(bucket).remove(keys.slice(i, i + 100));
+    // Orphaned files are private and harmless; the job itself is already gone.
+    if (error) console.error(`Job deletion: could not remove ${bucket} objects`, error.message);
+  }
+}
+
+/**
+ * Permanently deletes a job and everything it owns. The database function (migration 0015) checks that the caller is an
+ * owner/admin, deletes the rows in one transaction and records the deletion; the files are removed AFTER that succeeds,
+ * so a failed database step never leaves rows pointing at missing files.
+ */
+export async function deleteAssessmentLocal(id: string, ctx?: StoreCtx): Promise<{ deleted: boolean; hadFinalizedReport: boolean }> {
+  if (dbMode(ctx)) {
+    if (!asUuidOrNull(id)) throw new Error("Not found");
+    const supabase = await clientFor(ctx);
+    const { data, error } = await supabase.rpc("delete_assessment", { p_id: id });
+    if (error) {
+      if (/Forbidden/i.test(error.message ?? "")) throw new Error("Forbidden — only an owner or admin can delete a job");
+      throw dbError(error);
+    }
+    const r = (data ?? {}) as { hadFinalizedReport?: boolean; evidenceKeys?: string[]; reportKeys?: string[] };
+    await removeStorageKeys("evidence", r.evidenceKeys ?? []);
+    await removeStorageKeys("reports", r.reportKeys ?? []);
+    return { deleted: true, hadFinalizedReport: !!r.hadFinalizedReport };
+  }
+  assertFileMode(ctx);
+  const info = await getDeletionInfo(id, ctx);
+  if (!info) throw new Error("Not found");
+  writeJson(ASSESSMENTS_FILE, readJson<AssessmentRecord[]>(ASSESSMENTS_FILE, []).filter((a) => a.id !== id));
+  for (const file of [RESPONSES_FILE, EVIDENCE_FILE, FINDINGS_FILE, MEASUREMENTS_FILE, SNAPSHOTS_FILE, MATERIALS_FILE, QUOTATIONS_FILE]) {
+    const rows = readJson<unknown>(file, []);
+    if (Array.isArray(rows)) writeJson(file, rows.filter((r) => (r as { assessmentId?: string }).assessmentId !== id));
+  }
+  const checklistFile = path.join(DATA_DIR, `checklist_${id}.json`);
+  if (fs.existsSync(checklistFile)) fs.rmSync(checklistFile);
+  return { deleted: true, hadFinalizedReport: info.hasFinalizedReport };
 }
 
 export async function getAssessmentLocal(id: string, ctx?: StoreCtx): Promise<AssessmentRecord | null> {
@@ -301,14 +360,16 @@ export async function getChecklistItemsLocal(assessmentId: string, ctx?: StoreCt
   if (dbMode(ctx) && asUuidOrNull(assessmentId)) {
     try {
       const supabase = await clientFor(ctx);
-      const { data } = await supabase.from("checklist_items").select("id, title, instructions, required, ord, category, source, rationale").eq("assessment_id", assessmentId).order("ord");
+      // A failed read must surface as an error: shown as an empty list, a later save would replace the real checklist.
+      const { data, error } = await supabase.from("checklist_items").select("id, title, instructions, required, ord, category, source, rationale").eq("assessment_id", assessmentId).order("ord");
+      if (error) throw error;
       if (data?.length) return (data as DbChecklistRow[]).map((r) => toChecklistRecord(r, assessmentId));
     } catch (e) { throw dbError(e); }
   }
   if (dbMode(ctx)) return [];
   const file = path.join(DATA_DIR, `checklist_${assessmentId}.json`);
   const rows = readJson<ChecklistItemRecord[]>(file, []);
-  return [...rows].sort((a, b) => a.ord - b.ord);
+  return [...rows].map((r) => ({ ...r, instructions: r.instructions ?? lookForFor(r.title) })).sort((a, b) => a.ord - b.ord);
 }
 
 type DbChecklistRow = { id: string; title: string; instructions: string | null; required: boolean; ord: number; category: string | null; source?: string | null; rationale?: string | null };
@@ -318,7 +379,8 @@ function toChecklistRecord(r: DbChecklistRow, assessmentId: string): ChecklistIt
     id: r.id,
     assessmentId,
     title: r.title,
-    instructions: r.instructions ?? undefined,
+    // Older jobs have no stored guidance for template items: use the built-in text (D-021).
+    instructions: r.instructions ?? lookForFor(r.title),
     required: r.required,
     ord: r.ord,
     category: r.category ?? undefined,
@@ -330,7 +392,8 @@ function toChecklistRecord(r: DbChecklistRow, assessmentId: string): ChecklistIt
 /**
  * Replace the editable checklist. Items carrying an existing id are UPDATED in place so
  * responses and evidence links survive; new items are inserted; omitted items are removed.
- * Database path is one atomic RPC (replace_checklist, migration 0009).
+ * For an existing item, a field the caller leaves out (instructions, rationale, required) keeps its stored value —
+ * a screen that doesn't edit guidance must not erase it. Database path is one atomic RPC (replace_checklist, migration 0009).
  */
 export async function replaceChecklistItemsLocal(
   assessmentId: string,
@@ -338,13 +401,35 @@ export async function replaceChecklistItemsLocal(
   ctx?: StoreCtx
 ): Promise<{ items: ChecklistItemRecord[]; persisted: boolean }> {
   const normalized = items
-    .map((it) => ({ id: it.id, title: it.title.trim(), instructions: it.instructions, required: it.required ?? false, category: it.category, source: it.source, rationale: it.rationale }))
+    .map((it) => ({ id: it.id, title: it.title.trim(), instructions: it.instructions, required: it.required, category: it.category, source: it.source, rationale: it.rationale }))
     .filter((it) => it.title.length > 0);
   if (normalized.length === 0) throw new Error("Checklist must keep at least one item");
   await verifyAssessmentWorkspace(ctx, assessmentId);
   if (dbMode(ctx)) {
+    // `<job>_item_<n>` ids only exist on screens that fell back to the template before the real checklist loaded.
+    // Saving such a list would insert copies and delete every real item along with its answers.
+    if (normalized.some((it) => it.id?.startsWith(`${assessmentId}_item_`))) {
+      const stale = new Error("This checklist didn't load properly — reload the page before saving so your answers are kept");
+      stale.name = "DbConflict";
+      throw stale;
+    }
     const supabase = await clientFor(ctx);
-    const payload = normalized.map((it) => ({ id: asUuidOrNull(it.id) ?? null, title: it.title, instructions: it.instructions ?? null, required: it.required, category: it.category ?? null, source: it.source ?? (asUuidOrNull(it.id) ? undefined : "user"), rationale: it.rationale ?? null }));
+    const { data: current, error: readErr } = await supabase.from("checklist_items").select("id, instructions, required, rationale").eq("assessment_id", assessmentId);
+    if (readErr) throw dbError(readErr);
+    const stored = new Map(((Array.isArray(current) ? current : []) as Array<{ id: string; instructions: string | null; required: boolean; rationale: string | null }>).map((r) => [r.id, r]));
+    const payload = normalized.map((it) => {
+      const id = asUuidOrNull(it.id);
+      const prev = id ? stored.get(id) : undefined;
+      return {
+        id: id ?? null,
+        title: it.title,
+        instructions: it.instructions !== undefined ? it.instructions : prev?.instructions ?? null,
+        required: it.required ?? prev?.required ?? false,
+        category: it.category ?? null,
+        source: it.source ?? (id ? undefined : "user"),
+        rationale: it.rationale !== undefined ? it.rationale : prev?.rationale ?? null,
+      };
+    });
     const { data, error } = await supabase.rpc("replace_checklist", { p_assessment: assessmentId, p_items: payload });
     if (error) throw dbError(error);
     await auditEvent({ workspaceId: ctx?.workspaceId, action: "checklist.updated", targetType: "assessment", targetId: assessmentId, ctx });
@@ -354,28 +439,35 @@ export async function replaceChecklistItemsLocal(
   const prev = readJson<ChecklistItemRecord[]>(file, []);
   const prevIds = new Set(prev.map((p) => p.id));
   const prevByTitle = new Map(prev.map((p) => [p.title, p.id]));
-  const out: ChecklistItemRecord[] = normalized.map((it, i) => ({
-    id: it.id && prevIds.has(it.id) ? it.id : prevByTitle.get(it.title) ?? `${assessmentId}_item_${i}`,
-    assessmentId, title: it.title, instructions: it.instructions, required: it.required, ord: i, category: it.category, source: it.source, rationale: it.rationale,
-  }));
+  const prevById = new Map(prev.map((p) => [p.id, p]));
+  const out: ChecklistItemRecord[] = normalized.map((it, i) => {
+    const id = it.id && prevIds.has(it.id) ? it.id : prevByTitle.get(it.title) ?? `${assessmentId}_item_${i}`;
+    const old = prevById.get(id);
+    return {
+      id, assessmentId, title: it.title, ord: i, category: it.category, source: it.source,
+      instructions: it.instructions !== undefined ? it.instructions : old?.instructions,
+      required: it.required ?? old?.required ?? false,
+      rationale: it.rationale !== undefined ? it.rationale : old?.rationale,
+    };
+  });
   writeJson(file, out);
   return { items: out, persisted: false };
 }
 
 // ---- Materials ----
-type MaterialRecord = { id: string; assessmentId: string; workspaceId?: string | null; description: string; specification?: string; quantity: number; unit: string; rationale: string; source: "measurement"|"finding"|"rule"|"user_input"; provisional: boolean; assumptions: string[]; findingId?: string; ord: number; listId: string; version: number };
+type MaterialRecord = { id: string; assessmentId: string; workspaceId?: string | null; description: string; specification?: string; quantity: number; unit: string; rationale: string; source: "measurement"|"finding"|"rule"|"user_input"|"ai_suggested"; provisional: boolean; assumptions: string[]; findingId?: string; ord: number; listId: string; version: number };
 type QuotationRecord = { id: string; assessmentId: string; workspaceId?: string | null; materialsListId: string; materialsVersion: number; supplier: string; reference?: string; date: string; currency: string; items: Array<{ description: string; quantity: number; unit: string; unitPrice: number; currency: string; taxesOrFees?: number }>; total: number; stale: boolean; reviewStatus: string; createdAt: string };
 
 const MATERIALS_FILE = path.join(DATA_DIR, "materials.json");
 const QUOTATIONS_FILE = path.join(DATA_DIR, "quotations.json");
 
-export async function saveMaterialsLocal(assessmentId: string, items: Array<{ description: string; specification?: string; quantity: number; unit: string; rationale: string; source: "measurement"|"finding"|"rule"|"user_input"; provisional?: boolean; assumptions?: string[]; findingId?: string }>, version?: number, workspaceId?: string | null, ctx?: StoreCtx): Promise<{ ok: boolean; version: number; persisted: boolean; provisionalCount: number }> {
+export async function saveMaterialsLocal(assessmentId: string, items: Array<{ description: string; specification?: string; quantity: number; unit: string; rationale: string; source: "measurement"|"finding"|"rule"|"user_input"|"ai_suggested"; provisional?: boolean; assumptions?: string[]; findingId?: string }>, version?: number, workspaceId?: string | null, ctx?: StoreCtx): Promise<{ ok: boolean; version: number; persisted: boolean; provisionalCount: number }> {
   void version; // client-supplied versions are ignored — the server allocates them atomically
   // Auto-mark provisional if rationale too short or assumptions empty and source is measurement/finding
   const enriched = items.map((it, idx) => ({
     ...it,
     // A client may flag an item provisional but can never clear the automatic flag.
-    provisional: !!it.provisional || it.rationale.length < 10 || (!it.assumptions?.length && ["measurement", "finding"].includes(it.source)),
+    provisional: !!it.provisional || it.rationale.length < 10 || (!it.assumptions?.length && ["measurement", "finding"].includes(it.source)) || (it.source === "ai_suggested" && !!it.assumptions?.length),
     assumptions: it.assumptions ?? [],
     ord: idx,
   }));
@@ -484,28 +576,74 @@ export async function getQuotationsLocal(assessmentId: string, ctx?: StoreCtx): 
 }
 
 // ---- Checklist responses ----
-export async function saveResponsesLocal(assessmentId: string, responses: Array<{ itemId: string; status: string; notes?: string; measuredValue?: number; measuredUnit?: string }>, ctx?: StoreCtx) {
+export type ResponseInput = {
+  itemId: string;
+  status: string;
+  notes?: string;
+  measuredValue?: number;
+  measuredUnit?: string;
+  /**
+   * When the answer was last saved as this screen saw it (null = it had never been saved). If the stored answer is newer,
+   * someone changed it on another screen or device meanwhile and the save is refused instead of overwriting their answer.
+   * Omitted = no check (callers that merge into the latest answer themselves).
+   */
+  baseUpdatedAt?: string | null;
+};
+
+/** Item ids whose stored answer is newer than the version the caller started from. */
+function staleItems(responses: ResponseInput[], stored: Map<string, string>): string[] {
+  return responses
+    .filter((r) => r.baseUpdatedAt !== undefined)
+    .filter((r) => {
+      const current = stored.get(r.itemId);
+      if (!current) return false;
+      return r.baseUpdatedAt === null || new Date(current).getTime() > new Date(r.baseUpdatedAt).getTime();
+    })
+    .map((r) => r.itemId);
+}
+
+function staleError(itemIds: string[]): Error {
+  const e = new Error(`${itemIds.length === 1 ? "This answer was" : `${itemIds.length} answers were`} changed on another screen or device after you opened it — reload to see the latest before saving`);
+  e.name = "DbConflict";
+  (e as Error & { staleItemIds?: string[] }).staleItemIds = itemIds;
+  return e;
+}
+
+/** Saves answers all together or not at all. Returns the time they were saved so screens can send it back next time. */
+export async function saveResponsesLocal(assessmentId: string, responses: ResponseInput[], ctx?: StoreCtx): Promise<{ ok: true; persisted: boolean; saved: number; updatedAt: string }> {
   // validate not_checked != pass invariant
   for (const r of responses) {
     if (!["pass", "fail", "needs_attention", "not_applicable", "not_checked"].includes(r.status)) throw new Error(`Invalid status ${r.status}`);
   }
   await verifyAssessmentWorkspace(ctx, assessmentId);
+  const now = new Date().toISOString();
   if (dbMode(ctx) && asUuidOrNull(assessmentId)) {
+    for (const r of responses) {
+      if (!asUuidOrNull(r.itemId)) throw new Error(`Unknown checklist item ${r.itemId} — confirm the checklist first so items exist`);
+    }
+    if (responses.length === 0) return { ok: true, persisted: true, saved: 0, updatedAt: now };
     try {
       const supabase = await clientFor(ctx);
-      for (const r of responses) {
-        if (!asUuidOrNull(r.itemId)) throw new Error(`Unknown checklist item ${r.itemId} — confirm the checklist first so items exist`);
-        const { error } = await supabase.from("checklist_responses").upsert({ assessment_id: assessmentId, item_id: r.itemId, status: r.status, notes: r.notes ?? null, measured_value: r.measuredValue ?? null, measured_unit: r.measuredUnit ?? null }, { onConflict: "assessment_id,item_id" });
-        if (error) throw error;
+      if (responses.some((r) => r.baseUpdatedAt !== undefined)) {
+        const { data: current, error: readErr } = await supabase.from("checklist_responses").select("item_id, updated_at").eq("assessment_id", assessmentId).in("item_id", responses.map((r) => r.itemId));
+        if (readErr) throw readErr;
+        const stored = new Map(((Array.isArray(current) ? current : []) as Array<{ item_id: string; updated_at: string }>).map((c) => [c.item_id, c.updated_at]));
+        const stale = staleItems(responses, stored);
+        if (stale.length > 0) throw staleError(stale);
       }
-      return { ok: true, persisted: true, saved: responses.length };
+      // One statement for all rows: either every answer is saved or none is.
+      const rows = responses.map((r) => ({ assessment_id: assessmentId, item_id: r.itemId, status: r.status, notes: r.notes ?? null, measured_value: r.measuredValue ?? null, measured_unit: r.measuredUnit ?? null, updated_at: now }));
+      const { error } = await supabase.from("checklist_responses").upsert(rows, { onConflict: "assessment_id,item_id" });
+      if (error) throw error;
+      return { ok: true, persisted: true, saved: responses.length, updatedAt: now };
     } catch (e) {
       throw dbError(e);
     }
   }
   assertFileMode(ctx);
   const all = readJson<ChecklistResponseRecord[]>(RESPONSES_FILE, []);
-  const now = new Date().toISOString();
+  const stale = staleItems(responses, new Map(all.filter((x) => x.assessmentId === assessmentId).map((x) => [x.itemId, x.updatedAt])));
+  if (stale.length > 0) throw staleError(stale);
   for (const r of responses) {
     const idx = all.findIndex((x) => x.assessmentId === assessmentId && x.itemId === r.itemId);
     const rec: ChecklistResponseRecord = { assessmentId, itemId: r.itemId, status: r.status as ChecklistResponseRecord["status"], notes: r.notes, measuredValue: r.measuredValue, measuredUnit: r.measuredUnit, updatedAt: now };
@@ -513,15 +651,17 @@ export async function saveResponsesLocal(assessmentId: string, responses: Array<
     else all.push(rec);
   }
   writeJson(RESPONSES_FILE, all);
-  return { ok: true, persisted: false, saved: responses.length };
+  return { ok: true, persisted: false, saved: responses.length, updatedAt: now };
 }
 
 export async function getResponsesLocal(assessmentId: string, ctx?: StoreCtx): Promise<ChecklistResponseRecord[]> {
   if (dbMode(ctx)) {
     try {
       const supabase = await clientFor(ctx);
-      const { data } = await supabase.from("checklist_responses").select("item_id, status, notes, measured_value, measured_unit").eq("assessment_id", assessmentId);
-      if (data) return data.map((d) => ({ assessmentId, itemId: d.item_id, status: d.status, notes: d.notes ?? undefined, measuredValue: d.measured_value ?? undefined, measuredUnit: d.measured_unit ?? undefined, updatedAt: new Date().toISOString() }));
+      // Same as the items: an unreadable answer list must not look like "nothing answered yet".
+      const { data, error } = await supabase.from("checklist_responses").select("item_id, status, notes, measured_value, measured_unit, updated_at").eq("assessment_id", assessmentId);
+      if (error) throw error;
+      if (data) return data.map((d) => ({ assessmentId, itemId: d.item_id, status: d.status, notes: d.notes ?? undefined, measuredValue: d.measured_value ?? undefined, measuredUnit: d.measured_unit ?? undefined, updatedAt: d.updated_at }));
     } catch (e) { throw dbError(e); }
   }
   if (dbMode(ctx)) return [];
@@ -551,9 +691,49 @@ async function nextAssessmentVersion(assessmentId: string, ctx?: StoreCtx): Prom
   return counts + 1;
 }
 
+/** Wording for the standard scope questions when the answers were saved without the question text (older jobs, the phone). */
+const SCOPE_QUESTION_TEXT: Record<string, string> = {
+  q1: "Goal or scope of the job",
+  q2: "What is known about the existing equipment",
+  q3: "Access constraints or follow-up checks",
+};
+
+/** The saved facts about the job itself, in plain form: where, why, what was known, what was described at intake. */
+export function buildSiteBrief(assessment: AssessmentRecord, intake: IntakeSummary | undefined): ReportSiteBrief {
+  const ctx = assessment.context;
+  const text = (v: unknown, max = 1500) => (typeof v === "string" && v.trim() ? v.trim().slice(0, max) : undefined);
+  const asked = (ctx.clarificationQuestions as Record<string, unknown> | undefined) ?? {};
+  const given = (ctx.clarificationAnswers as Record<string, unknown> | undefined) ?? {};
+  const answers = Object.entries(given)
+    .map(([qid, a]) => ({ question: text(asked[qid], 300) ?? SCOPE_QUESTION_TEXT[qid] ?? "Scope question", answer: text(a, 1000) ?? "" }))
+    .filter((a) => a.answer)
+    .slice(0, 30);
+  // The interview (D-030) goes into the report only once the person has reviewed it, and as statements, never as facts.
+  const parsed = InterviewStateSchema.safeParse(ctx.interview);
+  const iv = parsed.success && parsed.data.status === "reviewed" ? parsed.data : undefined;
+  const interview = iv
+    ? {
+        details: (iv.brief ?? []).map((b) => ({ label: b.label, value: b.value })),
+        statements: interviewStatements(iv).slice(0, 12).map((x) => ({ question: x.question, answer: x.answer })),
+        openQuestions: iv.openQuestions ?? [],
+      }
+    : undefined;
+  return {
+    address: text(assessment.address ?? ctx.address, 300),
+    goal: text(ctx.goal),
+    existingEquipment: text(ctx.existingEquipment),
+    constraints: text(ctx.constraints),
+    intakeText: text(intake?.description, 2000),
+    intakeVisible: (intake?.visible ?? []).filter((v) => typeof v === "string" && v.trim()).slice(0, 8),
+    intakeLimits: (intake?.limitations ?? []).filter((v) => typeof v === "string" && v.trim()).slice(0, 6),
+    answers,
+    ...(interview && (interview.details.length > 0 || interview.statements.length > 0) ? { interview } : {}),
+  };
+}
+
 export async function buildReportInputFromStoredFacts(
   assessmentId: string,
-  opts: { includeMaterials?: boolean; limitations?: string[] } = {},
+  opts: { includeMaterials?: boolean; limitations?: string[]; withPhotos?: boolean } = {},
   ctx?: StoreCtx
 ): Promise<{ input: ReportInput; assessment: AssessmentRecord; versions: { assessmentVersion: number; checklistVersion: string; materialsVersion: number | null; quotationVersion: number | null; materialsVersionId: string | null; quotationVersionId: string | null } }> {
   const assessment = await getAssessmentLocal(assessmentId, ctx);
@@ -564,11 +744,23 @@ export async function buildReportInputFromStoredFacts(
   const storedItems = await getChecklistItemsLocal(assessmentId, ctx);
   const tpl = PACK_TEMPLATES[assessment.pack];
   const source = storedItems.length > 0
-    ? storedItems.map((it) => ({ id: it.id, title: it.title }))
-    : tpl.checklist.map((title, i) => ({ id: `${assessmentId}_item_${i}`, title }));
-  const checklist = source.map(({ id, title }) => {
+    ? storedItems.map((it) => ({ id: it.id, title: it.title, required: it.required, category: it.category }))
+    : tpl.checklist.map((title, i) => ({ id: `${assessmentId}_item_${i}`, title, required: templateItemMeta(title)?.required ?? true, category: templateItemMeta(title)?.category }));
+  // Photos linked to each item, so the report can say which results have a picture behind them.
+  const { items: evidence } = await listEvidenceLocal(assessmentId, ctx);
+  const photosByItem = new Map<string, number>();
+  for (const e of evidence) if (e.itemId && e.mimeType.startsWith("image/")) photosByItem.set(e.itemId, (photosByItem.get(e.itemId) ?? 0) + 1);
+  const checklist: ReportChecklistRow[] = source.map(({ id, title, required, category }) => {
     const r = responses.find((x) => x.itemId === id);
-    return { title, status: r?.status ?? "not_checked", notes: r?.notes };
+    return {
+      title,
+      status: r?.status ?? "not_checked",
+      notes: r?.notes,
+      category,
+      required,
+      ...(r?.measuredValue !== undefined ? { measured: { value: r.measuredValue, unit: r.measuredUnit ?? "" } } : {}),
+      evidenceCount: photosByItem.get(id) ?? 0,
+    };
   });
   // Measurements from responses that have measured values
   const titleById = new Map(source.map((it) => [it.id, it.title]));
@@ -606,6 +798,9 @@ export async function buildReportInputFromStoredFacts(
         unit: m.unit,
         rationale: m.rationale,
         provisional: m.provisional,
+        ...(m.specification ? { specification: m.specification } : {}),
+        ...(m.source === "ai_suggested" ? { source: "ai_suggested" as const } : {}),
+        ...((m.assumptions ?? []).some((a) => a.startsWith(QUANTITY_TBD)) ? { quantityTbd: true } : {}),
       }));
     } else {
       // No materials yet — report without list: keep undefined, caller can warn
@@ -633,25 +828,111 @@ export async function buildReportInputFromStoredFacts(
     status: "confirmed",
   }));
   const awaitingReview = allFindings.filter((f) => f.status === "needs_review").length;
-  const unresolved = checklist.filter((c) => c.status === "not_checked" || c.status === "fail" || c.status === "needs_attention").map((c) => `${c.title} — ${c.status}`);
+  // Items that were not checked limit what the report can say. Items marked as an issue are not limitations: the report
+  // lists them under "Issues and risks" with their notes.
+  const unresolved = checklist.filter((c) => c.status === "not_checked").map((c) => `${c.title}: not checked yet${c.required ? " (required)" : ""}`);
   const limitations = [...(opts.limitations ?? []), ...unresolved];
   if (awaitingReview > 0) limitations.push(`${awaitingReview} finding(s) are still awaiting review and are not included in this report`);
   if (materials?.some((m) => m.provisional)) limitations.push("Provisional quantities present — verify missing inputs before procurement");
+  // Photos (D-022): only when a draft is being created; sign-off compares facts without them, so no pictures are re-made there.
+  let photos: ReportPhoto[] | undefined;
+  if (opts.withPhotos) {
+    const built = await buildReportPhotos(assessmentId, evidence, assessment.context.photoReview as Record<string, SavedPhotoReview> | undefined, titleById, assessment.context.photoChoices as PhotoChoices | undefined);
+    if (built.length > 0) photos = built;
+  }
+  // The AI's per-photo notes live in the job context but are shown through `photos`, not duplicated here. The intake
+  // text is carried in the readable `siteBrief` instead of the raw context.
+  const { photoReview: _photoReview, photoChoices: _photoChoices, intake: _intake, ...reportContext } = assessment.context;
+  void _photoReview;
+  void _photoChoices;
   const input: ReportInput = {
     siteName: assessment.siteName,
     mode: assessment.mode,
     pack: assessment.pack,
-    context: assessment.context,
+    context: reportContext,
+    siteBrief: buildSiteBrief(assessment, _intake as IntakeSummary | undefined),
     checklist,
     findings: confirmedFindings,
     measurements,
     materials,
     quotation: quotation ?? null,
     limitations,
+    ...(photos ? { photos } : {}),
   };
   const assessmentVersion = await nextAssessmentVersion(assessmentId, ctx);
   const checklistVersion = `v${responses.length > 0 ? 1 : 0}-${responses.length}items`;
   return { input, assessment, versions: { assessmentVersion, checklistVersion, materialsVersion, quotationVersion, materialsVersionId, quotationVersionId } };
+}
+
+// ---- Office report style (D-031) ----
+const REPORT_TEMPLATES_FILE = path.join(DATA_DIR, "report_templates.json");
+
+/** The workspace's report style, or null when the office has not set one. */
+export async function getReportTemplateLocal(ctx?: StoreCtx): Promise<ReportTemplate | null> {
+  if (dbMode(ctx)) {
+    const ws = workspaceOf(ctx);
+    if (!ws) return null;
+    const supabase = await clientFor(ctx);
+    const { data, error } = await supabase.from("report_templates").select("template").eq("workspace_id", ws).maybeSingle();
+    if (error) throw dbError(error);
+    return data?.template ? normalizeTemplate(data.template) : null;
+  }
+  const all = readJson<Record<string, unknown>>(REPORT_TEMPLATES_FILE, {});
+  const t = all[workspaceOf(ctx) ?? "demo"];
+  return t ? normalizeTemplate(t) : null;
+}
+
+/** Saves the workspace's report style (the caller has checked that the person is an owner or admin). */
+export async function saveReportTemplateLocal(template: ReportTemplate, ctx?: StoreCtx): Promise<ReportTemplate> {
+  const clean = normalizeTemplate(template);
+  const ws = workspaceOf(ctx);
+  if (dbMode(ctx)) {
+    if (!ws) throw new Error("Forbidden — no workspace");
+    const supabase = await clientFor(ctx);
+    const { error } = await supabase.from("report_templates").upsert({ workspace_id: ws, template: clean as unknown as never, updated_by: ctx?.userId ?? null, updated_at: new Date().toISOString() });
+    if (error) throw dbError(error);
+    await auditEvent({ workspaceId: ws, action: "report_template.saved", targetType: "workspace", targetId: ws, ctx });
+    return clean;
+  }
+  assertFileMode(ctx);
+  ensureDir();
+  const all = readJson<Record<string, unknown>>(REPORT_TEMPLATES_FILE, {});
+  all[ws ?? "demo"] = clean;
+  writeJson(REPORT_TEMPLATES_FILE, all);
+  return clean;
+}
+
+/** Back to the built-in report style. Reports already drafted keep the copy they were made with. */
+export async function resetReportTemplateLocal(ctx?: StoreCtx): Promise<void> {
+  const ws = workspaceOf(ctx);
+  if (dbMode(ctx)) {
+    if (!ws) throw new Error("Forbidden — no workspace");
+    const supabase = await clientFor(ctx);
+    const { error } = await supabase.from("report_templates").delete().eq("workspace_id", ws);
+    if (error) throw dbError(error);
+    await auditEvent({ workspaceId: ws, action: "report_template.reset", targetType: "workspace", targetId: ws, ctx });
+    return;
+  }
+  assertFileMode(ctx);
+  const all = readJson<Record<string, unknown>>(REPORT_TEMPLATES_FILE, {});
+  delete all[ws ?? "demo"];
+  writeJson(REPORT_TEMPLATES_FILE, all);
+}
+
+/** Puts the office's current report style into a DRAFT (or takes it off if the office has none). A finalized report is never touched. */
+export async function reapplyReportTemplateLocal(snapshotId: string, ctx?: StoreCtx): Promise<SnapshotRecord> {
+  const snap = await getSnapshotLocal(snapshotId, ctx);
+  if (!snap) throw new Error("Snapshot not found");
+  await verifyAssessmentWorkspace(ctx, snap.assessmentId);
+  if (snap.finalized) throw new Error("This report is finalized (immutable) — create a new draft to use the current style");
+  const style = await getReportTemplateLocal(ctx);
+  const { template: _old, ...rest } = snap.payload;
+  void _old;
+  const payload: ReportInput = hasTemplate(style) ? { ...rest, template: style as ReportTemplate } : rest;
+  const htmlPreview = buildReportHtml(snap, payload);
+  await writeDraftSnapshot(snapshotId, { payload, htmlPreview }, ctx);
+  await auditEvent({ workspaceId: ctx?.workspaceId, action: "snapshot.restyled", targetType: "snapshot", targetId: snapshotId, ctx });
+  return { ...snap, payload, htmlPreview };
 }
 
 export async function createReportSnapshotLocal(input: {
@@ -668,9 +949,13 @@ export async function createReportSnapshotLocal(input: {
   const { input: reportInput, assessment, versions } = await buildReportInputFromStoredFacts(input.assessmentId, {
     includeMaterials: input.includeMaterials ?? false,
     limitations: input.limitations,
+    withPhotos: true,
   }, input.ctx);
   const workspaceId = workspaceOf(input.ctx, input.workspaceId ?? assessment.workspaceId);
   await verifyAssessmentWorkspace(input.ctx, input.assessmentId);
+  // A copy of the office's report style goes into the draft, so later changes to the style never alter a report that was already made (D-031).
+  const officeStyle = await getReportTemplateLocal(input.ctx);
+  if (officeStyle) reportInput.template = officeStyle;
   // uuid PK in report_snapshots — randomUUID works for Supabase AND file fallback.
   const id = (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `snap_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 4)}`) as string;
   const snapshot: ReportSnapshot = {
@@ -1461,24 +1746,66 @@ export async function deleteMeasurementLocal(assessmentId: string, measurementId
 }
 
 // ---- Report review: edit a draft's narrative, then sign off and finalize it ----
-const NARRATIVE_MAX = 5000;
+/** Key findings arrive from an editor or from the AI route: check every field, so a saved report never holds half a finding. */
+function cleanFindingList(list: unknown): ReportKeyFinding[] {
+  const L = KEY_FINDING_LIMITS;
+  if (!Array.isArray(list)) throw new Error("Key findings must be a list");
+  if (list.length > L.max) throw new Error(`A report holds at most ${L.max} key findings`);
+  const text = (v: unknown, max: number, label: string): string => {
+    if (typeof v !== "string") throw new Error(`A key finding's ${label} must be text`);
+    if (v.length > max) throw new Error(`A key finding's ${label} is limited to ${max} characters`);
+    return v.trim();
+  };
+  const ids = new Set<string>();
+  return list.map((raw, i) => {
+    const f = (raw ?? {}) as Record<string, unknown>;
+    const title = text(f.title, L.title, "title");
+    if (!title) throw new Error("Every key finding needs a title");
+    if (!FINDING_PRIORITIES.includes(f.priority as FindingPriority)) throw new Error("A key finding's priority must be high, medium, low or info");
+    if (!Array.isArray(f.basis ?? [])) throw new Error("A key finding's sources must be a list");
+    const basis = ((f.basis ?? []) as Array<Record<string, unknown>>).slice(0, L.basis).map((b) => {
+      if (!["item", "photo", "measurement", "finding"].includes(String(b?.kind))) throw new Error("A key finding's source has an unknown type");
+      return { kind: b.kind as ReportKeyFinding["basis"][number]["kind"], ref: text(b.ref, L.ref, "source") };
+    });
+    let id = typeof f.id === "string" && f.id.trim() ? f.id.trim().slice(0, 40) : `f${i + 1}`;
+    while (ids.has(id)) id += "_";
+    ids.add(id);
+    return {
+      id,
+      title,
+      priority: f.priority as FindingPriority,
+      observed: text(f.observed ?? "", L.observed, "observed text"),
+      meaning: text(f.meaning ?? "", L.meaning, "meaning"),
+      action: text(f.action ?? "", L.action, "action"),
+      basis,
+      source: f.source === "ai" ? "ai" : "person",
+      ...(f.confirmed === true ? { confirmed: true } : {}),
+      ...(Number.isInteger(f.evidenceCount) && (f.evidenceCount as number) >= 0 ? { evidenceCount: f.evidenceCount as number } : {}),
+    };
+  });
+}
 
 function cleanNarrative(n: ReportNarrative): ReportNarrative {
   const out: ReportNarrative = {};
-  for (const k of ["summary", "recommendations", "notes"] as const) {
-    const v = n[k];
+  for (const { key, max } of NARRATIVE_SECTIONS) {
+    const v = n[key];
     if (v === undefined) continue;
     if (typeof v !== "string") throw new Error("Narrative sections must be text");
-    if (v.length > NARRATIVE_MAX) throw new Error("A narrative section is limited to " + NARRATIVE_MAX + " characters");
-    out[k] = v.trim();
+    if (v.length > max) throw new Error("A narrative section is limited to " + max + " characters");
+    out[key] = v.trim();
   }
+  if (n.keyFindings !== undefined) out.keyFindings = cleanFindingList(n.keyFindings);
   return out;
 }
 
 /** Everything in a report that comes from stored facts (excludes the human narrative). */
 function factsFingerprint(input: ReportInput): string {
-  const { narrative: _narrative, ...facts } = input;
+  // The human narrative and the photo notes (which a reviewer may trim) are not "stored facts".
+  // The office template (D-031) is how the report looks, not what it says, so changing it does not make the facts stale.
+  const { narrative: _narrative, photos: _photos, template: _template, ...facts } = input;
   void _narrative;
+  void _photos;
+  void _template;
   return JSON.stringify(facts);
 }
 
@@ -1515,6 +1842,23 @@ async function writeDraftSnapshot(snapshotId: string, patch: { payload?: ReportI
     all[idx].reviewNote = patch.review.note;
   }
   writeJson(SNAPSHOTS_FILE, all);
+}
+
+/** Take photos out of a DRAFT report (a reviewer's call). Finalized reports are immutable. */
+export async function removeSnapshotPhotosLocal(snapshotId: string, evidenceIds: string[], ctx?: StoreCtx): Promise<SnapshotRecord> {
+  const snap = await getSnapshotLocal(snapshotId, ctx);
+  if (!snap) throw new Error("Snapshot not found");
+  await verifyAssessmentWorkspace(ctx, snap.assessmentId);
+  if (snap.finalized) throw new Error("This report is finalized (immutable) — create a new draft to change it");
+  const drop = new Set(evidenceIds);
+  const photos = (snap.payload.photos ?? []).filter((p) => !drop.has(p.evidenceId));
+  const { photos: _old, ...rest } = snap.payload;
+  void _old;
+  const payload: ReportInput = photos.length > 0 ? { ...rest, photos } : rest;
+  const htmlPreview = buildReportHtml(snap, payload);
+  await writeDraftSnapshot(snapshotId, { payload, htmlPreview }, ctx);
+  await auditEvent({ workspaceId: ctx?.workspaceId, action: "snapshot.photos_removed", targetType: "snapshot", targetId: snapshotId, ctx });
+  return { ...snap, payload, htmlPreview };
 }
 
 export async function updateSnapshotNarrativeLocal(snapshotId: string, narrative: ReportNarrative, ctx?: StoreCtx): Promise<SnapshotRecord> {

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { scenarioFor } from "@eval-ai/shared";
 import { CreateAssessmentSchema } from "../../../lib/validations";
 import { requireAuth, workspaceIdFor, storeError, requireWriter } from "../../../lib/auth";
 import { createAssessmentLocal, listAssessmentsLocal } from "../../../lib/store";
@@ -10,6 +11,8 @@ export async function POST(req: Request) {
     const body = await req.json();
     const parsed = CreateAssessmentSchema.parse(body);
     const workspaceId = workspaceIdFor(auth, body.workspaceId as string | undefined);
+    // An inspection is always about something already installed; an assessment keeps the person's choice (or none).
+    const scenario = scenarioFor(parsed.mode, parsed.scenario);
 
     const { id, persisted, items } = await createAssessmentLocal({
       workspaceId,
@@ -19,10 +22,11 @@ export async function POST(req: Request) {
       pack: parsed.pack,
       goal: parsed.goal,
       existingEquipment: parsed.existingEquipment,
+      scenario,
       ctx: auth.ctx,
     });
     const checklist = items.map((it) => ({ id: it.id, title: it.title, required: it.required }));
-    return NextResponse.json({ id, ...parsed, checklist, status: "draft", persisted, note: persisted ? "Persisted to Supabase + file fallback" : "Persisted to deterministic file fallback (.tmp-data) — set Supabase env for RLS" });
+    return NextResponse.json({ id, ...parsed, scenario, checklist, status: "draft", persisted, note: persisted ? "Persisted to Supabase + file fallback" : "Persisted to deterministic file fallback (.tmp-data) — set Supabase env for RLS" });
   } catch (e) {
     return storeError(e);
   }

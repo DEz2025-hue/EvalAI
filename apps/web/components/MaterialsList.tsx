@@ -1,7 +1,9 @@
 "use client";
 import { useState } from "react";
+import { displayQuantity } from "@eval-ai/shared";
+import { MaterialsSuggest } from "./MaterialsSuggest";
 
-type Item = { id: string; description: string; specification?: string; quantity: number; unit: string; rationale: string; source: "measurement"|"finding"|"rule"|"user_input"; provisional?: boolean; assumptions?: string[] };
+type Item = { id: string; description: string; specification?: string; quantity: number; unit: string; rationale: string; source: "measurement"|"finding"|"rule"|"user_input"|"ai_suggested"; provisional?: boolean; assumptions?: string[] };
 
 export function MaterialsList({ assessmentId, initial = [] as Item[], version = 1, onChange }: { assessmentId: string; initial?: Item[]; version?: number; onChange?: (items: Item[], version: number) => void }): JSX.Element {
   const [items, setItems] = useState<Item[]>(initial);
@@ -49,6 +51,14 @@ export function MaterialsList({ assessmentId, initial = [] as Item[], version = 
     onChange?.(next, version);
   }
 
+  function addSuggested(added: Item[]) {
+    if (added.length === 0) return;
+    const next = [...items, ...added];
+    setItems(next);
+    onChange?.(next, version);
+    setResumeNote(`${added.length} AI suggestion${added.length === 1 ? "" : "s"} added — review, then save to bump to v${version + 1}`);
+  }
+
   async function save() {
     setSaving(true);
     try {
@@ -70,12 +80,13 @@ export function MaterialsList({ assessmentId, initial = [] as Item[], version = 
         <h3 className="text-sm font-semibold">Materials schedule — traceable {version ? `· v${version}` : ""} {resumeNote ? <span className="rounded bg-green-100 px-1.5 py-0.5 text-xs text-green-700">{resumeNote}</span> : null}</h3>
         <span className="text-xs text-slate-500">Each item needs rationale + source. <span className="rounded bg-amber-100 px-1 py-0.5 text-amber-800">Provisional</span> when inputs missing — clearly identified, never hidden.</span>
       </div>
+      <MaterialsSuggest assessmentId={assessmentId} onAdd={addSuggested} />
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="text-xs text-slate-500"><tr><th className="text-left p-2">Description</th><th className="p-2">Qty</th><th className="p-2">Rationale</th><th className="p-2">Prov.</th></tr></thead>
           <tbody>
-            {items.length === 0 ? <tr><td colSpan={4} className="p-6 text-center text-slate-500">No materials — add items or generate from findings/measurements</td></tr> : items.map((it) => (
-              <tr key={it.id} className="border-t border-slate-100"><td className="p-2">{it.description}{it.specification ? ` — ${it.specification}` : ""}</td><td className="p-2">{it.quantity} {it.unit}</td><td className="p-2 text-xs">{it.rationale} <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs">{it.source}</span></td><td className="p-2">{it.provisional ? <span className="rounded bg-amber-100 px-2 py-0.5 text-xs text-amber-800">provisional</span> : "—"}</td></tr>
+            {items.length === 0 ? <tr><td colSpan={4} className="p-6 text-center text-slate-500">No materials — add items, or use “Suggest materials” above to have the AI propose them from the job</td></tr> : items.map((it) => (
+              <tr key={it.id} className="border-t border-slate-100"><td className="p-2">{it.description}{it.specification ? ` — ${it.specification}` : ""}</td><td className="p-2">{displayQuantity(it)}</td><td className="p-2 text-xs">{it.rationale} <span className={`rounded px-1.5 py-0.5 text-xs ${it.source === "ai_suggested" ? "bg-indigo-100 text-indigo-800" : "bg-slate-100"}`}>{it.source === "ai_suggested" ? "AI suggestion" : it.source}</span></td><td className="p-2">{it.provisional ? <span className="rounded bg-amber-100 px-2 py-0.5 text-xs text-amber-800">provisional</span> : "—"}</td></tr>
             ))}
           </tbody>
         </table>

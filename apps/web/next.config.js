@@ -9,6 +9,8 @@ const securityHeaders = [
 ];
 
 const nextConfig = {
+  // A second server (for example a check run beside the main one) can use its own build folder.
+  distDir: process.env.NEXT_DIST_DIR || ".next",
   reactStrictMode: true,
   experimental: {
     // ffmpeg converts voice recordings to WAV for speech-to-text: keep it out of the bundle but trace its binary into the function.

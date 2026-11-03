@@ -2,7 +2,10 @@
   "extends": "../../tsconfig.json",
   "compilerOptions": {
     "target": "ES2022",
-    "lib": ["ES2022", "DOM"],
+    "lib": [
+      "ES2022",
+      "DOM"
+    ],
     "jsx": "preserve",
     "module": "ESNext",
     "moduleResolution": "bundler",
@@ -19,14 +22,34 @@
     "composite": false,
     "declaration": false,
     "declarationMap": false,
-    "plugins": [{ "name": "next" }],
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
     "paths": {
-      "@/*": ["./*"],
-      "@eval-ai/shared": ["../../packages/shared/src"],
-      "@eval-ai/ai-adapter": ["../../packages/ai-adapter/src"],
-      "@eval-ai/supabase": ["../../packages/supabase/src"]
+      "@/*": [
+        "./*"
+      ],
+      "@eval-ai/shared": [
+        "../../packages/shared/src"
+      ],
+      "@eval-ai/ai-adapter": [
+        "../../packages/ai-adapter/src"
+      ],
+      "@eval-ai/supabase": [
+        "../../packages/supabase/src"
+      ]
     }
   },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules"]
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts",
+    ".next-check/types/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
 }

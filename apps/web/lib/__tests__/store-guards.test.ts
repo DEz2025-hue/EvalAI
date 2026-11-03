@@ -7,6 +7,9 @@ import {
   setMemberRoleLocal,
   removeMemberLocal,
   replaceChecklistItemsLocal,
+  getChecklistItemsLocal,
+  getResponsesLocal,
+  saveResponsesLocal,
   saveMaterialsLocal,
   type StoreCtx,
 } from "../store";
@@ -177,6 +180,122 @@ describe("checklist replace keeps item ids (atomic RPC)", () => {
     expect(out.persisted).toBe(true);
     expect(out.items[0].id).toBe(ITEM);
   });
+
+  it("keeps stored guidance, rationale and required when a screen leaves them out", async () => {
+    const ITEM = "77777777-7777-4777-8777-777777777777";
+    let sent: Array<{ instructions: string | null; rationale: string | null; required: boolean }> = [];
+    const client = fakeClient(
+      (table) =>
+        table === "checklist_items"
+          ? { data: [{ id: ITEM, instructions: "Sharpened by site intake", required: true, rationale: "Tree to the north-west" }], error: null }
+          : { data: { workspace_id: WS }, error: null },
+      (_fn, args) => {
+        sent = (args as { p_items: typeof sent }).p_items;
+        return { data: [], error: null };
+      },
+    );
+    await replaceChecklistItemsLocal(ASSESSMENT, [{ id: ITEM, title: "Shading" }, { id: "tmp-1", title: "New one" }], ctxWith(client));
+    expect(sent[0]).toMatchObject({ instructions: "Sharpened by site intake", rationale: "Tree to the north-west", required: true });
+    expect(sent[1]).toMatchObject({ instructions: null, rationale: null, required: false });
+  });
+
+  it("an explicit value still replaces the stored one", async () => {
+    const ITEM = "77777777-7777-4777-8777-777777777777";
+    let sent: Array<{ instructions: string | null; required: boolean }> = [];
+    const client = fakeClient(
+      (table) => (table === "checklist_items" ? { data: [{ id: ITEM, instructions: "Old", required: true, rationale: null }], error: null } : { data: { workspace_id: WS }, error: null }),
+      (_fn, args) => {
+        sent = (args as { p_items: typeof sent }).p_items;
+        return { data: [], error: null };
+      },
+    );
+    await replaceChecklistItemsLocal(ASSESSMENT, [{ id: ITEM, title: "Shading", instructions: "New", required: false }], ctxWith(client));
+    expect(sent[0]).toMatchObject({ instructions: "New", required: false });
+  });
+
+  it("refuses a list built from template rows with made-up ids instead of replacing the real checklist", async () => {
+    let called = false;
+    const client = fakeClient(
+      () => ({ data: { workspace_id: WS }, error: null }),
+      () => {
+        called = true;
+        return { data: [], error: null };
+      },
+    );
+    const err = await replaceChecklistItemsLocal(ASSESSMENT, [{ id: `${ASSESSMENT}_item_0`, title: "Roof" }], ctxWith(client)).catch((e) => e as Error);
+    expect((err as Error).name).toBe("DbConflict");
+    expect(storeError(err).status).toBe(409);
+    expect(called).toBe(false);
+  });
+});
+
+describe("saving answers", () => {
+  const I1 = "77777777-7777-4777-8777-777777777777";
+  const I2 = "99999999-9999-4999-8999-999999999999";
+  const SAVED = "2026-11-01T10:00:00.000Z";
+
+  /** Fake whose checklist_responses read returns `stored`; counts upserts. */
+  function answersClient(stored: Array<{ item_id: string; updated_at: string }>) {
+    const calls = { upserts: 0 };
+    const client = fakeClient((table, _f, op) => {
+      if (table === "assessments") return { data: { workspace_id: WS }, error: null };
+      if (table === "checklist_responses" && op === "upsert") {
+        calls.upserts += 1;
+        return { data: null, error: null };
+      }
+      if (table === "checklist_responses") return { data: stored, error: null };
+      return { data: null, error: null };
+    });
+    return { client, calls };
+  }
+
+  it("saves several answers in one statement and returns the saved time", async () => {
+    const { client, calls } = answersClient([]);
+    const res = await saveResponsesLocal(ASSESSMENT, [{ itemId: I1, status: "pass" }, { itemId: I2, status: "fail", notes: "Cracked" }], ctxWith(client));
+    expect(calls.upserts).toBe(1);
+    expect(res.saved).toBe(2);
+    expect(Number.isNaN(new Date(res.updatedAt).getTime())).toBe(false);
+  });
+
+  it("refuses to overwrite an answer saved elsewhere after the screen loaded it", async () => {
+    const { client, calls } = answersClient([{ item_id: I1, updated_at: "2026-11-01T10:05:00.000Z" }]);
+    const err = await saveResponsesLocal(ASSESSMENT, [{ itemId: I1, status: "pass", baseUpdatedAt: SAVED }], ctxWith(client)).catch((e) => e as Error);
+    expect((err as Error).name).toBe("DbConflict");
+    expect(storeError(err).status).toBe(409);
+    expect(calls.upserts).toBe(0);
+  });
+
+  it("refuses when the screen thought the item was never answered but it has been since", async () => {
+    const { client, calls } = answersClient([{ item_id: I1, updated_at: SAVED }]);
+    const err = await saveResponsesLocal(ASSESSMENT, [{ itemId: I1, status: "pass", baseUpdatedAt: null }], ctxWith(client)).catch((e) => e as Error);
+    expect((err as Error).name).toBe("DbConflict");
+    expect(calls.upserts).toBe(0);
+  });
+
+  it("saves when the stored answer is the one the screen loaded (Postgres may add microseconds)", async () => {
+    const { client, calls } = answersClient([{ item_id: I1, updated_at: "2026-11-01T10:00:00+00:00" }]);
+    await saveResponsesLocal(ASSESSMENT, [{ itemId: I1, status: "fail", baseUpdatedAt: SAVED }], ctxWith(client));
+    expect(calls.upserts).toBe(1);
+  });
+
+  it("a stale answer blocks the whole batch: nothing is half-saved", async () => {
+    const { client, calls } = answersClient([{ item_id: I2, updated_at: "2026-11-01T11:00:00.000Z" }]);
+    const err = await saveResponsesLocal(ASSESSMENT, [{ itemId: I1, status: "pass", baseUpdatedAt: null }, { itemId: I2, status: "pass", baseUpdatedAt: SAVED }], ctxWith(client)).catch((e) => e as Error);
+    expect((err as Error).name).toBe("DbConflict");
+    expect(calls.upserts).toBe(0);
+  });
+});
+
+describe("checklist reads fail loudly", () => {
+  it("a database error reading items is an error, not an empty checklist", async () => {
+    const client = fakeClient(() => ({ data: null, error: { code: "XX000", message: "boom" } }));
+    await expect(getChecklistItemsLocal(ASSESSMENT, ctxWith(client))).rejects.toThrow();
+  });
+
+  it("a database error reading answers is an error, not 'nothing answered'", async () => {
+    const client = fakeClient(() => ({ data: null, error: { code: "XX000", message: "boom" } }));
+    await expect(getResponsesLocal(ASSESSMENT, ctxWith(client))).rejects.toThrow();
+  });
 });
 
 describe("materials versions are allocated by the server", () => {
@@ -216,6 +335,30 @@ describe("materials versions are allocated by the server", () => {
       ctxWith(client),
     );
     expect(sent[0].provisional).toBe(true); // rationale < 10 chars => forced provisional
+    expect(res.provisionalCount).toBe(1);
+  });
+
+  it("AI-suggested items with an assumption are always provisional, and the source is stored as given", async () => {
+    let sent: Array<{ provisional: boolean; source: string }> = [];
+    const client = fakeClient(
+      () => ({ data: { workspace_id: WS }, error: null }),
+      (_fn, args) => {
+        sent = (args as { p_items: Array<{ provisional: boolean; source: string }> }).p_items;
+        return { data: [{ list_id: "88888888-8888-4888-8888-888888888888", version: 2 }], error: null };
+      },
+    );
+    const res = await saveMaterialsLocal(
+      ASSESSMENT,
+      [
+        { description: "Module", quantity: 12, unit: "pcs", rationale: "Rule pv_modules_by_target: 5 kW at 450 W", source: "ai_suggested", provisional: false, assumptions: ["Module rating assumed 450 W"] },
+        { description: "Recorder", quantity: 8, unit: "channels", rationale: "Rule cctv_recorder_channels: 6 cameras recorded", source: "ai_suggested", provisional: false, assumptions: [] },
+      ],
+      undefined,
+      WS,
+      ctxWith(client),
+    );
+    expect(sent.map((s) => s.source)).toEqual(["ai_suggested", "ai_suggested"]);
+    expect(sent.map((s) => s.provisional)).toEqual([true, false]);
     expect(res.provisionalCount).toBe(1);
   });
 });

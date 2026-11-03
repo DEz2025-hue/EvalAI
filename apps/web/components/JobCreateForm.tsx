@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { SCENARIOS, SCENARIO_LIST, scenarioFor, type Scenario } from "@eval-ai/shared";
 
 type Mode = "assessment" | "inspection";
 type Pack = "solar" | "cctv";
@@ -17,6 +18,7 @@ export function JobCreateForm({ mode, initialPack = "solar", lockPack = false }:
   const [siteName, setSiteName] = useState("");
   const [address, setAddress] = useState("");
   const [goal, setGoal] = useState("");
+  const [scenario, setScenario] = useState<Scenario | null>(null);
   const [sites, setSites] = useState<Array<{ id: string; name: string; address?: string }>>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -39,13 +41,19 @@ export function JobCreateForm({ mode, initialPack = "solar", lockPack = false }:
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    setSaving(true);
     setError(null);
+    // An inspection is always an existing system; an assessment must say which.
+    const situation = scenarioFor(mode, scenario);
+    if (!situation) {
+      setError("Choose whether this is a new installation or an existing system.");
+      return;
+    }
+    setSaving(true);
     try {
       const res = await fetch("/api/assessments", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode, pack, siteName: siteName.trim(), address: address.trim() || undefined, goal: goal.trim() || undefined }),
+        body: JSON.stringify({ mode, pack, siteName: siteName.trim(), address: address.trim() || undefined, goal: goal.trim() || undefined, scenario: situation }),
       });
       const data = (await res.json().catch(() => ({}))) as { id?: string; error?: string; issues?: Array<{ message: string }> };
       if (!res.ok || !data.id) {
@@ -72,6 +80,22 @@ export function JobCreateForm({ mode, initialPack = "solar", lockPack = false }:
           </select>
         )}
       </div>
+      <fieldset className="space-y-2">
+        <legend className="text-sm">Situation at the site *</legend>
+        {isInspection ? (
+          <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm">Existing system — an inspection is always of something already installed.</p>
+        ) : (
+          <div className="grid gap-2 sm:grid-cols-2">
+            {SCENARIO_LIST.map((s) => (
+              <label key={s.id} className={`cursor-pointer rounded-lg border px-3 py-2 text-sm ${scenario === s.id ? "border-sky-500 bg-sky-50" : "border-slate-200"}`}>
+                <input type="radio" name="scenario" value={s.id} checked={scenario === s.id} onChange={() => setScenario(s.id)} className="mr-2" />
+                <span className="font-medium">{s.label}</span>
+                <span className="mt-0.5 block text-xs text-slate-500">{s.hint}</span>
+              </label>
+            ))}
+          </div>
+        )}
+      </fieldset>
       <label className="block text-sm">
         Site name *
         <input list="known-sites" value={siteName} onChange={(e) => onSiteChange(e.target.value)} required minLength={2} maxLength={100} placeholder={pack === "solar" ? "e.g. 12 Acacia Rd — roof" : "e.g. Warehouse — perimeter"} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
@@ -83,7 +107,7 @@ export function JobCreateForm({ mode, initialPack = "solar", lockPack = false }:
       </label>
       <label className="block text-sm">
         {isInspection ? "Inspection scope / requirements" : "Goal / scope"}
-        <textarea value={goal} onChange={(e) => setGoal(e.target.value)} rows={3} maxLength={500} placeholder={isInspection ? "Scope, standard, or requirements to check against" : "New install / existing / upgrade / repair — describe requested outcome, constraints, known equipment"} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+        <textarea value={goal} onChange={(e) => setGoal(e.target.value)} rows={3} maxLength={500} placeholder={isInspection ? "Scope, standard, or requirements to check against" : SCENARIOS[scenarioFor(mode, scenario) ?? "existing"].goalPlaceholder} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
       </label>
       <div className="flex gap-2">
         <button type="submit" disabled={saving} className="btn-primary">{saving ? "Creating…" : isInspection ? "Create & open inspection" : "Create & open checklist"}</button>

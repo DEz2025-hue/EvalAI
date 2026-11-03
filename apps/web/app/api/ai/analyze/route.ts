@@ -27,6 +27,7 @@ export async function POST(req: Request) {
       evidenceRefs: facts.evidenceIds,
       mode: facts.assessment.mode,
       pack: facts.assessment.pack,
+      scenario: facts.scenario,
     }, { onRun: aiRunHook(auth, assessmentId) });
     // Never return provider error detail; drop any evidence reference that is not real evidence for this job.
     const { _error: _ignored, ...result } = raw as typeof raw & { _error?: string };

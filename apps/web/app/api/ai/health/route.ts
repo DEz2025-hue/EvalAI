@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { buildAdapterConfig, metaRequest } from "@eval-ai/ai-adapter";
+import { buildAdapterConfig, isAiConfigured, metaRequest } from "@eval-ai/ai-adapter";
 import { requireAuth, isAdmin } from "../../../../lib/auth";
 
 /** Owners/admins only. Which models are configured, and do they exist in the provider's catalog? Free (no inference). */
@@ -7,7 +7,7 @@ export async function GET() {
   const { auth, error: authErr } = await requireAuth();
   if (authErr) return authErr;
   if (!isAdmin(auth)) return NextResponse.json({ error: "Forbidden — owners/admins only" }, { status: 403 });
-  if (!process.env.AI_PROVIDER_API_KEY || !process.env.AI_PROVIDER_BASE_URL) {
+  if (!isAiConfigured()) {
     return NextResponse.json({ ok: false, configured: false, error: "The AI provider is not configured on the server" }, { status: 503 });
   }
   try {
@@ -22,7 +22,7 @@ export async function GET() {
       catalogError = e instanceof Error ? e.message : "catalog unavailable";
     }
     const missing = available.length ? [...new Set(Object.values(configured).map((c) => c.model))].filter((m) => !available.includes(m)) : [];
-    return NextResponse.json({ ok: !catalogError && missing.length === 0, configured: true, models: configured, catalogReachable: !catalogError, missingModels: missing, note: "Run /api/verify/provider for live capability checks (costs a fraction of a cent)." });
+    return NextResponse.json({ ok: !catalogError && missing.length === 0, configured: true, provider: cfg.provider, models: configured, catalogReachable: !catalogError, missingModels: missing, note: "Run /api/verify/provider for live capability checks (costs a fraction of a cent)." });
   } catch (e) {
     // e.g. a Contributor-mode model id in the environment
     return NextResponse.json({ ok: false, configured: false, error: e instanceof Error ? e.message : "Invalid AI configuration" }, { status: 500 });

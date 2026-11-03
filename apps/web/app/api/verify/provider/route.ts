@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { probeProvider } from "@eval-ai/ai-adapter";
+import { isAiConfigured, probeProvider } from "@eval-ai/ai-adapter";
 import { requireAuth, isAdmin } from "../../../../lib/auth";
 
 export const maxDuration = 60;
@@ -12,7 +12,7 @@ export async function GET(req: Request) {
   const { auth, error: authErr } = await requireAuth();
   if (authErr) return authErr;
   if (!isAdmin(auth)) return NextResponse.json({ error: "Forbidden — owners/admins only" }, { status: 403 });
-  if (!process.env.AI_PROVIDER_API_KEY || !process.env.AI_PROVIDER_BASE_URL) {
+  if (!isAiConfigured()) {
     return NextResponse.json({ ok: false, error: "The AI provider is not configured on the server", synthetic: true }, { status: 503 });
   }
   try {
