@@ -122,18 +122,18 @@ export default function AppShell({ children }: { children: ReactNode }): JSX.Ele
   return (
     <div className="min-h-screen lg:flex">
       {/* Desktop sidebar */}
-      <aside className="sticky top-0 hidden h-screen w-64 shrink-0 border-r border-slate-200 bg-white lg:block">{sidebar}</aside>
+      <aside className="glass-bar sticky top-0 hidden h-screen w-64 shrink-0 border-r border-slate-200/70 lg:block">{sidebar}</aside>
 
       {/* Mobile drawer */}
       {mobileOpen ? (
         <div className="fixed inset-0 z-40 lg:hidden" role="dialog" aria-modal="true" aria-label="Navigation">
-          <button aria-label="Close navigation" onClick={() => setMobileOpen(false)} className="absolute inset-0 bg-slate-900/40" />
-          <aside className="absolute inset-y-0 left-0 w-72 max-w-[85vw] bg-white shadow-xl">{sidebar}</aside>
+          <button aria-label="Close navigation" onClick={() => setMobileOpen(false)} className="absolute inset-0 bg-slate-900/30 backdrop-blur-sm" />
+          <aside className="glass-sheet absolute inset-y-0 left-0 w-72 max-w-[85vw] rounded-l-none">{sidebar}</aside>
         </div>
       ) : null}
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-30 border-b border-slate-200/80 bg-white/95 backdrop-blur">
+        <header className="glass-bar sticky top-0 z-30">
           <div className="flex h-16 items-center justify-between gap-3 px-4 sm:px-6">
             <div className="flex items-center gap-3">
               <button onClick={() => setMobileOpen(true)} className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 lg:hidden" aria-label="Open navigation">
@@ -156,7 +156,7 @@ export default function AppShell({ children }: { children: ReactNode }): JSX.Ele
             <div className="relative">
               <button
                 onClick={() => setAccountOpen((v) => !v)}
-                className="flex items-center gap-2.5 rounded-full border border-slate-200 bg-white py-1 pl-1 pr-2.5 transition hover:border-slate-300 hover:bg-slate-50"
+                className="flex items-center gap-2.5 rounded-full border border-slate-200 bg-white/60 py-1 pl-1 pr-2.5 backdrop-blur transition hover:border-slate-300 hover:bg-white"
                 aria-haspopup="menu"
                 aria-expanded={accountOpen}
                 aria-label="Account menu"
@@ -172,7 +172,7 @@ export default function AppShell({ children }: { children: ReactNode }): JSX.Ele
               {accountOpen ? (
                 <>
                   <button aria-label="Close account menu" onClick={() => setAccountOpen(false)} className="fixed inset-0 z-40 cursor-default bg-transparent" />
-                  <div role="menu" className="absolute right-0 z-50 mt-2 w-60 rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
+                  <div role="menu" className="glass-sheet absolute right-0 z-50 mt-2 w-60 p-2">
                     <div className="px-3 py-2">
                       <div className="text-xs text-slate-500">Signed in as</div>
                       <div className="truncate text-sm font-medium text-slate-900">{email ? name || email : "Demo workspace"}</div>
@@ -197,7 +197,7 @@ export default function AppShell({ children }: { children: ReactNode }): JSX.Ele
           </div>
         </header>
         <main className="mx-auto min-h-[calc(100vh-9rem)] w-full max-w-6xl flex-1 px-4 py-6 sm:px-6">{children}</main>
-        <footer className="border-t border-slate-200 bg-white px-4 py-5 text-center text-xs text-slate-500">
+        <footer className="border-t border-slate-200/60 px-4 py-5 text-center text-xs text-slate-500">
           EvalAI <span aria-hidden="true">·</span> Evidence stays private <span aria-hidden="true">·</span> Reports are versioned and shareable
         </footer>
       </div>

@@ -2,15 +2,239 @@
 @tailwind components;
 @tailwind utilities;
 
-:root { --brand: #16a34a; }
-body { @apply bg-slate-50 text-slate-900 antialiased; }
-.card { @apply rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-900/[0.03]; }
-.btn-primary { @apply inline-flex items-center justify-center rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900 disabled:cursor-not-allowed disabled:opacity-50; }
-.btn-secondary { @apply inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-500 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-slate-200 disabled:hover:bg-white; }
-.badge { @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium; }
+/* Design tokens: generated from packages/shared/src/theme.ts (Charcoal #151515, Soft White #F6F6F6, Pure White #FDFDFD).
+   A test (theme-parity.test.ts) fails if these values drift from the shared file. Colours are space-separated channels so
+   Tailwind can add opacity (bg-white/70). The old slate, teal, sky and indigo classes all read the grey scale. */
+:root {
+  --c-page: 246 246 246;
+  --c-white: 253 253 253;
+  --c-slate-50: 246 246 246;
+  --c-slate-100: 238 238 238;
+  --c-slate-200: 226 226 226;
+  --c-slate-300: 207 207 207;
+  --c-slate-400: 138 138 138;
+  --c-slate-500: 107 107 107;
+  --c-slate-600: 86 86 86;
+  --c-slate-700: 63 63 63;
+  --c-slate-800: 42 42 42;
+  --c-slate-900: 21 21 21;
+  --c-red-50: 254 242 242;
+  --c-red-100: 254 226 226;
+  --c-red-200: 254 202 202;
+  --c-red-300: 252 165 165;
+  --c-red-400: 248 113 113;
+  --c-red-500: 239 68 68;
+  --c-red-600: 220 38 38;
+  --c-red-700: 185 28 28;
+  --c-red-800: 153 27 27;
+  --c-red-900: 127 29 29;
+  --c-amber-50: 255 251 235;
+  --c-amber-100: 254 243 199;
+  --c-amber-200: 253 230 138;
+  --c-amber-300: 252 211 77;
+  --c-amber-400: 251 191 36;
+  --c-amber-500: 245 158 11;
+  --c-amber-600: 217 119 6;
+  --c-amber-700: 180 83 9;
+  --c-amber-800: 146 64 14;
+  --c-amber-900: 120 53 15;
+  --c-green-50: 240 253 244;
+  --c-green-100: 220 252 231;
+  --c-green-200: 187 247 208;
+  --c-green-300: 134 239 172;
+  --c-green-400: 74 222 128;
+  --c-green-500: 34 197 94;
+  --c-green-600: 22 163 74;
+  --c-green-700: 21 128 61;
+  --c-green-800: 22 101 52;
+  --c-green-900: 20 83 45;
+  --glass-fill: rgba(253,253,253,0.72);
+  --glass-fill-strong: rgba(253,253,253,0.88);
+  --glass-edge: rgba(21,21,21,0.08);
+  --glass-highlight: rgba(255,255,255,0.85);
+  --glass-shadow: rgba(21,21,21,0.10);
+  --glass-blur: 24px;
+  --glass-saturate: 1.8;
+  --glow-a: rgba(255, 255, 255, 0.95);
+  --glow-b: rgba(21, 21, 21, 0.06);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --c-page: 21 21 21;
+    --c-white: 31 31 31;
+    --c-slate-50: 27 27 27;
+    --c-slate-100: 35 35 35;
+    --c-slate-200: 48 48 48;
+    --c-slate-300: 66 66 66;
+    --c-slate-400: 122 122 122;
+    --c-slate-500: 163 163 163;
+    --c-slate-600: 184 184 184;
+    --c-slate-700: 207 207 207;
+    --c-slate-800: 230 230 230;
+    --c-slate-900: 246 246 246;
+    --c-red-50: 43 23 23;
+    --c-red-100: 58 29 29;
+    --c-red-200: 83 38 38;
+    --c-red-300: 124 54 54;
+    --c-red-400: 224 120 120;
+    --c-red-500: 235 138 138;
+    --c-red-600: 242 139 139;
+    --c-red-700: 245 163 163;
+    --c-red-800: 248 184 184;
+    --c-red-900: 251 208 208;
+    --c-amber-50: 43 34 16;
+    --c-amber-100: 58 46 18;
+    --c-amber-200: 84 66 26;
+    --c-amber-300: 124 97 37;
+    --c-amber-400: 217 169 62;
+    --c-amber-500: 229 182 86;
+    --c-amber-600: 237 190 92;
+    --c-amber-700: 242 203 123;
+    --c-amber-800: 246 217 155;
+    --c-amber-900: 250 232 194;
+    --c-green-50: 20 38 26;
+    --c-green-100: 26 51 34;
+    --c-green-200: 35 74 47;
+    --c-green-300: 47 106 66;
+    --c-green-400: 76 179 110;
+    --c-green-500: 98 195 130;
+    --c-green-600: 111 203 140;
+    --c-green-700: 139 216 163;
+    --c-green-800: 169 228 187;
+    --c-green-900: 201 239 213;
+    --glass-fill: rgba(253,253,253,0.08);
+    --glass-fill-strong: rgba(253,253,253,0.12);
+    --glass-edge: rgba(253,253,253,0.14);
+    --glass-highlight: rgba(253,253,253,0.18);
+    --glass-shadow: rgba(0,0,0,0.45);
+    --glass-blur: 24px;
+    --glass-saturate: 1.6;
+    --glow-a: rgba(253, 253, 253, 0.07);
+    --glow-b: rgba(253, 253, 253, 0.04);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --c-page: 21 21 21;
+  --c-white: 31 31 31;
+  --c-slate-50: 27 27 27;
+  --c-slate-100: 35 35 35;
+  --c-slate-200: 48 48 48;
+  --c-slate-300: 66 66 66;
+  --c-slate-400: 122 122 122;
+  --c-slate-500: 163 163 163;
+  --c-slate-600: 184 184 184;
+  --c-slate-700: 207 207 207;
+  --c-slate-800: 230 230 230;
+  --c-slate-900: 246 246 246;
+  --c-red-50: 43 23 23;
+  --c-red-100: 58 29 29;
+  --c-red-200: 83 38 38;
+  --c-red-300: 124 54 54;
+  --c-red-400: 224 120 120;
+  --c-red-500: 235 138 138;
+  --c-red-600: 242 139 139;
+  --c-red-700: 245 163 163;
+  --c-red-800: 248 184 184;
+  --c-red-900: 251 208 208;
+  --c-amber-50: 43 34 16;
+  --c-amber-100: 58 46 18;
+  --c-amber-200: 84 66 26;
+  --c-amber-300: 124 97 37;
+  --c-amber-400: 217 169 62;
+  --c-amber-500: 229 182 86;
+  --c-amber-600: 237 190 92;
+  --c-amber-700: 242 203 123;
+  --c-amber-800: 246 217 155;
+  --c-amber-900: 250 232 194;
+  --c-green-50: 20 38 26;
+  --c-green-100: 26 51 34;
+  --c-green-200: 35 74 47;
+  --c-green-300: 47 106 66;
+  --c-green-400: 76 179 110;
+  --c-green-500: 98 195 130;
+  --c-green-600: 111 203 140;
+  --c-green-700: 139 216 163;
+  --c-green-800: 169 228 187;
+  --c-green-900: 201 239 213;
+  --glass-fill: rgba(253,253,253,0.08);
+  --glass-fill-strong: rgba(253,253,253,0.12);
+  --glass-edge: rgba(253,253,253,0.14);
+  --glass-highlight: rgba(253,253,253,0.18);
+  --glass-shadow: rgba(0,0,0,0.45);
+  --glass-blur: 24px;
+  --glass-saturate: 1.6;
+  --glow-a: rgba(253, 253, 253, 0.07);
+  --glow-b: rgba(253, 253, 253, 0.04);
+  color-scheme: dark;
+}
 
-input, textarea, select {
-  @apply rounded-xl border-slate-200 bg-white text-slate-900 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-teal-600 focus:ring-4 focus:ring-teal-600/10;
+html {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "Segoe UI", system-ui, sans-serif;
+  -webkit-text-size-adjust: 100%;
+}
+body { @apply bg-page text-slate-900 antialiased; min-height: 100vh; position: relative; isolation: isolate; }
+/* A soft monochrome glow behind everything gives the glass something to blur. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(60rem 38rem at 8% -12%, var(--glow-a), transparent 70%),
+    radial-gradient(46rem 34rem at 108% 6%, var(--glow-b), transparent 70%),
+    radial-gradient(40rem 30rem at 50% 118%, var(--glow-b), transparent 70%);
+}
+::selection { background: rgb(var(--c-slate-900) / 0.85); color: rgb(var(--c-white)); }
+:where(a, button, summary, [tabindex]):focus-visible { outline: 2px solid rgb(var(--c-slate-900)); outline-offset: 2px; }
+
+@layer components {
+/* Liquid Glass: a translucent fill, a light edge with an inner highlight, and the blur behind it. */
+.glass, .glass-bar, .glass-sheet, .card {
+  background: var(--glass-fill);
+  border: 1px solid var(--glass-edge);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  box-shadow: inset 0 1px 0 var(--glass-highlight), 0 6px 28px var(--glass-shadow);
+}
+.glass { border-radius: 1.25rem; }
+.card { border-radius: 1.25rem; background: var(--glass-fill-strong); }
+.glass-sheet { border-radius: 1.25rem; background: var(--glass-fill-strong); }
+.glass-bar { background: var(--glass-fill-strong); border-width: 0; box-shadow: inset 0 -1px 0 var(--glass-edge), 0 1px 0 var(--glass-highlight); }
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass, .glass-bar, .glass-sheet, .card { background: rgb(var(--c-white)); }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .glass, .glass-bar, .glass-sheet, .card { background: rgb(var(--c-white)); -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
+
+.btn-primary { @apply inline-flex items-center justify-center rounded-full bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900 disabled:cursor-not-allowed disabled:opacity-50; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 2px 10px var(--glass-shadow); }
+.btn-secondary { @apply inline-flex items-center justify-center rounded-full border border-slate-200 bg-white/70 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-500 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-slate-200 disabled:hover:bg-white/70; -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); box-shadow: inset 0 1px 0 var(--glass-highlight); }
+.badge { @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium; }
+}
+
+@layer base {
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]), textarea, select {
+  @apply rounded-xl border border-slate-200 bg-white/80 text-slate-900 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-slate-900 focus:ring-4 focus:ring-slate-900/10;
+}
+}
+
+/* Loading: skeleton placeholders instead of text and spinners. */
+.skeleton {
+  display: block;
+  border-radius: 0.5rem;
+  background: linear-gradient(100deg, rgb(var(--c-slate-100)) 30%, rgb(var(--c-slate-200)) 50%, rgb(var(--c-slate-100)) 70%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.6s ease-in-out infinite;
+}
+@keyframes skeleton-shimmer {
+  from { background-position: 100% 0; }
+  to { background-position: -100% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton { animation: none; }
 }
 
 button, a {
