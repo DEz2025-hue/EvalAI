@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRole } from "./useRole";
+import { ListLoading } from "./Skeleton";
 
 type Finding = {
   id: string;
@@ -101,7 +102,7 @@ export function FindingsView({ id, basePath }: { id: string; basePath: "/assessm
   const toggleRef = (evId: string) => setForm((f) => ({ ...f, refs: f.refs.includes(evId) ? f.refs.filter((r) => r !== evId) : [...f.refs, evId] }));
   const unreviewed = findings.filter((f) => f.status === "needs_review").length;
 
-  if (loading) return <div className="mx-auto max-w-3xl py-10 text-sm text-slate-500">Loading findings…</div>;
+  if (loading) return <ListLoading label="Loading findings…" rows={3} className="mx-auto max-w-3xl py-10" />;
 
   return (
     <div className="mx-auto max-w-3xl space-y-4 py-6">

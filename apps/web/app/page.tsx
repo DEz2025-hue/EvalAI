@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { LoadingRegion, SkeletonHeading, SkeletonList, SkeletonStats } from "../components/Skeleton";
 
 type Job = {
   id: string;
@@ -134,7 +135,14 @@ export default function DashboardPage(): JSX.Element {
   }
 
   if (error) return <div className="card p-8 text-center text-sm text-red-700">{error}</div>;
-  if (!jobs) return <div className="card p-8 text-center text-sm text-slate-500">Loading your workspace…</div>;
+  if (!jobs)
+    return (
+      <LoadingRegion label="Loading your workspace…" className="space-y-6">
+        <SkeletonHeading />
+        <SkeletonStats />
+        <SkeletonList rows={4} />
+      </LoadingRegion>
+    );
 
   const greeting = greetingFor(new Date());
 

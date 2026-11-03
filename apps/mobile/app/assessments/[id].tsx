@@ -132,7 +132,7 @@ export default function AssessmentDetail() {
     setItemsTick((n) => n + 1);
   };
 
-  if (state.kind === "loading") return <Screen><Stack.Screen options={{ title: "Job" }} /><Loading label="Loading job…" /></Screen>;
+  if (state.kind === "loading") return <Screen><Stack.Screen options={{ title: "Job" }} /><Loading label="Loading job…" variant="card" rows={4} /></Screen>;
   if (state.kind === "error") return <Screen><Stack.Screen options={{ title: "Job" }} /><ErrorState title="Couldn't load this job" message={state.message} onRetry={fetchDetail} /></Screen>;
 
   const row = state.row;
@@ -204,7 +204,7 @@ export default function AssessmentDetail() {
           subtitle={`Started from the ${system} ${scenario === "new_install" ? "site-survey" : "condition"} template. Tap an item to check it; Edit to add, remove or reorder.`}
           action={<Link href={`${base}/checklist-builder` as never} asChild><Button title="Edit" icon="create-outline" variant="secondary" size="sm" /></Link>}
         />
-        {itemsState === "loading" ? <Loading /> : null}
+        {itemsState === "loading" ? <Loading label="Loading checklist…" variant="inline" /> : null}
         {itemsState === "error" ? <ErrorState title="Couldn't load the checklist" message={itemsError ?? "Check your connection and try again."} onRetry={reloadItems} /> : null}
         {itemsState === "empty" ? (
           <EmptyState icon="list-outline" title="No checklist yet" message="Set up the items you'll check on site." action={<Link href={`${base}/checklist-builder` as never} asChild><Button title="Build checklist" icon="add" variant="accent" size="sm" /></Link>} />

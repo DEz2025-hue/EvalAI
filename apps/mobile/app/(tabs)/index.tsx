@@ -142,7 +142,7 @@ export default function HomeScreen() {
           />
         </View>
 
-        {state.kind === "loading" ? <Loading label="Loading jobs…" /> : null}
+        {state.kind === "loading" ? <Loading label="Loading jobs…" rows={3} /> : null}
 
         {state.kind === "no-env" ? (
           <EmptyState icon="log-in-outline" title="Sign in to see your jobs" message="You can still start a draft from New job." action={<Button title="Start a draft" icon="add" variant="accent" size="sm" onPress={() => router.push("/(tabs)/create")} />} />

@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import { DEFAULT_TEMPLATE, SECTION_LABEL, TEMPLATE_LIMITS, buildReportHtml, normalizeTemplate, type ReportInput, type ReportSnapshot, type ReportTemplate } from "@eval-ai/shared";
+import { LoadingRegion, Skeleton } from "./Skeleton";
 
 // Largest logo file taken from the picker. The saved style is limited to about 300 KB of text, which is roughly a 220 KB picture.
 const MAX_LOGO_BYTES = 200_000;
@@ -133,7 +134,13 @@ export default function ReportStyleCard(): JSX.Element {
       <p className="mt-1 text-xs text-slate-500">
         Make your reports look like your office&apos;s: name, logo, colour, header and footer text, and which sections appear, in what order and under what heading. It changes how a report looks, never what it says. The review status, sign-off and important notice always stay.
       </p>
-      {loading ? <p className="mt-3 text-xs text-slate-500">Loading…</p> : null}
+      {loading ? (
+        <LoadingRegion label="Loading the report style…" className="mt-3 space-y-2">
+          <Skeleton className="h-9 w-full rounded-xl" />
+          <Skeleton className="h-9 w-full rounded-xl" />
+          <Skeleton className="h-9 w-2/3 rounded-xl" />
+        </LoadingRegion>
+      ) : null}
       {!loading && !canEdit ? <p className="mt-3 rounded bg-slate-50 px-3 py-2 text-xs text-slate-600">Only an owner or admin can change the report style. {isDefault ? "This workspace uses the built-in style." : "This workspace has its own style."}</p> : null}
       {error ? <div role="alert" className="mt-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{error}</div> : null}
       {msg ? <div className="mt-3 rounded border border-green-200 bg-green-50 px-3 py-2 text-xs text-green-800">{msg}</div> : null}

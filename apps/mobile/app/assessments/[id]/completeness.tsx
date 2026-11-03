@@ -40,7 +40,7 @@ export default function MobileCompleteness() {
   return (
     <Screen>
       <Stack.Screen options={{ title: "Progress" }} />
-      {loading ? <Loading label="Checking progress…" /> : null}
+      {loading ? <Loading label="Checking progress…" variant="card" rows={4} /> : null}
       {error ? <ErrorState title="Couldn't check progress" message={error} onRetry={load} /> : null}
       {data ? (
         <>

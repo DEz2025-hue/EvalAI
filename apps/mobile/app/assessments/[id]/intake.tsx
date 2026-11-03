@@ -18,7 +18,7 @@ export default function MobileIntake() {
       {loaded ? (
         <SiteIntake assessmentId={assessmentId} scenario={scenario} deps={deps} firstRun={first === "1"} onFinish={() => router.replace(`/assessments/${assessmentId}` as never)} />
       ) : (
-        <Loading label="Loading…" />
+        <Loading label="Loading…" variant="card" rows={4} />
       )}
     </Screen>
   );

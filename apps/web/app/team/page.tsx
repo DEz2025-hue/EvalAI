@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { LoadingRegion, SkeletonTable } from "../../components/Skeleton";
 
 type Member = { workspaceId: string; userId: string; email?: string; role: string; createdAt: string };
 type Audit = { id: string; actor: string | null; action: string; targetType: string | null; targetId: string | null; createdAt: string };
@@ -98,7 +99,12 @@ export default function TeamPage(): JSX.Element {
     }
   }
 
-  if (loading) return <div className="mx-auto max-w-3xl py-10 text-sm text-slate-500">Loading team…</div>;
+  if (loading)
+    return (
+      <LoadingRegion label="Loading team…" className="mx-auto max-w-3xl py-10">
+        <SkeletonTable rows={4} cols={3} />
+      </LoadingRegion>
+    );
 
   return (
     <div className="mx-auto max-w-3xl space-y-6 py-6">

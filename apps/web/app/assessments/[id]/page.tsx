@@ -11,6 +11,7 @@ import { InterviewPanel } from "../../../components/InterviewPanel";
 import type { InterviewState } from "@eval-ai/shared";
 import { AiDraftPanel } from "../../../components/AiDraftPanel";
 import { DeleteJobCard } from "../../../components/DeleteJobCard";
+import { CardLoading } from "../../../components/Skeleton";
 
 export default function AssessmentDetailPage({ params, searchParams }: { params: { id: string }; searchParams?: { pack?: string } }): JSX.Element {
   const id = params.id;
@@ -66,7 +67,7 @@ export default function AssessmentDetailPage({ params, searchParams }: { params:
           {loadError ? (
             <div role="alert" className="rounded bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-700">{loadError} — reload the page to see the checklist.</div>
           ) : !persisted ? (
-            <p className="text-xs text-slate-500">Loading checklist…</p>
+            <CardLoading label="Loading checklist…" lines={4} />
           ) : items.length === 0 ? (
             <a href={`/assessments/${id}/checklist-builder`} className="btn-secondary text-xs">Open the checklist builder</a>
           ) : (

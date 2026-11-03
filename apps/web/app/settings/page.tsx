@@ -6,6 +6,7 @@ import { displayName } from "@eval-ai/shared";
 import { getNotifPrefs, setNotifPrefs, type NotifPrefs } from "../../lib/prefs";
 import DeleteAccountSection from "../../components/DeleteAccountSection";
 import ReportStyleCard from "../../components/ReportStyleCard";
+import { LoadingRegion, Skeleton } from "../../components/Skeleton";
 
 type Workspace = { id: string; name: string; role: string; createdAt: string };
 type Member = { userId: string; role: string; createdAt: string };
@@ -175,7 +176,10 @@ export default function SettingsPage(): JSX.Element {
           <button onClick={createWorkspace} disabled={busy} className="btn-secondary text-xs disabled:opacity-50">+ New workspace</button>
         </div>
         {workspaces === null ? (
-          <p className="mt-3 text-sm text-slate-500">Loading workspaces…</p>
+          <LoadingRegion label="Loading workspaces…" className="mt-3 space-y-2">
+            <Skeleton className="h-10 w-full rounded-xl" />
+            <Skeleton className="h-10 w-full rounded-xl" />
+          </LoadingRegion>
         ) : workspaces.length === 0 ? (
           <p className="mt-3 text-sm text-slate-600">
             {email ? "You don't belong to any workspace yet — create one to get started." : "Sign in to create and switch between workspaces."}

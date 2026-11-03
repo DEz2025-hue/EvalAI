@@ -83,7 +83,7 @@ export default function MobileFindings() {
   const toggleRef = (evId: string) => setForm((f) => ({ ...f, refs: f.refs.includes(evId) ? f.refs.filter((r) => r !== evId) : [...f.refs, evId] }));
   const unreviewed = findings.filter((f) => f.status === "needs_review").length;
 
-  if (loading) return <Screen><Stack.Screen options={{ title: "Findings" }} /><Loading label="Loading findings…" /></Screen>;
+  if (loading) return <Screen><Stack.Screen options={{ title: "Findings" }} /><Loading label="Loading findings…" rows={3} /></Screen>;
 
   return (
     <Screen>

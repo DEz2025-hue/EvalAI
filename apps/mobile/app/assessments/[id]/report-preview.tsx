@@ -59,7 +59,7 @@ export default function MobileReportPreview() {
   };
 
   if (error) return <View style={{ flex: 1, backgroundColor: colors.bg, padding: space.lg }}><Stack.Screen options={{ title: "Preview" }} /><ErrorState title="Couldn't load the report" message={error} onRetry={load} /></View>;
-  if (!snap) return <View style={{ flex: 1, backgroundColor: colors.bg, padding: space.lg }}><Stack.Screen options={{ title: "Preview" }} /><Loading label="Loading the report…" /></View>;
+  if (!snap) return <View style={{ flex: 1, backgroundColor: colors.bg, padding: space.lg }}><Stack.Screen options={{ title: "Preview" }} /><Loading label="Loading the report…" variant="card" rows={6} /></View>;
 
   const html = snap.htmlPreview ?? "";
   return (

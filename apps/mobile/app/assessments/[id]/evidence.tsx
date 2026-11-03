@@ -109,7 +109,7 @@ export default function MobileEvidenceGallery() {
         </Card>
       ) : null}
 
-      {loading ? <Loading label="Loading files…" /> : null}
+      {loading ? <Loading label="Loading files…" rows={3} /> : null}
       {filtered.length === 0 && !loading ? (
         <EmptyState icon="images-outline" title="No photos or audio yet" message="Capture them from the job screen — each one is linked to the item it belongs to." />
       ) : (

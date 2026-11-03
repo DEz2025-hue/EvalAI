@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { MaterialsList } from "./MaterialsList";
 import { QuotationReview } from "./QuotationReview";
+import { ListLoading } from "./Skeleton";
 
 /** Materials + quotations with the REAL latest materials version (never a hard-coded 1). */
 export function MaterialsWorkspace({ id, basePath }: { id: string; basePath: "/assessments" | "/inspections" }): JSX.Element {
@@ -25,7 +26,7 @@ export function MaterialsWorkspace({ id, basePath }: { id: string; basePath: "/a
     loadVersion();
   }, [loadVersion]);
 
-  if (version === null) return <div className="py-10 text-sm text-slate-500">Loading materials…</div>;
+  if (version === null) return <ListLoading label="Loading materials…" rows={4} className="py-6" />;
   return (
     <div className="space-y-6">
       <div>

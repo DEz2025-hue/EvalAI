@@ -190,7 +190,7 @@ export default function MobileChecklistDetail() {
     router.replace(`/assessments/${String(id)}/completeness` as never);
   }
 
-  if (loading) return <Screen><Stack.Screen options={{ title: "Checklist" }} /><Loading label="Loading checklist…" /></Screen>;
+  if (loading) return <Screen><Stack.Screen options={{ title: "Checklist" }} /><Loading label="Loading checklist…" rows={6} /></Screen>;
   if (loadError) return <Screen><Stack.Screen options={{ title: "Checklist" }} /><ErrorState title="Couldn't load the checklist" message={loadError} onRetry={() => setLoadTick((n) => n + 1)} /></Screen>;
   if (!cur || !curResp) return <Screen><Stack.Screen options={{ title: "Checklist" }} /><EmptyState icon="list-outline" title="No checklist items" action={<Button title="Build checklist" variant="accent" size="sm" onPress={() => router.replace(`/assessments/${String(id)}/checklist-builder` as never)} />} /></Screen>;
 

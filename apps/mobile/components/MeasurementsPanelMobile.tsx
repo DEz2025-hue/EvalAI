@@ -193,7 +193,7 @@ export function MeasurementsPanelMobile({ assessmentId, items = [] }: { assessme
       )}
 
       <View style={{ gap: space.sm }}>
-        {loading ? <Loading /> : null}
+        {loading ? <Loading label="Loading measurements…" variant="inline" /> : null}
         {!loading && saved.length === 0 ? <Text variant="caption">No measurements recorded yet.</Text> : null}
         {saved.map((m) => (
           <View key={m.id} style={{ borderTopWidth: 1, borderTopColor: colors.divider, paddingTop: space.sm, flexDirection: "row", alignItems: "center", gap: space.sm }}>

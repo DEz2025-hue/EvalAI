@@ -190,6 +190,8 @@ On a phone (to be run by a person):
 
 Automated (2026-11-03): theme.test.ts (the three brand colours, a monochrome grey scale, WCAG AA contrast for text on the page, the surface, subtle fills and glass in light and dark, status colours, the phone's named colours), theme-parity.test.ts (the web CSS variables equal the shared tokens; glass classes have solid fallbacks; the skeleton stops animating under reduced motion).
 
+Playwright end-to-end (30 tests, demo mode) pass after the restyle; one step (choosing the situation at the site) was out of date and was fixed.
+
 Checked in a browser on 2026-11-03: the web app and the phone's web build in light and dark (Charcoal page, glass cards, pill buttons, status chip readable; the phone's dark mode switches live).
 
 Not run (needs a person with the devices):

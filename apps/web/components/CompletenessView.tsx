@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import type { CompletenessResult, CompletenessTarget } from "@eval-ai/shared";
+import { FormLoading } from "./Skeleton";
 
 type Base = "/assessments" | "/inspections";
 
@@ -38,7 +39,7 @@ export function CompletenessView({ id, basePath }: { id: string; basePath: Base 
 
   const href = (t: CompletenessTarget) => `${basePath}/${id}/${TARGET_PATH[t]}`;
 
-  if (loading) return <div className="mx-auto max-w-2xl py-10 text-sm text-slate-500">Computing completeness…</div>;
+  if (loading) return <FormLoading label="Computing completeness…" />;
   return (
     <div className="mx-auto max-w-2xl space-y-4 py-6">
       <div className="flex items-center justify-between">

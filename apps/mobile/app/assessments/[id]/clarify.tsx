@@ -67,7 +67,7 @@ export default function MobileClarify() {
     }
   }
 
-  if (loading) return <Screen><Stack.Screen options={{ title: "Questions" }} /><Loading /></Screen>;
+  if (loading) return <Screen><Stack.Screen options={{ title: "Questions" }} /><Loading label="Loading questions…" variant="card" rows={4} /></Screen>;
   return (
     <>
       <Stack.Screen options={{ title: "Questions" }} />

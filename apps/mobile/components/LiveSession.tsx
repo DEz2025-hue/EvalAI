@@ -561,11 +561,11 @@ export function LiveSession({
           ) : null}
           <View style={{ height: 340, borderRadius: radius.md, overflow: "hidden", backgroundColor: colors.heroBg }}>
             {handle.preview}
-            <View style={{ position: "absolute", top: space.sm, left: space.sm, flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "rgba(15,23,42,0.78)", paddingHorizontal: space.sm, paddingVertical: 4, borderRadius: radius.pill }}>
+            <View style={{ position: "absolute", top: space.sm, left: space.sm, flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "rgba(21,21,21,0.78)", paddingHorizontal: space.sm, paddingVertical: 4, borderRadius: radius.pill }}>
               <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: colors.danger }} />
               <Text style={{ fontSize: 12, fontWeight: "800", color: colors.textOnDark }}>{liveIndicator(state, narration.active)}</Text>
             </View>
-            <View style={{ position: "absolute", top: space.sm, right: space.sm, backgroundColor: "rgba(15,23,42,0.78)", paddingHorizontal: space.sm, paddingVertical: 4, borderRadius: radius.pill }}>
+            <View style={{ position: "absolute", top: space.sm, right: space.sm, backgroundColor: "rgba(21,21,21,0.78)", paddingHorizontal: space.sm, paddingVertical: 4, borderRadius: radius.pill }}>
               <Text style={{ fontSize: 12, fontWeight: "700", color: colors.textOnDark }}>{formatElapsed(state.elapsedS)} · {state.framesCaptured}/{LIVE_MAX_FRAMES}</Text>
             </View>
           </View>

@@ -158,7 +158,7 @@ export function VoiceRecorderMobile({ assessmentId, itemId, onTranscript, showTy
       <Text style={{ fontSize: 11, color: colors.textSubtle }}>The microphone is only used while you're recording.</Text>
 
       {perm === "denied" ? <Banner tone="warning" message={`Microphone access is off — turn it on in Settings, or type your note${showTypedNote ? " below" : ""}.`} /> : null}
-      {transcribing ? <Loading label="Transcribing… you can edit it afterwards." /> : null}
+      {transcribing ? <Loading label="Transcribing… you can edit it afterwards." variant="inline" showLabel /> : null}
 
       {transcript ? (
         <View style={{ gap: space.sm, backgroundColor: confirmed ? colors.successSoft : colors.warningSoft, borderRadius: radius.sm, padding: space.md }}>

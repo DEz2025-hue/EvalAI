@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRole } from "../../components/useRole";
+import { ListLoading } from "../../components/Skeleton";
 
 type Site = { id: string; name: string; address?: string; createdAt: string; jobCount?: number };
 type Job = { id: string; siteId: string | null; siteName?: string; mode: "assessment" | "inspection"; pack: string; status: string; createdAt: string };
@@ -70,7 +71,7 @@ export default function SitesPage(): JSX.Element {
     await call("DELETE", undefined, `/api/sites?id=${s.id}`);
   }
 
-  if (loading) return <div className="mx-auto max-w-3xl py-10 text-sm text-slate-500">Loading sites…</div>;
+  if (loading) return <ListLoading label="Loading sites…" rows={4} className="mx-auto max-w-3xl py-10" />;
 
   return (
     <div className="mx-auto max-w-3xl space-y-4 py-6">

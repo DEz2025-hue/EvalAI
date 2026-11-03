@@ -41,7 +41,7 @@ export default function WorkspaceSelect() {
       <Stack.Screen options={{ title: "Workspaces" }} />
       <Text variant="caption">You only see workspaces you're a member of. Switching refreshes your jobs and reports.</Text>
 
-      {state.kind === "loading" ? <Loading label="Loading workspaces…" /> : null}
+      {state.kind === "loading" ? <Loading label="Loading workspaces…" rows={3} /> : null}
       {state.kind === "no-env" ? <EmptyState icon="log-in-outline" title="Sign in to see your workspaces" /> : null}
       {state.kind === "error" ? <ErrorState title="Couldn't load workspaces" message={state.message} onRetry={fetchWS} /> : null}
 

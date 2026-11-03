@@ -120,7 +120,7 @@ export function SiteIntake({ scenario, deps, firstRun, onFinish }: { assessmentI
   if (phase === "working") {
     return (
       <>
-        <Loading label={step || "Working…"} />
+        <Loading label={step || "Working…"} variant="inline" showLabel />
         <Text variant="caption" style={{ textAlign: "center" }}>This can take up to a minute. Your photos are saved first.</Text>
       </>
     );

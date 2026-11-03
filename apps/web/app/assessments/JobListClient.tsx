@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { scenarioFor, scenarioLabel } from "@eval-ai/shared";
+import { ListLoading } from "../../components/Skeleton";
 
 type Job = { id: string; siteName?: string; mode: string; pack: string; status: string; context?: Record<string, unknown>; createdAt?: string };
 
@@ -20,7 +21,7 @@ export function JobListClient({ mode, newHref, emptyHint, limit }: { mode: "asse
   }, [mode, limit]);
 
   if (error) return <div className="card p-8 text-center text-sm text-red-700">{error}</div>;
-  if (!jobs) return <div className="card p-8 text-center text-sm text-slate-500">Loading jobs…</div>;
+  if (!jobs) return <ListLoading label="Loading jobs…" rows={4} />;
   if (jobs.length === 0) {
     return (
       <div className="card p-8 text-center text-sm text-slate-500">

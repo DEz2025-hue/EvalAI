@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useRole } from "./useRole";
+import { FormLoading } from "./Skeleton";
 
 type Q = { id: string; question: string; type: "text" | "choice" | "number"; options?: string[]; required?: boolean };
 type ApiQ = { id?: string; question: string; type?: "text" | "number" | "select" | "boolean" | "choice"; options?: string[]; required?: boolean };
@@ -101,7 +102,7 @@ export function ClarifyView({ id, basePath }: { id: string; basePath: "/assessme
     }
   }
 
-  if (loading) return <div className="mx-auto max-w-2xl py-10 text-sm text-slate-500">Loading scope questions…</div>;
+  if (loading) return <FormLoading label="Loading scope questions…" />;
   const readOnly = loaded && !canWrite;
   return (
     <div className="mx-auto max-w-2xl space-y-4 py-6">

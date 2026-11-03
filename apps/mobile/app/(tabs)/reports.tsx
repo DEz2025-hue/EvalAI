@@ -58,7 +58,7 @@ export default function ReportsScreen() {
     <Screen onRefresh={async () => { setRefreshing(true); await fetchSnaps(); setRefreshing(false); }} refreshing={refreshing}>
       <Text variant="caption">Finalized reports are locked — any later edits create a new version.</Text>
 
-      {state.kind === "loading" ? <Loading label="Loading reports…" /> : null}
+      {state.kind === "loading" ? <Loading label="Loading reports…" rows={4} /> : null}
       {state.kind === "no-env" ? (
         <EmptyState icon="cloud-offline-outline" title="Reports can't load right now" message="Check your connection, or open a job and go to its Report." action={<Link href="/(tabs)/jobs" asChild><Button title="View jobs" variant="secondary" size="sm" /></Link>} />
       ) : null}

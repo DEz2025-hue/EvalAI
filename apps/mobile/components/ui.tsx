@@ -388,12 +388,14 @@ export function EmptyState({ icon = "file-tray-outline", title, message, action 
 /**
  * The loading state of a screen or a section: placeholders in the shape of what is coming, not a spinner.
  * `variant` picks the shape: "list" (rows, the default), "card" (a heading and text), "text" (a few lines) or "inline"
- * (one row, for a small area). The label is read out by screen readers.
+ * (one row, for a small area). The label is read out by screen readers; `showLabel` also prints it, for progress text the person
+ * should see (what the AI is doing right now).
  */
-export function Loading({ label, variant = "list", rows }: { label?: string; variant?: "list" | "card" | "text" | "inline"; rows?: number }) {
+export function Loading({ label, variant = "list", rows, showLabel = false }: { label?: string; variant?: "list" | "card" | "text" | "inline"; rows?: number; showLabel?: boolean }) {
   return (
-    <SkeletonGroup label={label ?? "Loading"} style={{ paddingVertical: variant === "inline" ? space.sm : space.xs }}>
+    <SkeletonGroup label={label ?? "Loading"} style={{ paddingVertical: variant === "inline" ? space.sm : space.xs, gap: space.sm }}>
       {variant === "list" ? <SkeletonList rows={rows ?? 4} /> : variant === "card" ? <SkeletonCard lines={rows ?? 3} /> : variant === "text" ? <SkeletonText lines={rows ?? 3} /> : <SkeletonRow last />}
+      {showLabel && label ? <Text variant="caption" style={{ textAlign: "center" }}>{label}</Text> : null}
     </SkeletonGroup>
   );
 }

@@ -21,6 +21,8 @@ async function json(res: APIResponse): Promise<any> {
 
 test("create a solar assessment from the form", async () => {
   await page.goto("/assessments/new");
+  // The situation at the site is required: a new installation is surveyed, an existing system is checked.
+  await page.getByRole("radio", { name: /New installation/ }).check();
   await page.getByLabel(/Site name/).fill("E2E rooftop — 12 Acacia Rd");
   await page.getByLabel(/Goal \/ scope/).fill("New install, 5 kW, tile roof");
   await page.getByRole("button", { name: "Create & open checklist" }).click();

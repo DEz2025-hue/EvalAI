@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { SourceBadge, type ItemSource } from "./SourceBadge";
 import { useRole } from "./useRole";
+import { FormLoading } from "./Skeleton";
 
 type Item = { id: string; title: string; required: boolean; category?: string; instructions?: string; source: ItemSource; rationale?: string };
 
@@ -135,7 +136,7 @@ export function ChecklistBuilder({ id, basePath }: { id: string; basePath: "/ass
     }
   }
 
-  if (loading) return <div className="mx-auto max-w-2xl py-10 text-sm text-slate-500">Loading checklist builder…</div>;
+  if (loading) return <FormLoading label="Loading checklist builder…" />;
 
   const requiredCount = items.filter((it) => it.required).length;
   const aiCount = items.filter((it) => it.source === "ai_suggested").length;

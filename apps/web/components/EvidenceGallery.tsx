@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useRole } from "./useRole";
+import { LoadingRegion, Skeleton } from "./Skeleton";
 
 type Ev = { id: string; storage_key: string; assessment_id: string; item_id?: string; mime_type?: string; uploaded_at: string };
 
@@ -77,7 +78,13 @@ export function EvidenceGallery({ id, basePath }: { id: string; basePath: "/asse
         <button onClick={load} className="btn-secondary text-xs">Refresh</button>
       </div>
 
-      {loading ? <div className="text-sm text-slate-500">Loading…</div> : null}
+      {loading ? (
+        <LoadingRegion label="Loading files…" className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          {[0, 1, 2].map((i) => (
+            <Skeleton key={i} className="aspect-[4/3] w-full rounded-2xl" />
+          ))}
+        </LoadingRegion>
+      ) : null}
       {error ? <div className="rounded bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-700">{error}</div> : null}
 
       {filtered.length === 0 && !loading ? (

@@ -120,7 +120,7 @@ export default function MobileChecklistBuilder() {
     setItems((prev) => [...prev, it]);
   }
 
-  if (loading) return <Screen><Stack.Screen options={{ title: "Edit checklist" }} /><Loading label="Loading checklist…" /></Screen>;
+  if (loading) return <Screen><Stack.Screen options={{ title: "Edit checklist" }} /><Loading label="Loading checklist…" rows={6} /></Screen>;
   return (
     <>
       <Stack.Screen options={{ title: "Edit checklist" }} />

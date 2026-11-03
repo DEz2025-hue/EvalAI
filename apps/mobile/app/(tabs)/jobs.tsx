@@ -142,7 +142,7 @@ export default function JobsScreen() {
       </View>
 
       <ScrollView contentContainerStyle={{ padding: space.md, gap: space.sm, paddingBottom: space.xl }} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} />}>
-        {state.kind === "loading" ? <Loading label="Loading jobs…" /> : null}
+        {state.kind === "loading" ? <Loading label="Loading jobs…" rows={5} /> : null}
 
         {state.kind === "no-env" ? (
           <EmptyState icon="log-in-outline" title="Sign in to see jobs" message="Your workspace jobs appear here once you're signed in." action={<Button title="Start a draft" icon="add" variant="accent" size="sm" onPress={() => router.push("/(tabs)/create")} />} />

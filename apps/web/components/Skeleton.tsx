@@ -130,3 +130,32 @@ export function SkeletonDetailPage({ label }: { label: string }): JSX.Element {
     </LoadingRegion>
   );
 }
+
+/** A list while it loads: a labelled region with rows. */
+export function ListLoading({ label, rows = 4, className = "" }: { label: string; rows?: number; className?: string }): JSX.Element {
+  return (
+    <LoadingRegion label={label} className={className}>
+      <SkeletonList rows={rows} />
+    </LoadingRegion>
+  );
+}
+
+/** A single card while it loads. */
+export function CardLoading({ label, lines = 3, className = "" }: { label: string; lines?: number; className?: string }): JSX.Element {
+  return (
+    <LoadingRegion label={label} className={className}>
+      <SkeletonCard lines={lines} />
+    </LoadingRegion>
+  );
+}
+
+/** A narrow form or walkthrough while it loads: a heading and two cards. */
+export function FormLoading({ label, className = "mx-auto max-w-2xl py-6" }: { label: string; className?: string }): JSX.Element {
+  return (
+    <LoadingRegion label={label} className={`space-y-5 ${className}`}>
+      <SkeletonHeading />
+      <SkeletonCard lines={3} />
+      <SkeletonCard lines={4} />
+    </LoadingRegion>
+  );
+}

@@ -232,7 +232,7 @@ export function InterviewSession({ assessmentId, items, initial, onOpenJob, onPr
   return (
     <Card>
       <SectionHeader title="Interview" subtitle={progress ? `Question ${Math.min(progress.asked, progress.max)} of up to ${progress.max}` : undefined} />
-      {busy && !waitingForAnswer ? <Loading label="Thinking of the next question…" /> : null}
+      {busy && !waitingForAnswer ? <Loading label="Thinking of the next question…" variant="inline" showLabel /> : null}
       {waitingForAnswer && last ? (
         <View style={{ gap: space.sm }}>
           {last.topic ? <Badge label={last.topic} tone="info" /> : null}

@@ -76,7 +76,7 @@ export default function DeleteAccount() {
         <Text variant="caption" style={{ textAlign: "center", maxWidth: 320 }}>This permanently removes your sign-in. It can't be undone.</Text>
       </View>
 
-      {!plan && !error ? <Loading label="Checking your workspaces…" /> : null}
+      {!plan && !error ? <Loading label="Checking your workspaces…" variant="card" rows={3} /> : null}
       {error ? <ErrorState title="Couldn't check your account" message={error} onRetry={load} /> : null}
 
       {plan ? (

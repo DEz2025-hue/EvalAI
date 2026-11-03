@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { getNotifPrefs, getLastSeen, setLastSeen, scopeKey } from "../lib/prefs";
+import { LoadingRegion, Skeleton } from "./Skeleton";
 
 type AuditEvent = { id: string; action: string; targetType: string | null; targetId: string | null; createdAt: string };
 type Job = { id: string; siteName?: string; mode: string; status: string; context?: Record<string, unknown>; createdAt?: string; updatedAt?: string };
@@ -160,7 +161,11 @@ export default function NotificationsBell(): JSX.Element {
               </div>
             </div>
             {items === null ? (
-              <div className="px-4 py-6 text-center text-sm text-slate-500">Loading…</div>
+              <LoadingRegion label="Loading notifications…" className="space-y-3 px-4 py-4">
+                <Skeleton className="h-4 w-4/5" />
+                <Skeleton className="h-4 w-2/3" />
+                <Skeleton className="h-4 w-3/4" />
+              </LoadingRegion>
             ) : visible.length === 0 ? (
               <div className="px-4 py-6 text-center text-sm text-slate-500">You&apos;re all caught up — no new workspace activity.</div>
             ) : (

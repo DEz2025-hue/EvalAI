@@ -295,7 +295,7 @@ export default function MobileReport() {
     await downloadReportPdf(selected.id);
   });
 
-  if (loading) return <Screen><Stack.Screen options={{ title: "Report" }} /><Loading label="Loading report…" /></Screen>;
+  if (loading) return <Screen><Stack.Screen options={{ title: "Report" }} /><Loading label="Loading report…" variant="card" rows={5} /></Screen>;
   const p = selected?.payload;
 
   return (

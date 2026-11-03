@@ -5,6 +5,7 @@ import { NARRATIVE_SECTIONS, downloadGate, photoNumbers, previewKey, type Report
 import { useRole } from "./useRole";
 import { KeyFindingsEditor } from "./KeyFindingsEditor";
 import { ReportPhotoSteps } from "./ReportPhotoSteps";
+import { CardLoading } from "./Skeleton";
 
 type Narrative = ReportNarrative;
 /** What the AI said about its own draft, shown under the editor until the next draft. */
@@ -296,7 +297,7 @@ export function ReportView({ id, basePath }: { id: string; basePath: "/assessmen
       {loaded && !canWrite ? <div className="rounded bg-slate-50 border border-slate-200 px-3 py-2 text-xs text-slate-600">Your role is read-only — you can read and download reports but not create or sign them off.</div> : null}
       {error ? <div role="alert" className="rounded bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-700">{error}</div> : null}
       {msg ? <div role="status" className="rounded bg-green-50 border border-green-200 px-3 py-2 text-xs text-green-800">{msg}</div> : null}
-      {loading ? <div className="card p-6 text-sm text-slate-500">Loading reports…</div> : null}
+      {loading ? <CardLoading label="Loading reports…" lines={4} /> : null}
 
       <ReportPhotoSteps assessmentId={id} canWrite={canWrite} onUnanswered={setPhotosWaiting} />
 

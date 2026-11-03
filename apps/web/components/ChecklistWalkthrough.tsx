@@ -5,6 +5,7 @@ import { AnswerSync, needsMeasurement, responseProblem, type SaveResult } from "
 import { useRole } from "./useRole";
 import { PhotoCapture } from "./PhotoCapture";
 import { SourceBadge, type ItemSource } from "./SourceBadge";
+import { FormLoading } from "./Skeleton";
 
 type Item = { id: string; title: string; required: boolean; instructions?: string; source?: ItemSource; rationale?: string };
 /** `updatedAt` is when this answer was last saved (absent = never): sent back so a newer answer elsewhere isn't overwritten. */
@@ -173,7 +174,7 @@ export function ChecklistWalkthrough({ id, basePath }: { id: string; basePath: "
     }
   }
 
-  if (loading) return <div className="mx-auto max-w-2xl py-10 text-sm text-slate-500">Loading checklist…</div>;
+  if (loading) return <FormLoading label="Loading checklist…" />;
   if (!cur || !curResp) {
     return (
       <div className="mx-auto max-w-2xl space-y-3 py-10 text-sm">
