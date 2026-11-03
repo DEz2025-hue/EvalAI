@@ -2,7 +2,7 @@ import fs from "fs";
 import { canonicalJson } from "./canonicalJson";
 import path from "path";
 import { buildReportPhotos, type PhotoChoices, type SavedPhotoReview } from "./reportPhotos";
-import { FINDING_PRIORITIES, KEY_FINDING_LIMITS, NARRATIVE_SECTIONS, PACK_TEMPLATES, checklistFor, lookForFor, templateItemMeta, type FindingPriority, type IntakeSummary, type ReportChecklistRow, type ReportKeyFinding, type ReportSiteBrief, type ReportPhoto, type Scenario, buildReportHtml, type ReportNarrative, computeCompleteness, calculateMeasurement, quotationTotalAmount, type CompletenessResult, type FormulaId, type MeasurementInput, type MeasurementSource, type ArCapture, type PhotoCapture, LENGTH_UNITS, type LengthUnit, isAcceptableArCapture, hasArInput, hasPhotoInput, verifyPhotoReading, QUANTITY_TBD, InterviewStateSchema, interviewStatements, normalizeTemplate, hasTemplate, type ReportTemplate, cleanDesign, cleanSolarDesign } from "@eval-ai/shared";
+import { FINDING_PRIORITIES, KEY_FINDING_LIMITS, NARRATIVE_SECTIONS, PACK_TEMPLATES, checklistFor, lookForFor, templateItemMeta, type FindingPriority, type IntakeSummary, type ReportChecklistRow, type ReportKeyFinding, type ReportSiteBrief, type ReportPhoto, type Scenario, buildReportHtml, type ReportNarrative, computeCompleteness, calculateMeasurement, quotationTotalAmount, type CompletenessResult, type FormulaId, type MeasurementInput, type MeasurementSource, type ArCapture, type PhotoCapture, LENGTH_UNITS, type LengthUnit, isAcceptableArCapture, hasArInput, hasPhotoInput, verifyPhotoReading, QUANTITY_TBD, InterviewStateSchema, interviewStatements, normalizeTemplate, hasTemplate, type ReportTemplate, cleanDesign, cleanSolarDesign, cleanProjectPlan, buildProjectPlan, hasWriteUp } from "@eval-ai/shared";
 import type { ReportSnapshot, ReportInput } from "@eval-ai/shared";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -832,7 +832,10 @@ export async function buildReportInputFromStoredFacts(
   // Items that were not checked limit what the report can say. Items marked as an issue are not limitations: the report
   // lists them under "Issues and risks" with their notes.
   const unresolved = checklist.filter((c) => c.status === "not_checked").map((c) => `${c.title}: not checked yet${c.required ? " (required)" : ""}`);
-  const limitations = [...(opts.limitations ?? []), ...unresolved];
+  // A required item marked Not applicable still leaves its question open, and the notes on the checklist's own limitations item are limitations (D-039).
+  const waived = checklist.filter((c) => c.required && c.status === "not_applicable").map((c) => `${c.title}: marked Not applicable although it is required${c.notes?.trim() ? ` (${c.notes.trim()})` : ""}`);
+  const noted = checklist.filter((c) => /limitation/i.test(c.title) && c.status !== "not_checked" && c.status !== "not_applicable" && c.notes?.trim()).map((c) => `${c.title}: ${c.notes!.trim()}`);
+  const limitations = [...(opts.limitations ?? []), ...unresolved, ...waived, ...noted];
   if (awaitingReview > 0) limitations.push(`${awaitingReview} finding(s) are still awaiting review and are not included in this report`);
   if (materials?.some((m) => m.provisional)) limitations.push("Provisional quantities present — verify missing inputs before procurement");
   // Photos (D-022): only when a draft is being created; sign-off compares facts without them, so no pictures are re-made there.
@@ -975,6 +978,8 @@ export async function createReportSnapshotLocal(input: {
     finalized: !!input.finalize,
     immutable: true as const,
   };
+  // Every new draft starts with the standard project plan, so a report has one even when the AI is unavailable (D-039).
+  reportInput.narrative = { projectPlan: buildProjectPlan(reportInput) };
   const htmlPreview = buildReportHtml(snapshot, reportInput);
   snapshot.htmlPreview = htmlPreview;
   const record: SnapshotRecord = { ...snapshot, workspaceId, payload: reportInput };
@@ -1799,6 +1804,7 @@ function cleanNarrative(n: ReportNarrative): ReportNarrative {
   // A design that comes back empty (or null) removes the saved one.
   if (n.design !== undefined) out.design = cleanDesign(n.design) ?? undefined;
   if (n.solar !== undefined) out.solar = cleanSolarDesign(n.solar) ?? undefined;
+  if (n.projectPlan !== undefined) out.projectPlan = cleanProjectPlan(n.projectPlan) ?? undefined;
   return out;
 }
 
@@ -1882,7 +1888,7 @@ export async function updateSnapshotNarrativeLocal(snapshotId: string, narrative
  * Sign off and finalize a reviewed DRAFT. Requires: no completeness blockers, and the stored facts are
  * unchanged since the draft was created (otherwise the reviewer would be signing something they did not see).
  */
-export async function finalizeSnapshotLocal(snapshotId: string, reviewNote: string | undefined, ctx?: StoreCtx): Promise<SnapshotRecord> {
+export async function finalizeSnapshotLocal(snapshotId: string, reviewNote: string | undefined, ctx?: StoreCtx, opts: { acceptNoWriteUp?: boolean } = {}): Promise<SnapshotRecord> {
   if (!ctx?.userId && dbMode(ctx)) throw new Error("Sign in required");
   const snap = await getSnapshotLocal(snapshotId, ctx);
   if (!snap) throw new Error("Snapshot not found");
@@ -1897,6 +1903,8 @@ export async function finalizeSnapshotLocal(snapshotId: string, reviewNote: stri
   if (factsFingerprint(current.input) !== factsFingerprint(snap.payload)) {
     throw new Error("Cannot finalize — the assessment changed since this draft was created. Create a new draft, review it, then sign off.");
   }
+  // Signing off the bare saved facts must be a deliberate choice: they can read as an all-clear with no analysis behind them (D-039).
+  if (!opts.acceptNoWriteUp && !hasWriteUp(snap.payload.narrative, snap.payload.findings?.length)) throw new Error("Cannot finalize — this report has no summary or findings. Draft them with AI or write them, or confirm that you want to sign off the saved facts alone.");
 
   const note = reviewNote?.trim() ? reviewNote.trim().slice(0, 1000) : null;
   const review = { by: ctx?.userId ?? null, label: ctx?.email ?? null, at: new Date().toISOString(), note, finalized: true as const };

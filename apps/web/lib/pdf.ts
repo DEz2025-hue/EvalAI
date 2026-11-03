@@ -1,5 +1,5 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
-import { DORI_LABEL, SYSTEM_RANGES, cameraFix, cctvSizedEquipment, cctvSizing, CAMERA_TYPE_LABEL, DECISION_BASIS_LABEL, LOAD_SOURCE_LABEL, SIZING_RANGES, SYSTEM_TYPE_LABEL, designCounts, kilo, sizedEquipment, solarSizing, DEFAULT_ACCENT, PRIORITY_LABEL, REPORT_DISCLAIMER, resolveTemplate, type SectionId, checklistGlance, glanceSentence, groupByCategory, keyFindingsFor, photoNumbers, recommendedActions, reportLayout, scenarioFor, scenarioLabel, siteBriefLines, statusLabel, type ReportChecklistRow, type ReportInput, type ReportPhoto, type ReportSnapshot } from "@eval-ai/shared";
+import { DORI_LABEL, SYSTEM_RANGES, cameraFix, cctvSizedEquipment, cctvSizing, CAMERA_TYPE_LABEL, DECISION_BASIS_LABEL, LOAD_SOURCE_LABEL, SIZING_RANGES, SYSTEM_TYPE_LABEL, designCounts, kilo, sizedEquipment, solarSizing, DEFAULT_ACCENT, PRIORITY_LABEL, REPORT_DISCLAIMER, resolveTemplate, type SectionId, checklistGlance, glanceSentence, groupByCategory, keyFindingsFor, photoNumbers, projectPlanNote, recommendedActions, reportLayout, scenarioFor, scenarioLabel, siteBriefLines, statusLabel, type ReportChecklistRow, type ReportInput, type ReportPhoto, type ReportSnapshot } from "@eval-ai/shared";
 
 // Deterministic PDF from a versioned snapshot — no AI regeneration at export.
 // Uses saved facts + snapshot versions only; later edits create new snapshots.
@@ -342,7 +342,7 @@ export async function buildReportPdf(snapshot: ReportSnapshot, input: ReportInpu
       }
       if (layout === "findings") {
         heading(T("keyFindings", "Key findings"));
-        if (findings.length === 0) draw("No findings, issues or items needing attention were recorded.", { size: 9, color: MUTED });
+        if (findings.length === 0) draw(input.limitations.length ? "No item was marked as an issue, but this report has open items. See the open items section." : "No findings, issues or items needing attention were recorded.", { size: 9, color: MUTED });
         for (const [i, f] of findings.entries()) {
           y -= 4;
           const status = f.confirmed ? "confirmed by the reviewer" : f.source === "ai" ? "AI draft, not yet confirmed" : "";
@@ -457,6 +457,32 @@ export async function buildReportPdf(snapshot: ReportSnapshot, input: ReportInpu
         draw("Things an AI noticed that a person should check. They are not confirmed findings and are not part of the findings above.", { size: 7, color: MUTED });
         for (const x of issues) draw(`- ${x.text} (Photo ${x.photo}, ${x.confidence === "high" ? "likely" : x.confidence === "medium" ? "possible" : "unclear"})`, { size: 9 });
       }
+    },
+    // The project plan (D-039): only on reports that hold one.
+    projectPlan: () => {
+      const plan = narrative.projectPlan;
+      if (!plan) return;
+      heading(T("projectPlan", "Project plan"));
+      draw(projectPlanNote(plan), { size: 7, color: MUTED });
+      if (plan.holds.length) {
+        draw("Settle these before work starts", { size: 9, bold: true });
+        table(
+          ["Priority", "Why it matters", "What to do"],
+          plan.holds.map((h) => {
+            const sources = h.basis.map((b) => (b.kind === "photo" ? (numbers.has(b.ref) ? `Photo ${numbers.get(b.ref)}` : "") : b.ref)).filter(Boolean).join("; ");
+            return [PRIORITY_LABEL[h.priority], `${h.title}. ${h.why}${sources ? ` (Based on: ${sources})` : ""}`, h.action];
+          }),
+          [0.12, 0.56, 0.32],
+          { boldFirst: true },
+        );
+      }
+      draw("How the project runs", { size: 9, bold: true });
+      table(
+        ["Phase", "Tasks", "Finished when"],
+        plan.phases.map((p, i) => [`${i + 1}. ${p.name}${p.owner ? ` (${p.owner})` : ""}`, p.tasks.map((t) => `- ${t}`).join(" "), `${p.doneWhen}${p.holdPoint ? " HOLD POINT: sign off before the next phase." : ""}`]),
+        [0.26, 0.46, 0.28],
+        { boldFirst: true },
+      );
     },
     materials: () => {
       // A design lists its equipment itself; the materials schedule only shows when materials were added to this draft.

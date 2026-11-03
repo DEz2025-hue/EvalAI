@@ -2,9 +2,10 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const draftReportNarrative = vi.fn();
 const draftReportSummary = vi.fn();
+const reviewAndPlan = vi.fn();
 vi.mock("@eval-ai/ai-adapter", async (orig) => {
   const real = await orig<typeof import("@eval-ai/ai-adapter")>();
-  return { ...real, draftReportNarrative: (...a: unknown[]) => draftReportNarrative(...a), draftReportSummary: (...a: unknown[]) => draftReportSummary(...a) };
+  return { ...real, draftReportNarrative: (...a: unknown[]) => draftReportNarrative(...a), draftReportSummary: (...a: unknown[]) => draftReportSummary(...a), reviewAndPlan: (...a: unknown[]) => reviewAndPlan(...a) };
 });
 vi.mock("../auth", () => ({ requireWriter: async () => ({ auth: { mode: "demo", ctx: {} } }) }));
 const loadFacts = vi.fn();
@@ -60,7 +61,7 @@ const aiOut = {
 };
 
 beforeEach(() => {
-  for (const m of [draftReportNarrative, draftReportSummary, loadFacts, getSnapshotLocal, buildInput, listFindingsLocal, buildReportPhotos]) m.mockReset();
+  for (const m of [draftReportNarrative, draftReportSummary, reviewAndPlan, loadFacts, getSnapshotLocal, buildInput, listFindingsLocal, buildReportPhotos]) m.mockReset();
   draftReportNarrative.mockResolvedValue(aiOut);
   draftReportSummary.mockResolvedValue({ summary: "New summary", openItems: "New open items", unverifiedFigures: [], requiresHumanReview: true });
   loadFacts.mockResolvedValue({
@@ -153,5 +154,43 @@ describe("POST /api/ai/report-draft (summary)", () => {
   it("needs a draft", async () => {
     expect((await call({ assessmentId: "job-1", stage: "summary" })).status).toBe(400);
     expect(draftReportSummary).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /api/ai/report-draft, stage plan (D-039)", () => {
+  const planOut = {
+    holds: [{ title: "Rust against a Pass", priority: "high", why: "w", action: "a", basis: [{ kind: "item", ref: "Roof" }] }],
+    phases: [{ name: "Survey", goal: "g", tasks: ["t"], owner: "Surveyor", doneWhen: "d", holdPoint: true }],
+    model: "muse-wonder-1.0",
+    droppedHolds: ["Invented"],
+    unverifiedFigures: [],
+    requiresHumanReview: true,
+  };
+
+  it("reviews the draft's saved write-up and returns a checked plan naming the model; nothing is stored here", async () => {
+    getSnapshotLocal.mockResolvedValue({ assessmentId: "a1", finalized: false, payload });
+    reviewAndPlan.mockResolvedValue(planOut);
+    const res = await call({ assessmentId: "a1", snapshotId: "s1", stage: "plan" });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.projectPlan).toMatchObject({ source: "ai", model: "muse-wonder-1.0", holds: [{ title: "Rust against a Pass" }], phases: [{ name: "Survey", holdPoint: true }] });
+    expect(body.droppedHolds).toEqual(["Invented"]);
+    const [record, draft] = reviewAndPlan.mock.calls[0] as [{ checklist: unknown[] }, { summary: string; findings: Array<{ title: string }> }];
+    expect(record.checklist).toHaveLength(3);
+    expect(draft.summary).toBe("an old summary");
+    expect(draft.findings.map((f) => f.title)).toContain("Edited by the person");
+  });
+
+  it("needs a draft, and refuses a finalized report", async () => {
+    expect((await call({ assessmentId: "a1", stage: "plan" })).status).toBe(400);
+    getSnapshotLocal.mockResolvedValue({ assessmentId: "a1", finalized: true, payload });
+    expect((await call({ assessmentId: "a1", snapshotId: "s1", stage: "plan" })).status).toBe(409);
+    expect(reviewAndPlan).not.toHaveBeenCalled();
+  });
+
+  it("says so when the model returns nothing usable", async () => {
+    getSnapshotLocal.mockResolvedValue({ assessmentId: "a1", finalized: false, payload });
+    reviewAndPlan.mockResolvedValue({ ...planOut, phases: [{ name: " " }] });
+    expect((await call({ assessmentId: "a1", snapshotId: "s1", stage: "plan" })).status).toBe(502);
   });
 });

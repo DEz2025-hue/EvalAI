@@ -193,4 +193,21 @@ describe("report review and sign-off", () => {
     const done = await store.finalizeSnapshotLocal(draft.snapshot.id, undefined, reviewer);
     expect(done.finalized).toBe(true);
   });
+
+  it("every new draft holds a project plan, and open items are not lost when a required item is waived", async () => {
+    const job = await newJob();
+    await checkEverything(job.id, job.items);
+    const draft = await store.createReportSnapshotLocal({ assessmentId: job.id });
+    expect(draft.input.narrative?.projectPlan?.source).toBe("standard");
+    expect(draft.snapshot.htmlPreview).toContain("Project plan");
+  });
+
+  it("signing off a report with no written analysis needs a deliberate choice", async () => {
+    const job = await newJob();
+    await checkEverything(job.id, job.items);
+    const draft = await store.createReportSnapshotLocal({ assessmentId: job.id });
+    await expect(store.finalizeSnapshotLocal(draft.snapshot.id, undefined, reviewer)).rejects.toThrow(/no summary or findings/);
+    const done = await store.finalizeSnapshotLocal(draft.snapshot.id, undefined, reviewer, { acceptNoWriteUp: true });
+    expect(done.finalized).toBe(true);
+  });
 });

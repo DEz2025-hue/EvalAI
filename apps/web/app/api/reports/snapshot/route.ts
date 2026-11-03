@@ -4,6 +4,9 @@ import type { ReportNarrative } from "@eval-ai/shared";
 import { createReportSnapshotLocal, getSnapshotLocal, listSnapshotsLocal, removeSnapshotPhotosLocal, updateSnapshotNarrativeLocal, verifyAssessmentWorkspace } from "../../../../lib/store";
 import { requireAuth, workspaceIdFor, storeError, requireWriter } from "../../../../lib/auth";
 
+// A draft shrinks up to twelve photos.
+export const maxDuration = 60;
+
 const Body = z.object({
   assessmentId: z.string().min(3),
   workspaceId: z.string().uuid().optional().nullable(),
@@ -28,6 +31,8 @@ export async function POST(req: Request) {
       snapshot,
       input,
       persisted,
+      // Photos whose picture could not be made keep their text. The person is told, so a report without pictures is never a surprise.
+      picturesMissing: (input.photos ?? []).filter((p) => !p.thumbnail).length,
       note: "Draft snapshot — edit the narrative, review it, then sign off to finalize (finalized reports are immutable).",
     });
   } catch (e) {
@@ -100,6 +105,8 @@ const NarrativeBody = z
         design: z.unknown().optional(),
         // A solar design (D-036); null removes it. Checked field by field in the store (cleanSolarDesign).
         solar: z.unknown().optional(),
+        // The project plan (D-039); null removes it. Checked field by field in the store (cleanProjectPlan).
+        projectPlan: z.unknown().optional(),
       })
       .optional(),
     /** Evidence ids of photos to take out of this draft. */

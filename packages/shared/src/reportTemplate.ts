@@ -5,7 +5,7 @@ import { z } from "zod";
 // the important notice: those are not sections the template controls.
 
 /** The report sections a template can move, hide or rename. In today's order, which is also the default. */
-export const SECTION_IDS = ["summary", "siteScope", "interview", "keyFindings", "actions", "photos", "materials", "openItems", "appendixChecklist", "appendixMeasurements"] as const;
+export const SECTION_IDS = ["summary", "siteScope", "interview", "keyFindings", "actions", "projectPlan", "photos", "materials", "openItems", "appendixChecklist", "appendixMeasurements"] as const;
 export type SectionId = (typeof SECTION_IDS)[number];
 
 /** The heading each section has when the template does not rename it. */
@@ -15,6 +15,7 @@ export const SECTION_LABEL: Record<SectionId, string> = {
   interview: "Site interview",
   keyFindings: "Key findings",
   actions: "Recommended actions",
+  projectPlan: "Project plan",
   photos: "Photos",
   materials: "Materials schedule",
   openItems: "Open items, limitations & uncertainty",

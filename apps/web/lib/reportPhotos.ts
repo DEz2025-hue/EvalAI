@@ -101,7 +101,9 @@ export async function preparePhotos(assessmentId: string, items: EvidenceRecord[
         const bytes = new Uint8Array(await data.arrayBuffer());
         const [ai, thumb] = await Promise.all([wantAi ? shrinkImage(bytes, AI_PHOTO_SIDE, 5) : Promise.resolve(new Uint8Array()), wantThumb ? shrinkImage(bytes, opts.thumbnailSide ?? REPORT_PHOTO_SIDE, 8) : Promise.resolve(new Uint8Array())]);
         photos.push({ evidenceId: e.id, itemId: e.itemId, capturedAt: e.uploadedAt, aiBase64: wantAi ? toBase64(ai) : "", thumbnail: wantThumb ? "data:image/jpeg;base64," + toBase64(thumb) : "" });
-      } catch {
+      } catch (err) {
+        // The reason decides the fix (a missing image tool, a missing file), and without this line it is lost. Ids and the reason only, never a picture.
+        console.error("Report photo not prepared:", e.id, err instanceof Error ? err.message : String(err));
         failed.push(e.id);
       }
     }

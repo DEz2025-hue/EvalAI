@@ -137,10 +137,15 @@ test("draft the report, edit it, sign it off and see it locked", async () => {
   await expect(preview.getByRole("heading", { name: "Key findings" })).toBeVisible();
   await expect(preview.getByText("Appendix A — Checklist results")).toBeVisible();
   await expect(preview.getByText(/needs_attention|not_checked/)).toHaveCount(0);
+  // With no AI, the draft still has the standard project plan, and it can be edited (D-039).
+  await expect(preview.getByRole("heading", { name: "Project plan" })).toBeVisible();
+  await expect(preview.getByRole("heading", { name: "How the project runs" })).toBeVisible();
 
   await page.locator("textarea").first().fill("Roof is suitable for a 5 kW array subject to tile repair.");
+  await page.getByLabel("Phase name").first().fill("Close the gaps on this roof");
   await page.getByRole("button", { name: "Save edits" }).click();
   await expect(page.getByRole("status")).toContainText(/saved/i);
+  await expect(preview.getByText("Close the gaps on this roof")).toBeVisible();
 
   const finalize = page.getByRole("button", { name: "Sign off and finalize" });
   await expect(finalize).toBeDisabled();

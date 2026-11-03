@@ -37,7 +37,7 @@ describe("/api/report-template", () => {
     const out = await (await GET()).json();
     expect(out.isDefault).toBe(true);
     expect(out.canEdit).toBe(false);
-    expect(out.template.sections).toHaveLength(10);
+    expect(out.template.sections).toHaveLength(11);
   });
 
   it("only an owner or admin can change or reset it", async () => {

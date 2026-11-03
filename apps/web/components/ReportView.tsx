@@ -1,11 +1,12 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { NARRATIVE_SECTIONS, type NarrativeTextKey, downloadGate, photoNumbers, previewKey, type DesignProposal, type ReportKeyFinding, type ReportNarrative, type SolarDesign } from "@eval-ai/shared";
+import { NARRATIVE_SECTIONS, type NarrativeTextKey, downloadGate, hasWriteUp, photoNumbers, previewKey, type DesignProposal, type ProjectPlan, type ReportKeyFinding, type ReportNarrative, type SolarDesign } from "@eval-ai/shared";
 import { useRole } from "./useRole";
 import { KeyFindingsEditor } from "./KeyFindingsEditor";
 import { DesignEditor } from "./DesignEditor";
 import { SolarDesignEditor } from "./SolarDesignEditor";
+import { ProjectPlanEditor } from "./ProjectPlanEditor";
 import { ReportPhotoSteps } from "./ReportPhotoSteps";
 import { CardLoading } from "./Skeleton";
 
@@ -23,7 +24,9 @@ type Snapshot = {
   finalized: boolean;
   createdAt: string;
   htmlPreview?: string;
-  payload?: { narrative?: Narrative; photos?: Array<{ evidenceId: string }> };
+  /** From the list: no HTML copy or pictures yet. */
+  light?: boolean;
+  payload?: { narrative?: Narrative; photos?: Array<{ evidenceId: string }>; findings?: unknown[] };
   reviewedByLabel?: string | null;
   reviewedAt?: string | null;
   reviewNote?: string | null;
@@ -65,7 +68,8 @@ export function ReportView({ id, basePath }: { id: string; basePath: "/assessmen
     async (keepSelection = true) => {
       setError(null);
       try {
-        const res = await fetch(`/api/reports/snapshot?assessmentId=${id}`);
+        // Light list: a report's pictures can be megabytes per version, too much for one response. The version being shown is fetched in full below.
+        const res = await fetch(`/api/reports/snapshot?light=1&assessmentId=${id}`);
         const data = (await res.json().catch(() => ({}))) as { snapshots?: Snapshot[]; error?: string };
         if (!res.ok) throw new Error(data.error ?? "Could not load reports");
         const list = data.snapshots ?? []; // newest first
@@ -85,6 +89,27 @@ export function ReportView({ id, basePath }: { id: string; basePath: "/assessmen
   }, [load]);
 
   const selected = useMemo(() => snapshots.find((s) => s.id === selectedId) ?? null, [snapshots, selectedId]);
+
+  // The list leaves out the HTML copy and the pictures; fetch them for the version being shown. The written sections stay as listed, so an edit in progress is not overwritten.
+  const selectedIsLight = !!selected?.light;
+  useEffect(() => {
+    if (!selectedId || !selectedIsLight) return;
+    let live = true;
+    (async () => {
+      try {
+        const res = await fetch(`/api/reports/snapshot?snapshotId=${selectedId}`);
+        const data = (await res.json().catch(() => ({}))) as { snapshot?: Snapshot; error?: string };
+        if (!res.ok || !data.snapshot) throw new Error(data.error ?? "Could not load this report version");
+        const full = data.snapshot;
+        if (live) setSnapshots((prev) => prev.map((s) => (s.id === selectedId ? { ...full, light: false, payload: { ...full.payload, narrative: s.payload?.narrative } } : s)));
+      } catch (e) {
+        if (live) setError(e instanceof Error ? e.message : String(e));
+      }
+    })();
+    return () => {
+      live = false;
+    };
+  }, [selectedId, selectedIsLight]);
 
   // Load the draft's narrative into the editor when the selection changes.
   useEffect(() => {
@@ -129,6 +154,32 @@ export function ReportView({ id, basePath }: { id: string; basePath: "/assessmen
     };
   }
 
+  /** The senior review and project plan (D-039). Reads the draft's saved write-up. Throws with the reason when it can't. */
+  async function fetchPlan(snapshotId: string): Promise<{ projectPlan: ProjectPlan; dropped: string[]; figures: string[] }> {
+    const res = await fetch("/api/ai/report-draft", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ assessmentId: id, snapshotId, stage: "plan" }) });
+    const data = (await res.json().catch(() => ({}))) as { projectPlan?: ProjectPlan; droppedHolds?: string[]; unverifiedFigures?: string[]; error?: string };
+    if (!res.ok || !data.projectPlan) throw new Error(data.error ?? "AI suggestions are unavailable");
+    return { projectPlan: data.projectPlan, dropped: (data.droppedHolds ?? []).filter(Boolean), figures: (data.unverifiedFigures ?? []).filter(Boolean) };
+  }
+
+  /** Ask Muse Wonder to review the saved draft and plan the project. Goes into the editor; nothing is saved until Save edits. */
+  async function reviewPlan() {
+    if (!selected) return;
+    setBusy("plan");
+    setError(null);
+    setMsg(null);
+    try {
+      const { projectPlan, dropped, figures } = await fetchPlan(selected.id);
+      setNarrative((n) => ({ ...n, projectPlan }));
+      setDraftNotes((d) => ({ missing: d?.missing ?? [], assumptions: d?.assumptions ?? [], figures: [...(d?.figures ?? []), ...figures], dropped: [...(d?.dropped ?? []), ...dropped] }));
+      setMsg("The review and project plan were added to the editor. Read them, correct them, then press Save edits.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
   /** Rewrite only the summary and open items from the key findings as they are now (the person's edits are saved first, so the AI reads them). */
   async function rewriteSummary() {
     if (!selected) return;
@@ -163,7 +214,7 @@ export function ReportView({ id, basePath }: { id: string; basePath: "/assessmen
     setDraftNotes(null);
     try {
       const res = await fetch("/api/reports/snapshot", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ assessmentId: id, includeMaterials }) });
-      const data = (await res.json().catch(() => ({}))) as { snapshot?: Snapshot; error?: string };
+      const data = (await res.json().catch(() => ({}))) as { snapshot?: Snapshot; picturesMissing?: number; error?: string };
       if (!res.ok || !data.snapshot) throw new Error(data.error ?? "Could not create the draft");
       const snapshotId = data.snapshot.id;
       // Write the report out of the saved facts straight away. If the AI is unavailable the draft is still a complete
@@ -176,12 +227,22 @@ export function ReportView({ id, basePath }: { id: string; basePath: "/assessmen
         if (!save.ok) throw new Error(((await save.json().catch(() => ({}))) as { error?: string }).error ?? "Could not save the written sections");
         setDraftNotes(notes);
         note = "The written sections were drafted by AI from your saved facts. Read each one, correct it, then press Save edits.";
+        // The review runs last because it reads the saved write-up. If it fails, the standard project plan stays in the draft.
+        try {
+          const { projectPlan, dropped, figures } = await fetchPlan(snapshotId);
+          const savePlan = await fetch("/api/reports/snapshot", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ snapshotId, narrative: { projectPlan } }) });
+          if (!savePlan.ok) throw new Error(((await savePlan.json().catch(() => ({}))) as { error?: string }).error ?? "Could not save the project plan");
+          setDraftNotes({ ...notes, figures: [...notes.figures, ...figures], dropped: [...notes.dropped, ...dropped] });
+        } catch (e) {
+          note += ` The AI review did not finish (${e instanceof Error ? e.message : String(e)}), so the draft has the standard project plan. Press Review and plan with AI to try again.`;
+        }
       } catch (e) {
         note = `The report was assembled from your saved facts, but the written sections could not be drafted (${e instanceof Error ? e.message : String(e)}). You can write them yourself, or try “Rewrite with AI”.`;
       }
       await load(false);
       setSelectedId(snapshotId);
-      setMsg(`New draft created. ${note}`);
+      const missing = data.picturesMissing ?? 0;
+      setMsg(`New draft created. ${note}${missing ? ` ${missing} photo${missing === 1 ? "'s picture" : "s' pictures"} could not be added, so ${missing === 1 ? "it shows" : "they show"} text only. Create the draft again to retry.` : ""}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -251,7 +312,9 @@ export function ReportView({ id, basePath }: { id: string; basePath: "/assessmen
     setError(null);
     setMsg(null);
     try {
-      const res = await fetch("/api/reports/finalize", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ snapshotId: selected.id, confirmReviewed: true, reviewNote: reviewNote.trim() || undefined }) });
+      const bare = !hasWriteUp(selected.payload?.narrative, selected.payload?.findings?.length);
+      if (bare && !confirm("This report has no summary or findings, only the saved facts. A client could read that as an all-clear. Sign it off anyway?")) return;
+      const res = await fetch("/api/reports/finalize", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ snapshotId: selected.id, confirmReviewed: true, reviewNote: reviewNote.trim() || undefined, ...(bare ? { acceptNoWriteUp: true } : {}) }) });
       const data = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) throw new Error(data.error ?? "Could not finalize");
       setReviewNote("");
@@ -359,6 +422,7 @@ export function ReportView({ id, basePath }: { id: string; basePath: "/assessmen
           ) : (
             <KeyFindingsEditor value={narrative.keyFindings ?? []} onChange={(keyFindings) => setNarrative((n) => ({ ...n, keyFindings }))} photoNumber={photoNumbers({ photos: selected?.payload?.photos as never })} />
           )}
+          {narrative.projectPlan ? <ProjectPlanEditor value={narrative.projectPlan} onChange={(projectPlan) => setNarrative((n) => ({ ...n, projectPlan }))} /> : null}
           {(["recommendations", "openItems", "notes"] as const).map((k) => sectionField(k))}
           {NARRATIVE_SECTIONS.filter((s) => s.legacy && narrative[s.key]?.trim()).map((s) => sectionField(s.key))}
           {draftNotes?.dropped.length ? <p className="text-xs text-slate-600"><strong>The AI wrote findings that were left out</strong> because they were incomplete or had no source in your record: {draftNotes.dropped.join("; ")}.</p> : null}
@@ -372,6 +436,7 @@ export function ReportView({ id, basePath }: { id: string; basePath: "/assessmen
           <div className="flex flex-wrap gap-2">
             <button onClick={saveNarrative} disabled={busy !== null} className="btn-secondary text-xs">{busy === "save" ? "Saving…" : "Save edits"}</button>
             <button onClick={suggestWithAi} disabled={busy !== null} className="btn-secondary text-xs">{busy === "suggest" ? "Asking AI…" : "Rewrite with AI"}</button>
+            <button onClick={reviewPlan} disabled={busy !== null} className="btn-secondary text-xs" title="Muse Wonder reads the saved draft as a lead engineer would, looks for hidden problems and plans the project">{busy === "plan" ? "Reviewing…" : "Review and plan with AI"}</button>
             {narrative.design || narrative.solar ? null : <button onClick={rewriteSummary} disabled={busy !== null} className="btn-secondary text-xs">{busy === "summary" ? "Writing…" : "Rewrite summary from my findings"}</button>}
             <button onClick={restyle} disabled={busy !== null} className="btn-secondary text-xs" title="Use the office's current report style (set in Settings)">{busy === "style" ? "Applying…" : "Re-apply office style"}</button>
           </div>

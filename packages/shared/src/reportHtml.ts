@@ -2,6 +2,7 @@ import { REPORT_DISCLAIMER, type ReportChecklistRow, type ReportInput, type Repo
 import { statusLabel } from "./checklist";
 import { PRIORITY_LABEL, checklistGlance, glanceSentence, groupByCategory, keyFindingsFor, photoNumbers, recommendedActions, reportLayout, siteBriefLines } from "./reportOverview";
 import { scenarioFor, scenarioLabel } from "./scenario";
+import { projectPlanNote, type ProjectPlanHold } from "./projectPlan";
 import { DEFAULT_ACCENT, resolveTemplate, type SectionId } from "./reportTemplate";
 import { CAMERA_TYPE_LABEL, DECISION_BASIS_LABEL, designCounts, type DesignProposal } from "./design";
 import { SYSTEM_RANGES, DORI_LABEL } from "./design";
@@ -298,6 +299,17 @@ export function buildReportHtml(snapshot: ReportSnapshot, input: ReportInput): s
     : "<p style='color:#64748b'>No quotation attached — prices not invented.</p>";
   const materialsSection = `<section><h2>${H("materials", "Materials schedule — traceable")}</h2><table><thead><tr><th style="text-align:left;${TH}">Description</th><th style="${TH}">Qty</th><th style="${TH}">Rationale (source)</th></tr></thead><tbody>${mats}</tbody></table>${aiNote}${quote}</section>`;
 
+  // ---- Project plan (D-039): only on reports that hold one, so older reports read as they always did ----
+  const plan = narrative.projectPlan;
+  const planSource = (basis: ProjectPlanHold["basis"]) => basis.map((b) => (b.kind === "photo" ? (numbers.has(b.ref) ? `Photo ${numbers.get(b.ref)}` : "") : b.ref)).filter(Boolean).join("; ");
+  const planSection = plan
+    ? `<section><h2>${H("projectPlan", "Project plan")}</h2><p class="meta">${esc(projectPlanNote(plan))}</p>${
+        plan.holds.length
+          ? `<h3 style="font-size:13px;margin:10px 0 4px">Settle these before work starts</h3><table><thead><tr><th style="${TH};width:16%">Priority</th><th style="text-align:left;${TH}">Why it matters</th><th style="text-align:left;${TH};width:32%">What to do</th></tr></thead><tbody>${plan.holds.map((h) => `<tr><td style="${TD}"><span style="${(PRIORITY_STYLE[h.priority] ?? PRIORITY_STYLE.info).pill};padding:2px 8px;border-radius:999px;font-size:12px;white-space:nowrap">${esc(PRIORITY_LABEL[h.priority])}</span></td><td style="${TD}"><strong>${esc(h.title)}.</strong> ${esc(h.why)}${planSource(h.basis) ? `<div class="meta">Based on: ${esc(planSource(h.basis))}</div>` : ""}</td><td style="${TD}">${esc(h.action)}</td></tr>`).join("")}</tbody></table>`
+          : ""
+      }<h3 style="font-size:13px;margin:10px 0 4px">How the project runs</h3><table><thead><tr><th style="text-align:left;${TH};width:26%">Phase</th><th style="text-align:left;${TH}">Tasks</th><th style="text-align:left;${TH};width:26%">Finished when</th></tr></thead><tbody>${plan.phases.map((p, i) => `<tr><td style="${TD}"><strong>${i + 1}. ${esc(p.name)}</strong>${p.goal ? `<div style="font-size:12px">${esc(p.goal)}</div>` : ""}${p.owner ? `<div class="meta">Owner: ${esc(p.owner)}</div>` : ""}</td><td style="${TD}"><ul style="margin:0;padding-left:16px">${p.tasks.map((t) => `<li>${esc(t)}</li>`).join("")}</ul></td><td style="${TD}">${esc(p.doneWhen)}${p.holdPoint ? '<div style="margin-top:4px"><span style="background:#fef3c7;padding:1px 6px;border-radius:999px;font-size:11px">Hold point: sign off before the next phase</span></div>' : ""}</td></tr>`).join("")}</tbody></table></section>`
+    : "";
+
   // ---- Limitations ----
   const lims = input.limitations.length ? `<ul>${input.limitations.map((l) => `<li>${esc(l)}</li>`).join("")}</ul>` : "<p>None stated.</p>";
 
@@ -332,6 +344,7 @@ export function buildReportHtml(snapshot: ReportSnapshot, input: ReportInput): s
     interview: interviewSection,
     keyFindings: "",
     actions: "",
+    projectPlan: planSection,
     photos: photoSection + "\n" + issueSection,
     materials: materialsSection,
     openItems: openItemsSection,
@@ -354,7 +367,9 @@ export function buildReportHtml(snapshot: ReportSnapshot, input: ReportInput): s
     parts.keyFindings = `<section><h2>${H("keyFindings", "Key findings")}</h2>${
       findings.length
         ? findings.map((f, i) => findingCard(f, i + 1, input, numbers)).join("")
-        : "<p style='color:#64748b'>No findings, issues or items needing attention were recorded.</p>"
+        : input.limitations.length
+          ? "<p style='color:#64748b'>No item was marked as an issue, but this report has open items. See the open items section.</p>"
+          : "<p style='color:#64748b'>No findings, issues or items needing attention were recorded.</p>"
     }</section>`;
     const actionsSection = actions.length
       ? `<section><h2>${H("actions", "Recommended actions")}</h2><table><thead><tr><th style="${TH};width:16%">Priority</th><th style="text-align:left;${TH}">Action</th></tr></thead><tbody>${actions

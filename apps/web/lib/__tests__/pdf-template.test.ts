@@ -38,6 +38,15 @@ describe("PDF with an office template", () => {
     expect(texts[0]).toMatch(/^EvalAI - assessment report/);
   });
 
+  it("prints a saved project plan with its hold points, and nothing on a report without one", async () => {
+    const plan = { source: "standard" as const, holds: [{ title: "No earthing", priority: "high" as const, why: "None installed", action: "Have it installed", basis: [] }], phases: [{ name: "Make safe", goal: "Remove risks", tasks: ["Test the earth"], owner: "Electrician", doneWhen: "Results are filed", holdPoint: true }] };
+    const withPlan = (await render(undefined, { narrative: { projectPlan: plan } })).texts.join(" ");
+    expect(withPlan).toContain("Settle these before work starts");
+    expect(withPlan).toContain("How the project runs");
+    expect(withPlan).toContain("HOLD POINT");
+    expect((await render()).texts.join(" ")).not.toContain("How the project runs");
+  });
+
   it("reorders, hides and renames", async () => {
     const order = SECTION_IDS.filter((i) => i !== "materials");
     const { texts } = await render({ sections: [{ id: "materials", visible: true, title: "Bill of materials" }, ...order.map((id) => ({ id, visible: id !== "appendixMeasurements" }))] });

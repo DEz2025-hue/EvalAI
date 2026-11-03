@@ -282,7 +282,7 @@ describe("voice transcription", () => {
 });
 
 describe("provider diagnostics probe", () => {
-  const modelsReply = () => reply({ body: { data: [{ id: "muse-spark-1.3" }, { id: "muse-voice-transcribe-1.0" }, { id: "sam-3.1" }] } });
+  const modelsReply = () => reply({ body: { data: [{ id: "muse-spark-1.3" }, { id: "muse-wonder-1.0" }, { id: "muse-voice-transcribe-1.0" }, { id: "sam-3.1" }] } });
 
   it("passes when every capability answers and sends a valid synthetic image", async () => {
     const { probeProvider } = await import("../probe");

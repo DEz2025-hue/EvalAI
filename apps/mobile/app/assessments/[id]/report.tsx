@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Alert, Image, Pressable, View } from "react-native";
 import { Stack, useLocalSearchParams, useFocusEffect, useRouter } from "expo-router";
-import { NARRATIVE_SECTIONS, type NarrativeTextKey, checklistGlance, downloadGate, glanceSentence, groupByCategory, keyFindingsFor, photoNumbers, recommendedActions, reportLayout, siteBriefLines, statusLabel, PRIORITY_LABEL, type ReportInput, type ReportKeyFinding, type ReportNarrative } from "@eval-ai/shared";
+import { NARRATIVE_SECTIONS, type NarrativeTextKey, checklistGlance, downloadGate, glanceSentence, groupByCategory, hasWriteUp, keyFindingsFor, photoNumbers, recommendedActions, reportLayout, siteBriefLines, statusLabel, PRIORITY_LABEL, type ReportInput, type ReportKeyFinding, type ReportNarrative } from "@eval-ai/shared";
 import { KeyFindingView, KeyFindingsEditorMobile } from "../../../components/KeyFindingsMobile";
 import { DesignViewMobile } from "../../../components/DesignViewMobile";
 import { SolarViewMobile } from "../../../components/SolarViewMobile";
@@ -109,12 +109,6 @@ export default function MobileReport() {
     try { await fn(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); } finally { setBusy(null); }
   }
 
-  const createDraft = () => run("create", async () => {
-    const d = (await post("/api/reports/snapshot", { assessmentId: jobId, includeMaterials })) as { snapshot?: Snap };
-    await load();
-    if (d.snapshot) setSelectedId(d.snapshot.id);
-  });
-
   // "Prepare my report" (D-022): the AI looks at the photos, the draft is built from photos + answers + findings, and the AI
   // drafts the summary. Each step may fail without stopping the next; what failed is listed under the report.
   type Step = "photos" | "choose" | "draft" | "summary";
@@ -197,8 +191,9 @@ export default function MobileReport() {
       setStepsDone((s) => [...s, "choose"]);
 
       setPreparing("draft");
-      const d = (await post("/api/reports/snapshot", { assessmentId: jobId, includeMaterials })) as { snapshot?: Snap };
+      const d = (await post("/api/reports/snapshot", { assessmentId: jobId, includeMaterials })) as { snapshot?: Snap; picturesMissing?: number };
       if (!d.snapshot) throw new Error("The report draft could not be created");
+      if (d.picturesMissing) notes.push(d.picturesMissing + " photo(s) could not be added as pictures, so they show text only. Create the draft again to retry.");
       setStepsDone((s) => [...s, "draft"]);
 
       setPreparing("summary");
@@ -219,6 +214,15 @@ export default function MobileReport() {
         const text: ReportNarrative = { keyFindings: t.keyFindings ?? [], ...(t.design ? { design: t.design } : {}), ...(t.solar ? { solar: t.solar } : {}) };
         for (const k of ["summary", "siteOverview", "openItems"] as const) if (typeof t[k] === "string" && t[k]!.trim()) text[k] = t[k];
         await post("/api/reports/snapshot", { snapshotId: d.snapshot.id, narrative: text }, "PATCH");
+        // The review runs last because it reads the saved write-up. If it fails, the standard project plan stays in the draft (D-039).
+        try {
+          const r = (await post("/api/ai/report-draft", { assessmentId: jobId, snapshotId: d.snapshot.id, stage: "plan" })) as { projectPlan?: ReportNarrative["projectPlan"]; droppedHolds?: string[] };
+          if (r.projectPlan) await post("/api/reports/snapshot", { snapshotId: d.snapshot.id, narrative: { projectPlan: r.projectPlan } }, "PATCH");
+          const droppedHolds = (r.droppedHolds ?? []).filter(Boolean);
+          if (droppedHolds.length > 0) notes.push("Points the AI review raised but that were left out (no source in your record): " + droppedHolds.join("; ") + ".");
+        } catch (e) {
+          notes.push("The AI review did not finish, so the draft has the standard project plan: " + (e instanceof Error ? e.message : String(e)));
+        }
         const figures = (t.unverifiedFigures ?? []).filter(Boolean);
         if (figures.length > 0) notes.push("Check these figures before relying on them — they are not in your saved data: " + figures.join("; ") + ".");
         const dropped = (t.droppedFindings ?? []).filter(Boolean);
@@ -290,12 +294,13 @@ export default function MobileReport() {
 
   const finalize = () => {
     if (!selected) return;
+    const bare = !hasWriteUp(selected.payload?.narrative, selected.payload?.findings?.length);
     Alert.alert(
       "Sign off and finalize?",
-      "You're confirming you've read this report and checked its findings, measurements and recommendations against the evidence. This version will be locked and you'll be recorded as the reviewer.",
+      (bare ? "This report has no summary or findings, only the saved facts. A client could read that as an all-clear. " : "") + "You're confirming you've read this report and checked its findings, measurements and recommendations against the evidence. This version will be locked and you'll be recorded as the reviewer.",
       [
         { text: "Cancel", style: "cancel" },
-        { text: "Sign off", style: "destructive", onPress: () => void run("finalize", async () => { await post("/api/reports/finalize", { snapshotId: selected.id, confirmReviewed: true }); await load(); }) },
+        { text: "Sign off", style: "destructive", onPress: () => void run("finalize", async () => { await post("/api/reports/finalize", { snapshotId: selected.id, confirmReviewed: true, ...(bare ? { acceptNoWriteUp: true } : {}) }); await load(); }) },
       ],
     );
   };
@@ -366,7 +371,7 @@ export default function MobileReport() {
               <Icon name={includeMaterials ? "checkbox" : "square-outline"} size={20} color={includeMaterials ? colors.accent : colors.textMuted} />
               <Text variant="body">Include materials list</Text>
             </Pressable>
-            <Button title={busy === "create" ? "Creating…" : "Create new draft"} icon="add" variant="accent" onPress={createDraft} loading={busy === "create"} disabled={busy !== null} />
+            <Button title={preparing ? "Working…" : "Create new draft"} icon="add" variant="accent" onPress={() => void prepareReport()} loading={!!preparing} disabled={busy !== null || !!preparing} />
           </View>
         ) : null}
       </Card>

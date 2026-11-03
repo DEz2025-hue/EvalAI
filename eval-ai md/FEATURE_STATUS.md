@@ -179,6 +179,11 @@ audit; they do not prove implementation is complete.
                                                  setItemStatus, coverage hint         hint checked once with a synthetic picture. Not tried on
                                                                                       a phone.
 
+  Project plan and Wonder review (D-039)  Implemented          projectPlan.ts, planReview.ts,       Unit, route, PDF and browser (demo mode) tested;
+                                                 report-draft stage "plan",           review run live on made-up data on Wonder (503,
+                                                 ProjectPlanEditor.tsx                55 s timeout, 30 s, 28 s). Not tried on a phone;
+                                                                                      plan is read-only there.
+
   Report reads the photos (D-022)        Implemented (mobile) reportPhotos.ts, photoReview,         Unit, route, PDF and guard tested; whole pipeline run
                                                  /api/ai/report-photos, report.tsx   once with synthetic pictures (~2 cents, ~25 s).
                                                                                       Not tried on a phone or with real site photos.

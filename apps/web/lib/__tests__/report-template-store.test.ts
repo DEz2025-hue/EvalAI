@@ -28,7 +28,7 @@ describe("office report style: storage", () => {
     expect(await store.getReportTemplateLocal()).toBeNull();
     const saved = await store.saveReportTemplateLocal({ officeName: "  Bright Energy  ", sections: [{ id: "summary", visible: true }] });
     expect(saved.officeName).toBe("Bright Energy");
-    expect(saved.sections).toHaveLength(10); // every section is present exactly once
+    expect(saved.sections).toHaveLength(11); // every section is present exactly once
     expect((await store.getReportTemplateLocal())?.officeName).toBe("Bright Energy");
   });
 

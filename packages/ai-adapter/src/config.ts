@@ -11,6 +11,7 @@ export type Operation =
   | "photoReview"
   | "draftReport"
   | "draftDesign"
+  | "reviewPlan"
   | "proposeMaterials"
   | "interview"
   | "transcribeAudio"
@@ -119,6 +120,7 @@ export function buildAdapterConfig(env: Env): AdapterConfig {
 
   const named = (id: string) => assertStandardModel(id);
   const spark = named(env.META_SPARK_MODEL || DEFAULT_MODELS.spark);
+  const wonder = named(env.META_WONDER_MODEL || DEFAULT_MODELS.wonder);
   const voice = assertStandardModel(env.META_VOICE_MODEL || DEFAULT_MODELS.voice);
   const sam = assertStandardModel(env.META_SAM_MODEL || DEFAULT_MODELS.sam);
   // Optional per-operation override, e.g. AI_MODEL_ANALYZE=muse-wonder-1.0 to trial Wonder for analysis only.
@@ -146,6 +148,9 @@ export function buildAdapterConfig(env: Env): AdapterConfig {
       // Design proposal for a new CCTV installation (D-034), in two calls (plan, then write-up), each inside one request's minute. One call at
       // medium reasoning timed out on a real job, so low is the default; raise AI_EFFORT_DESIGN once the timings allow it.
       draftDesign: { model: pick(env.AI_MODEL_DESIGN, spark), reasoningEffort: effort(env.AI_EFFORT_DESIGN, "low"), maxCompletionTokens: num(env.AI_MAX_TOKENS_DESIGN, 12000), timeoutMs: 55_000 },
+      // The senior review and project plan (D-039): one call that reads the whole record. Muse Wonder, because it is the model built for following detailed
+      // instructions and planning, and this is the one step where catching a hidden problem is worth more than speed.
+      reviewPlan: { model: pick(env.AI_MODEL_PLAN, wonder), reasoningEffort: effort(env.AI_EFFORT_PLAN, "low"), maxCompletionTokens: num(env.AI_MAX_TOKENS_PLAN, 12000), timeoutMs: 55_000 },
       // Materials: one call that reads the whole record. Low reasoning keeps the answer inside the token budget; quantities are computed by code afterwards.
       proposeMaterials: { model: pick(env.AI_MODEL_MATERIALS, spark), reasoningEffort: effort(env.AI_EFFORT_MATERIALS, "low"), maxCompletionTokens: num(env.AI_MAX_TOKENS_MATERIALS, 10000), timeoutMs: 58_000 },
       // Site interview: one short question per call (fast), or one digest of the whole conversation at the end.

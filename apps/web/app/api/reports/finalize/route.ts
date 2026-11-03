@@ -8,6 +8,8 @@ const Body = z.object({
   /** The reviewer must explicitly state they reviewed the report. */
   confirmReviewed: z.literal(true),
   reviewNote: z.string().max(1000).optional(),
+  /** The reviewer chose to sign off a report that has no written analysis (D-039). */
+  acceptNoWriteUp: z.boolean().optional(),
 });
 
 /** Sign off and finalize a reviewed draft. Records who signed off and when; the result is immutable. */
@@ -16,7 +18,7 @@ export async function POST(req: Request) {
   if (authErr) return authErr;
   try {
     const body = Body.parse(await req.json());
-    const snapshot = await finalizeSnapshotLocal(body.snapshotId, body.reviewNote, auth.ctx);
+    const snapshot = await finalizeSnapshotLocal(body.snapshotId, body.reviewNote, auth.ctx, { acceptNoWriteUp: body.acceptNoWriteUp });
     return NextResponse.json({ ok: true, snapshot, note: "Finalized and signed off — immutable. Later edits create a new draft." });
   } catch (e) {
     return storeError(e);

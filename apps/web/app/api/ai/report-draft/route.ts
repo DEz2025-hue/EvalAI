@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { draftDesignPlan, draftDesignWrite, draftReportNarrative, draftReportSummary, draftSolarPlan, draftSolarWrite } from "@eval-ai/ai-adapter";
-import { DORI_LABEL, cctvSizing, checklistGlance, cleanDesign, cleanSolarDesign, isDesignJob, isSolarDesignJob, keyFindingsFor, kilo, solarSizing, type DesignProposal, type ReportInput, type ReportKeyFinding, type SolarDesign } from "@eval-ai/shared";
+import { draftDesignPlan, draftDesignWrite, draftReportNarrative, draftReportSummary, draftSolarPlan, draftSolarWrite, reviewAndPlan } from "@eval-ai/ai-adapter";
+import { DORI_LABEL, cctvSizing, checklistGlance, cleanDesign, cleanProjectPlan, cleanSolarDesign, isDesignJob, isSolarDesignJob, keyFindingsFor, kilo, solarSizing, type DesignProposal, type ReportInput, type ReportKeyFinding, type SolarDesign } from "@eval-ai/shared";
 import { requireWriter } from "../../../../lib/auth";
 import { aiError, aiGuard, aiRunHook, aiWorkspaceKey, loadAssessmentFacts } from "../../../../lib/aiRoute";
 import { buildReportInputFromStoredFacts, getSnapshotLocal, listEvidenceLocal, listFindingsLocal } from "../../../../lib/store";
@@ -13,6 +13,7 @@ export const maxDuration = 60;
 // snapshotId: write the report for THIS draft, so it describes exactly what the draft shows (and not photos a reviewer removed).
 // stage "analyze" (default): the key findings, executive summary, site overview and open items, from the saved record.
 // stage "summary": only the executive summary and open items, from the key findings as the person has edited and saved them.
+// stage "plan": the senior review and project plan (D-039), from the record and the draft's saved write-up.
 // A new CCTV installation gets a design proposal instead of key findings (D-034), in two requests so each fits the minute:
 //   stage "analyze" answers with the camera plan (`design` holding basis, approach and areas) and `continueWith: "designWrite"`;
 //   stage "designWrite" takes that plan (`design`, as drafted or edited; else the draft's saved one) and writes the rest around it.
@@ -21,7 +22,7 @@ export const maxDuration = 60;
 const Body = z.object({
   assessmentId: z.string().min(1).max(100),
   snapshotId: z.string().max(100).optional(),
-  stage: z.enum(["analyze", "summary", "designWrite"]).default("analyze"),
+  stage: z.enum(["analyze", "summary", "designWrite", "plan"]).default("analyze"),
   /** designWrite only: the plan to write around. Checked with cleanDesign like any saved design. */
   design: z.unknown().optional(),
   /** designWrite only, for a solar job: the loads and inputs to size and write around. Checked with cleanSolarDesign. */
@@ -108,6 +109,15 @@ export async function POST(req: Request) {
       materials: input.materials ?? [],
       photos: (input.photos ?? []).map((p) => ({ id: p.evidenceId, itemTitle: p.itemTitle, caption: p.caption, observations: p.observations, possibleIssues: p.possibleIssues.map((x) => x.text), cannotTell: p.cannotTell })),
     };
+
+    if (stage === "plan") {
+      if (!snapshotId) return NextResponse.json({ error: "The project plan needs a report draft" }, { status: 400 });
+      const n = input.narrative ?? {};
+      const out = await reviewAndPlan(record, { summary: n.summary, openItems: n.openItems, findings: keyFindingsFor(input).map((f) => ({ title: f.title, priority: f.priority, action: f.action })), ...(n.solar ? { sizing: sizingForAi(n.solar) } : {}) }, { onRun });
+      const projectPlan = cleanProjectPlan({ holds: out.holds, phases: out.phases, source: "ai", model: out.model });
+      if (!projectPlan) return NextResponse.json({ error: "The AI did not produce a usable project plan. Try again." }, { status: 502 });
+      return NextResponse.json({ projectPlan, droppedHolds: out.droppedHolds, unverifiedFigures: out.unverifiedFigures, draft: true, stage, label: "AI draft — review and edit before saving" });
+    }
 
     if (solarJob && stage === "designWrite") {
       const plan = cleanSolarDesign(sentSolar ?? input.narrative?.solar);

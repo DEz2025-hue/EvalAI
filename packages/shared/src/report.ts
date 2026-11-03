@@ -1,6 +1,7 @@
 import type { ReportTemplate } from "./reportTemplate";
 import type { DesignProposal } from "./design";
 import type { SolarDesign } from "./solarDesign";
+import type { ProjectPlan } from "./projectPlan";
 
 export type ReportSnapshot = {
   id: string;
@@ -55,6 +56,8 @@ export type ReportNarrative = {
   design?: DesignProposal;
   /** A solar design and sizing proposal (D-036): the loads, the sizing assumptions and the system that follows. Drafted by the AI, sized by code. */
   solar?: SolarDesign;
+  /** What must be settled first and how the project then runs (D-039). A standard plan is made with every new draft; an AI review may replace it. */
+  projectPlan?: ProjectPlan;
 };
 
 export const FINDING_PRIORITIES = ["high", "medium", "low", "info"] as const;
@@ -88,7 +91,7 @@ export type ReportKeyFinding = {
 export const KEY_FINDING_LIMITS = { max: 20, title: 160, observed: 1500, meaning: 1500, action: 800, basis: 12, ref: 200 } as const;
 
 /** The written (text) sections of a narrative: everything except the key findings and the design. */
-export type NarrativeTextKey = Exclude<keyof ReportNarrative, "keyFindings" | "design" | "solar">;
+export type NarrativeTextKey = Exclude<keyof ReportNarrative, "keyFindings" | "design" | "solar" | "projectPlan">;
 
 /** Narrative text fields in the order they appear in a report, with their editor labels. `legacy` fields are only shown for older reports. */
 export const NARRATIVE_SECTIONS: Array<{ key: NarrativeTextKey; label: string; max: number; legacy?: boolean }> = [
