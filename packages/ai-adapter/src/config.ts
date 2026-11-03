@@ -26,8 +26,8 @@ export type OperationConfig = {
   timeoutMs: number;
 };
 
-/** "meta" is Meta's own Model API. "openrouter" reaches the same Muse models through OpenRouter (testing route, DECISIONS D-018). */
-export type AiProvider = "meta" | "openrouter";
+/** Meta's own Model API is the only provider. The field stays so health and probe results say which one answered. */
+export type AiProvider = "meta";
 
 export type AdapterConfig = {
   provider: AiProvider;
@@ -88,38 +88,19 @@ function effort(value: string | undefined, fallback: ReasoningEffort): Reasoning
 
 type Env = Record<string, string | undefined>;
 
-const OPENROUTER_URL = /^https?:\/\/([^/]*\.)?openrouter\.ai(\/|$)/i;
-const META_URL = /^https?:\/\/([^/]*\.)?meta\.ai(\/|$)/i;
-
-/** OpenRouter is chosen by AI_PROVIDER=openrouter. An explicit AI_PROVIDER=meta wins over any address; with neither, the web address decides (older setups). */
-function isOpenRouter(env: Env, baseUrl: string): boolean {
-  const named = (env.AI_PROVIDER ?? "").trim().toLowerCase();
-  if (named === "openrouter") return true;
-  if (named === "meta") return false;
-  return OPENROUTER_URL.test(baseUrl.trim());
-}
-
 const clean = (v: string | undefined) => (v ?? "").trim();
 
 /**
- * Which provider, with the key and address for it. `AI_PROVIDER=meta|openrouter` plus a key per provider
- * (`META_API_KEY`, `OPENROUTER_API_KEY`; optional `META_BASE_URL`, `OPENROUTER_BASE_URL`) lets the env file hold both keys and
- * switch with one line. The older single pair (`AI_PROVIDER_API_KEY` / `AI_PROVIDER_BASE_URL`) still works and is the fallback.
+ * The key and address for Meta's Model API: `META_API_KEY` and optional `META_BASE_URL` (default https://api.meta.ai).
+ * The older pair (`AI_PROVIDER_API_KEY` / `AI_PROVIDER_BASE_URL`) still works as a fallback.
  */
-function resolveProvider(env: Env): { provider: AiProvider; apiKey: string; rawBase: string; keyName: string } {
-  const provider: AiProvider = isOpenRouter(env, clean(env.AI_PROVIDER_BASE_URL)) ? "openrouter" : "meta";
-  const own = provider === "openrouter"
-    ? { key: env.OPENROUTER_API_KEY, base: env.OPENROUTER_BASE_URL, fallbackBase: "https://openrouter.ai/api", keyName: "OPENROUTER_API_KEY" }
-    : { key: env.META_API_KEY, base: env.META_BASE_URL, fallbackBase: "https://api.meta.ai", keyName: "META_API_KEY" };
-  const apiKey = clean(own.key) || clean(env.AI_PROVIDER_API_KEY);
-  // A leftover single address that belongs to the OTHER provider (an old line in a lower-priority env file) must not be used.
-  const legacyBase = clean(env.AI_PROVIDER_BASE_URL);
-  const legacyIsOther = provider === "openrouter" ? META_URL.test(legacyBase) : OPENROUTER_URL.test(legacyBase);
-  const rawBase = clean(own.base) || (legacyIsOther ? "" : legacyBase) || (apiKey ? own.fallbackBase : "");
-  return { provider, apiKey, rawBase, keyName: own.keyName };
+function resolveProvider(env: Env): { apiKey: string; rawBase: string } {
+  const apiKey = clean(env.META_API_KEY) || clean(env.AI_PROVIDER_API_KEY);
+  const rawBase = clean(env.META_BASE_URL) || clean(env.AI_PROVIDER_BASE_URL) || (apiKey ? "https://api.meta.ai" : "");
+  return { apiKey, rawBase };
 }
 
-/** Is an AI provider set up on this server (a key for the chosen provider, and a valid configuration)? */
+/** Is the AI provider set up on this server (a key, and a valid configuration)? */
 export function isAiConfigured(env: Env = process.env as Env): boolean {
   try {
     buildAdapterConfig(env);
@@ -130,18 +111,12 @@ export function isAiConfigured(env: Env = process.env as Env): boolean {
 }
 
 export function buildAdapterConfig(env: Env): AdapterConfig {
-  const { provider, apiKey, rawBase, keyName } = resolveProvider(env);
-  if (!rawBase || !apiKey) throw new Error(`Missing AI_PROVIDER_API_KEY (or ${keyName} for AI_PROVIDER=${provider}) — see .env.example (server-only)`);
+  const { apiKey, rawBase } = resolveProvider(env);
+  if (!rawBase || !apiKey) throw new Error("Missing META_API_KEY (or the older AI_PROVIDER_API_KEY) — see .env.example (server-only)");
   if (!/^https?:\/\//i.test(rawBase)) throw new Error("The AI provider address must be a web address starting with https:// (is the API key in the wrong line of the env file?)");
-  let baseUrl = rawBase.trim().replace(/\/+$/, "").replace(/\/v1$/, "");
-  // OpenRouter's API lives under /api (requests become /api/v1/chat/completions).
-  if (provider === "openrouter" && !/\/api$/i.test(baseUrl)) baseUrl += "/api";
+  const baseUrl = rawBase.trim().replace(/\/+$/, "").replace(/\/v1$/, "");
 
-  // The same checks apply to both providers; OpenRouter lists Meta's models as "meta/<id>".
-  const named = (id: string) => {
-    const std = assertStandardModel(id);
-    return provider === "openrouter" && !std.includes("/") ? `meta/${std}` : std;
-  };
+  const named = (id: string) => assertStandardModel(id);
   const spark = named(env.META_SPARK_MODEL || DEFAULT_MODELS.spark);
   const voice = assertStandardModel(env.META_VOICE_MODEL || DEFAULT_MODELS.voice);
   const sam = assertStandardModel(env.META_SAM_MODEL || DEFAULT_MODELS.sam);
@@ -150,7 +125,7 @@ export function buildAdapterConfig(env: Env): AdapterConfig {
   const num = (v: string | undefined, d: number) => (v && Number.isFinite(Number(v)) && Number(v) > 0 ? Math.floor(Number(v)) : d);
 
   return {
-    provider,
+    provider: "meta",
     baseUrl,
     apiKey,
     ops: {

@@ -37,9 +37,6 @@ export async function reportRun(hook: RunHook | undefined, run: AiRunRecord): Pr
   }
 }
 
-/** Below this a retry is pointless: the answer would be cut off. */
-const MIN_AFFORDABLE_TOKENS = 1500;
-
 export async function chatJson(
   cfg: AdapterConfig,
   op: Operation,
@@ -63,25 +60,9 @@ export async function chatJson(
   let t0 = Date.now();
   try {
     let cutOffOnce = false;
-    /** The most OpenRouter credit can pay for, once it has told us (see the 402 handling below). */
-    let affordableCap: number | undefined;
     for (;;) {
       t0 = Date.now();
-      let res;
-      try {
-        res = await metaRequest(cfg, "/chat/completions", { json: body }, { timeoutMs: oc.timeoutMs, ...options.request });
-      } catch (e) {
-        // A nearly empty OpenRouter balance can still pay for a smaller answer: retry once within what it can afford, with
-        // less reasoning so the answer is not cut off. Below that, say plainly that credit is needed.
-        if (cfg.provider === "openrouter" && e instanceof AiAdapterError && e.affordableTokens && e.affordableTokens >= MIN_AFFORDABLE_TOKENS) {
-          affordableCap = Math.floor(e.affordableTokens * 0.9);
-          body.max_completion_tokens = affordableCap;
-          if (body.reasoning_effort === "high" || body.reasoning_effort === "xhigh" || body.reasoning_effort === "max") body.reasoning_effort = "medium";
-          res = await metaRequest(cfg, "/chat/completions", { json: body }, { timeoutMs: oc.timeoutMs, ...options.request });
-        } else {
-          throw e;
-        }
-      }
+      const res = await metaRequest(cfg, "/chat/completions", { json: body }, { timeoutMs: oc.timeoutMs, ...options.request });
       const d = res.data as { choices?: Array<{ message?: { content?: unknown; refusal?: string }; finish_reason?: string }>; usage?: unknown } | null;
       const choice = d?.choices?.[0];
       const usage = normalizeUsage(d?.usage);
@@ -96,14 +77,9 @@ export async function chatJson(
           // "low" stays "low": only more room is added (a lower value has not been verified on every route).
           if (from === "medium" || from === "high" || from === "xhigh" || from === "max") body.reasoning_effort = "low";
           const asked = Number(body.max_completion_tokens) || 0;
-          if (asked > 0) {
-            const more = Math.ceil(asked * 1.5);
-            body.max_completion_tokens = affordableCap ? Math.max(asked, Math.min(more, affordableCap)) : more;
-          }
+          if (asked > 0) body.max_completion_tokens = Math.ceil(asked * 1.5);
           continue;
         }
-        // OpenRouter said the key can only pay for a few tokens: the answer was cut short by credit, not by the model. Say so.
-        if (affordableCap) throw new AiAdapterError("The AI provider key has too little credit left to finish this answer", "billing", 402, undefined, affordableCap);
         throw new AiAdapterError("The AI answer was cut off (token limit reached) — raise the limit or lower the reasoning effort", "invalid_response");
       }
       const content = choice?.message?.content;

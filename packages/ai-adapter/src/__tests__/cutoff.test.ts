@@ -62,37 +62,7 @@ describe("an answer cut off by the token limit", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("never asks for more than a nearly empty OpenRouter balance can pay for", async () => {
-    process.env.AI_PROVIDER = "openrouter";
-    process.env.AI_PROVIDER_BASE_URL = "https://openrouter.ai/api";
-    const noCredit = new Response(JSON.stringify({ error: { code: 402, message: "This request requires more credits. You requested up to 8000 tokens, but can only afford 4000" } }), { status: 402 });
-    fetchMock.mockResolvedValueOnce(noCredit).mockResolvedValueOnce(cutOff()).mockResolvedValueOnce(answer({ ok: true }));
-    await chatJson(cfg(), "siteIntake", args);
-    expect(sentBody(1).max_completion_tokens).toBe(3600); // 90% of what it can afford
-    expect(sentBody(2).max_completion_tokens).toBe(3600); // 1.5x would be 5400: held to what can be paid
-  });
-});
 
-describe("an answer cut short by credit, not by the model", () => {
-  const noCredit = (afford: number) => new Response(JSON.stringify({ error: { code: 402, message: `This request requires more credits, or fewer max_tokens. You requested up to 8000 tokens, but can only afford ${afford}` } }), { status: 402 });
-
-  it("is reported as a billing problem, not as 'ran out of room', when the retry within the credit is cut off too", async () => {
-    process.env.AI_PROVIDER = "openrouter";
-    process.env.AI_PROVIDER_BASE_URL = "https://openrouter.ai/api";
-    fetchMock.mockResolvedValueOnce(noCredit(2000)).mockImplementation(async () => cutOff());
-    const err = (await chatJson(cfg(), "siteIntake", args).catch((e) => e)) as AiAdapterError;
-    expect(err.code).toBe("billing");
-    expect(err.affordableTokens).toBe(1800);
-  });
-
-  it("a key that can pay for almost nothing fails at once as billing, with how little it can pay for, and is not retried", async () => {
-    process.env.AI_PROVIDER = "openrouter";
-    process.env.AI_PROVIDER_BASE_URL = "https://openrouter.ai/api";
-    fetchMock.mockResolvedValueOnce(noCredit(1039));
-    const err = (await chatJson(cfg(), "siteIntake", args).catch((e) => e)) as AiAdapterError;
-    expect(err).toMatchObject({ code: "billing", affordableTokens: 1039 });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-  });
 });
 
 describe("site intake defaults", () => {

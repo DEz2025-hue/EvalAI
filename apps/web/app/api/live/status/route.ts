@@ -25,11 +25,11 @@ export async function GET() {
     },
     frameAnalysis: {
       configured: frameAnalysis,
-      note: frameAnalysis ? "AI provider key is set. One synthetic picture was analysed by Muse Spark 1.3 through OpenRouter (D-018); not yet verified on Meta's own API or on a phone." : "No AI provider key: the session works as capture-only.",
+      note: frameAnalysis ? "AI provider key is set. Image analysis has been checked with synthetic pictures on Meta's own API; not yet verified on a phone." : "No AI provider key: the session works as capture-only.",
     },
     gate: [
       { requirement: "pattern chosen and documented", state: "done", note: "D-015" },
-      { requirement: "provider interaction confirmed with synthetic data", state: "partly_done", note: "Image analysis checked once with a synthetic picture through OpenRouter (D-018). Voice transcription and Meta's own API are not verified (Meta billing not set up)." },
+      { requirement: "provider interaction confirmed with synthetic data", state: "partly_done", note: "Image analysis and voice transcription were checked with synthetic data on Meta's own API (2026-11-03); the phone recording format is not verified." },
       { requirement: "privacy and consent: consent step, visible LIVE indicator, no background capture, disclosure of external processing", state: "implemented_pending_device_test" },
       { requirement: "retention: frames sent inline, never stored or logged unless the person saves one", state: "implemented" },
       { requirement: "network, latency, battery and cost bounded", state: "limits_implemented_latency_and_battery_pending_device_test", note: "Interval, 30 minute and 90 frame limits, one request at a time, rate limit and daily cap." },

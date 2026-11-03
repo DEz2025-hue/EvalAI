@@ -60,7 +60,7 @@ export function aiError(e: unknown): NextResponse {
   if (e instanceof Error && (e.name === "DbFailure" || e.name === "DbConflict")) return NextResponse.json({ error: "Database operation failed — please retry" }, { status: 500 });
   if (msg.startsWith("Forbidden")) return NextResponse.json({ error: msg }, { status: 403 });
   if (/not found/i.test(msg)) return NextResponse.json({ error: msg }, { status: 404 });
-  if (msg.includes("Missing AI_PROVIDER")) return NextResponse.json({ error: "AI assistance is not configured on this server. You can continue manually." }, { status: 503 });
+  if (msg.includes("Missing META_API_KEY")) return NextResponse.json({ error: "AI assistance is not configured on this server. You can continue manually." }, { status: 503 });
   if (/rate limit/i.test(msg)) return NextResponse.json({ error: "Too many AI requests — wait a minute and try again." }, { status: 429 });
   if (/timed out|timeout/i.test(msg)) return NextResponse.json({ error: "The AI service took too long. You can continue manually or try again." }, { status: 504 });
   console.error("AI route error:", msg);
@@ -73,12 +73,13 @@ export function onlyKnownRefs(refs: string[] | undefined, known: string[]): stri
   return (refs ?? []).filter((r) => set.has(r));
 }
 
-/** The provider the server is set up to use, for error messages. null when no provider is configured. */
-function activeProvider(): "OpenRouter" | "Meta" | null {
+/** Is the AI provider (Meta) set up on this server? Used to word error messages. */
+function providerConfigured(): boolean {
   try {
-    return getAdapterConfig().provider === "openrouter" ? "OpenRouter" : "Meta";
+    getAdapterConfig();
+    return true;
   } catch {
-    return null;
+    return false;
   }
 }
 
@@ -87,19 +88,10 @@ export function adapterErrorResponse(e: AiAdapterError): NextResponse {
   // For an unusable answer, our own message says which case it was (cut off, empty, not valid JSON). It holds no prompt, image or key text.
   console.error("AI provider error:", e.code, e.status ?? "", e.providerCode ?? "", e.code === "invalid_response" ? e.message.slice(0, 120) : "");
   const manual = " You can continue manually.";
-  const who = activeProvider();
+  const configured = providerConfigured();
   switch (e.code) {
     case "billing":
-      // Say which provider is asking for money: the two have different places to fix it, and the person may have paid the other one.
-      if (who === "OpenRouter") {
-        // OpenRouter named how little the key can still pay for. Usually the account has no purchased credit (a key's spending limit is a
-        // cap, not a balance); it can also be the key's own limit.
-        const text = e.affordableTokens !== undefined
-          ? "The OpenRouter account has almost no credit left, so answers get cut short. Add credit at openrouter.ai (and check the key's spending limit), then try again."
-          : "AI assistance is not available yet: the OpenRouter account has no credit. Add credit at openrouter.ai, then try again.";
-        return NextResponse.json({ error: text + manual, code: "ai_billing" }, { status: 503 });
-      }
-      if (who === "Meta") {
+      if (configured) {
         return NextResponse.json({ error: "AI assistance is not available yet: Meta billing is not set up for the team that owns this API key. Complete billing in the Meta developer dashboard." + manual, code: "ai_billing" }, { status: 503 });
       }
       return NextResponse.json({ error: "AI assistance is not available yet: the AI provider account needs billing set up." + manual, code: "ai_billing" }, { status: 503 });
@@ -107,7 +99,7 @@ export function adapterErrorResponse(e: AiAdapterError): NextResponse {
     case "forbidden":
     case "model_not_found":
     case "not_configured":
-      return NextResponse.json({ error: "AI assistance is not configured correctly on the server (provider key or model)." + (who ? ` Provider in use: ${who}.` : "") + manual, code: "ai_config" }, { status: 503 });
+      return NextResponse.json({ error: "AI assistance is not configured correctly on the server (provider key or model)." + (configured ? " Provider in use: Meta." : "") + manual, code: "ai_config" }, { status: 503 });
     case "rate_limit":
       return NextResponse.json({ error: "The AI service is busy — wait a moment and try again." }, { status: 429 });
     case "timeout":

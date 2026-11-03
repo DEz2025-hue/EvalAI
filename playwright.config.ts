@@ -37,7 +37,6 @@ export default defineConfig({
       SUPABASE_SERVICE_ROLE_KEY: "",
       AI_PROVIDER_API_KEY: "",
       META_API_KEY: "",
-      OPENROUTER_API_KEY: "",
       NEXT_TELEMETRY_DISABLED: "1",
     },
   },

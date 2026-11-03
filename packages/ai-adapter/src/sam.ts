@@ -68,7 +68,6 @@ export const SamSegmentInput = z.object({
 export async function samSegment(input: z.infer<typeof SamSegmentInput>, options?: CallOptions) {
   const v = SamSegmentInput.parse(input);
   const cfg = getAdapterConfig();
-  if (cfg.provider === "openrouter") throw new AiAdapterError("Photo segmentation is not available through OpenRouter. Use Meta's own API for SAM.", "not_configured");
   const oc = cfg.ops.segment;
   const t0 = Date.now();
   try {

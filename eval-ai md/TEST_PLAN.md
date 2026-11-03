@@ -202,7 +202,7 @@ Manual (not run): Settings > Report style as an owner: set a name, logo, colour,
 
 Automated (2026-11-02): interview.test.ts in shared (turn order, caps, quote must be the person's words, statements paired with their questions), interview.test.ts in the adapter (what the model is given, guard rails in both prompts, done / limit / repeat handling, real topic only, digest keeps only exact-quote proposals for real items, contradictions and open questions kept, figures flagged), interview-route.test.ts (record from stored facts, request limits, labels), site-brief-interview.test.ts (included only after review), reportLayout.test.ts (interview section shown, absent when none, escaped), reportDraft.test.ts (report AI told they are statements), interviewEval.test.ts (the evaluation set is valid and the automated checks catch quotes not said, unknown items, verdict wording, numbers nobody said, over-proposing from vague answers).
 
-**Live evaluation (not yet run: no purchased OpenRouter credit).** Three made-up conversations are in `packages/ai-adapter/src/__tests__/fixtures/interviewCases.ts`. Run (a few cents):
+**Live evaluation (run once on Meta on 2026-11-03; the output was read, not yet scored by a person).** Three made-up conversations are in `packages/ai-adapter/src/__tests__/fixtures/interviewCases.ts`. Run (a few cents):
 
 ```
 LIVE_INTERVIEW_EVAL=1 pnpm --filter @eval-ai/ai-adapter exec vitest run src/__tests__/interviewEval.live.test.ts
@@ -231,7 +231,7 @@ Manual on a phone (not run; run `pnpm install` and rebuild the app for expo-spee
 
 Automated (2026-11-02): materialRules.test.ts (every rule's arithmetic and edge cases, assumed-input tracking, out-of-range inputs, no zero or non-finite quantity, TBD display), materialsDraft.test.ts in the adapter (what the model is given, guard rails in the prompt, rule items keep only inputs, recorded measurements replace the model's copy, fake measurements and unfindable record figures become assumptions, duplicates and unreasoned items dropped, prices and model numbers removed from specifications, supports checked, figures flagged, caps), materials-draft.test.ts in the web app (rule arithmetic done in code, assumed inputs make an item provisional, rule that cannot run becomes TBD and adds to the missing inputs, estimates provisional, route limits respected, route sends the record and rules, counts unconfirmed findings without describing them, saves nothing), store-guards.test.ts (an AI item with an assumption is always provisional; source stored as given), reportLayout.test.ts (specification, AI badge, TBD and the note shown; older lists unchanged; no price), materialsEval.test.ts (the evaluation set is valid and the automated checks catch prices, brands, model numbers, invented ratings, missing "to be sized", record figures not in the record, unknown rules, estimates without assumptions, whole-new-system proposals for existing jobs).
 
-**Live evaluation (not yet run: the OpenRouter account has no purchased credit).** Four made-up jobs are in `packages/ai-adapter/src/__tests__/fixtures/materialsCases.ts`. Run, with the provider set up in `apps/web/.env.local` (a few cents):
+**Live evaluation (run once on Meta on 2026-11-03; the output was read, not yet scored by a person).** Four made-up jobs are in `packages/ai-adapter/src/__tests__/fixtures/materialsCases.ts`. Run, with the provider set up in `apps/web/.env.local` (a few cents):
 
 ```
 LIVE_MATERIALS_EVAL=1 pnpm --filter @eval-ai/ai-adapter exec vitest run src/__tests__/materialsEval.live.test.ts
@@ -261,7 +261,7 @@ Manual (not run): on web and phone, Suggest materials, edit one quantity, remove
 
 Automated (2026-11-02): reportLayout.test.ts (key findings, one home per fact, recommended actions built from findings, cited photos inside findings and "Other photos", confirmed findings never dropped, older layout kept, preview lock), reportDraft.test.ts (what the model is given, numbered photos, rules in the prompt, sources checked, incomplete or unsourced findings dropped, repeats removed, limits, figures check, the summary stage), report-draft-route.test.ts, report-review.test.ts (findings saved whole and validated, sign-off unaffected), key-finding-limits.test.ts (adapter and editor limits equal), pdf.test.ts, report-findings-guard.test.ts, photoReview.test.ts (fuller photo notes, same bans), cutoff.test.ts, reportEval.test.ts (the evaluation set is valid and the automated checks catch repeats, standards or compliance wording, unchecked items called fine, too many invented figures).
 
-**Live evaluation (not yet run: the OpenRouter account has no purchased credit).** Six made-up jobs are in `packages/ai-adapter/src/__tests__/fixtures/reportCases.ts` (solar and CCTV, new and existing, terse notes, with and without photos, a thin record, and a note that tries to make the AI claim compliance). Run, with the provider set up in `apps/web/.env.local` (a few cents):
+**Live evaluation (run once on Meta on 2026-11-03; the output was read, not yet scored by a person).** Six made-up jobs are in `packages/ai-adapter/src/__tests__/fixtures/reportCases.ts` (solar and CCTV, new and existing, terse notes, with and without photos, a thin record, and a note that tries to make the AI claim compliance). Run, with the provider set up in `apps/web/.env.local` (a few cents):
 
 ```
 LIVE_REPORT_EVAL=1 pnpm --filter @eval-ai/ai-adapter exec vitest run src/__tests__/reportEval.live.test.ts
@@ -291,7 +291,7 @@ It writes `packages/ai-adapter/eval-output/report-eval-latest.md` (not committed
 
 Automated (2026-11-01): reportLayout.test.ts (plain-language results, glance counts, report without AI, written sections in order, site brief, older snapshots, every written section re-locks the download), reportDraft.test.ts (what the model is given, the rules in its prompt, section limits, figures check), report-draft-route.test.ts (uses the draft's own content, photo choices, foreign and finalized drafts, unconfirmed findings only counted), report-review.test.ts (the draft carries the site brief and readable limitations; longer sections; sign-off still passes), pdf.test.ts (new layout, older reports). Not run: the live model, the browser, a phone.
 
-To be run by a person (needs OpenRouter credit or Meta billing for the AI rows):
+To be run by a person (needs Meta billing for the AI rows):
 
 | # | Check | Result |
 |---|---|---|
@@ -308,7 +308,7 @@ To be run by a person (needs OpenRouter credit or Meta billing for the AI rows):
 
 Automated (2026-11-01): report-photos.test.ts (selection, real ffmpeg shrinking), photoReview.test.ts (adapter cleaning, summary rules), report-photos-route.test.ts, reportPhotos.test.ts (HTML sections, unverified labels, no markup injection), report-photos-pdf.test.ts (1, 6 and 12 photos), report-photos-guard.test.ts. Pipeline run once against the real model with three synthetic pictures.
 
-On a phone (to be run by a person; needs OpenRouter credit or Meta billing):
+On a phone (to be run by a person; needs Meta billing):
 
 | # | Check | Result |
 |---|---|---|
@@ -316,14 +316,14 @@ On a phone (to be run by a person; needs OpenRouter credit or Meta billing):
 | R2 | The report shows each photo with a caption marked AI, not verified; possible issues are in their own section, not in Findings | not run |
 | R3 | The summary mentions the photos as suggestions and does not state a measurement from them | not run |
 | R4 | Remove a photo from the draft; make a finding draft from an issue (it appears in Findings as needs review) | not run |
-| R5 | Preview report again with 2 new photos: only the new ones are analysed (check cost in OpenRouter) | not run |
+| R5 | Preview report again with 2 new photos: only the new ones are analysed (check the cost in the Meta dashboard) | not run |
 | R6 | Airplane mode / no credit: the report is still built, with a clear note about what failed | not run |
 | R7 | Download the PDF: pictures and captions readable on 1, 6 and 12 photos | not run |
 | R8 | Sign off and finalize with photos in the draft; the finalized report keeps them | not run |
 
 ### Guided checklist and site intake (D-021): test record
 
-Automated (2026-11-01): lookFor.test.ts (every item has guidance), intake.test.ts (merge rules, summary), siteIntake.test.ts (adapter cleaning), site-intake-route.test.ts, intake-guard.test.ts. One real-model check with a synthetic picture through OpenRouter: ids real, injection ignored, honest limits, 15.5 s.
+Automated (2026-11-01): lookFor.test.ts (every item has guidance), intake.test.ts (merge rules, summary), siteIntake.test.ts (adapter cleaning), site-intake-route.test.ts, intake-guard.test.ts. One real-model check with a synthetic picture through the earlier test route (removed, D-032): ids real, injection ignored, honest limits, 15.5 s.
 
 On a phone (to be run by a person):
 

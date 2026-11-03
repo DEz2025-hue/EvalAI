@@ -142,8 +142,8 @@ audit; they do not prove implementation is complete.
                                                  QuotationReview, /api/materials/   — version bump → stale flag
                                                  quotations, stale trigger
 
-  AI materials proposal (D-029)  Implemented      materialRules.ts (7 rules),        Live model output not yet read
-                                                 proposeMaterials, /api/ai/         (no OpenRouter credit);
+  AI materials proposal (D-029)  Implemented      materialRules.ts (7 rules),        Live output read once on Meta
+                                                 proposeMaterials, /api/ai/         (not scored by a person);
                                                  materials, web + phone review,     migration 0016 to apply
                                                  report rendering, eval set
 

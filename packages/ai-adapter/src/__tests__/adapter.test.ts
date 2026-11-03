@@ -65,7 +65,7 @@ describe("model registry", () => {
   });
 
   it("requires the key and base url", () => {
-    expect(() => buildAdapterConfig({})).toThrow(/Missing AI_PROVIDER/);
+    expect(() => buildAdapterConfig({})).toThrow(/Missing META_API_KEY/);
   });
 });
 

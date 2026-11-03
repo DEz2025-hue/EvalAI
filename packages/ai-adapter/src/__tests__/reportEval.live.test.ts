@@ -17,7 +17,7 @@ function loadEnv() {
   if (!fs.existsSync(file)) return;
   for (const line of fs.readFileSync(file, "utf8").split(/\r?\n/)) {
     const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)$/);
-    if (m && /^(AI_PROVIDER|AI_PROVIDER_API_KEY|AI_PROVIDER_BASE_URL|META_API_KEY|OPENROUTER_API_KEY|META_BASE_URL|OPENROUTER_BASE_URL|META_SPARK_MODEL)$/.test(m[1])) process.env[m[1]] = m[2].trim().replace(/^['"]|['"]$/g, "");
+    if (m && /^(AI_PROVIDER_API_KEY|AI_PROVIDER_BASE_URL|META_API_KEY|META_BASE_URL|META_SPARK_MODEL)$/.test(m[1])) process.env[m[1]] = m[2].trim().replace(/^['"]|['"]$/g, "");
   }
 }
 

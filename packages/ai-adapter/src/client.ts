@@ -27,8 +27,6 @@ export class AiAdapterError extends Error {
     public readonly status?: number,
     /** The provider's own error code, e.g. "billing_not_configured". */
     public readonly providerCode?: string,
-    /** OpenRouter only: when a request asks for more output than the remaining credit can cover, the most it can afford. */
-    public readonly affordableTokens?: number,
   ) {
     super(message);
     this.name = "AiAdapterError";
@@ -65,13 +63,8 @@ function classify(status: number, body: unknown): AiAdapterError {
       return new AiAdapterError("The AI request was invalid" + (detail ? ": " + detail : ""), "bad_request", 400, providerCode);
     case 401:
       return new AiAdapterError("AI provider rejected the API key", "auth", 401, providerCode);
-    case 402: {
-      // OpenRouter reserves the cost of the largest answer a request may produce, so a nearly empty balance fails big requests
-      // while small ones still work: "...You requested up to 16000 tokens, but can only afford 7823".
-      const afford = /can only afford (\d+)/i.exec(err.message ?? "");
-      if (afford) return new AiAdapterError("The AI provider account has too little credit left for this request", "billing", 402, providerCode, Number(afford[1]));
+    case 402:
       return new AiAdapterError("AI provider billing is not set up for this account", "billing", 402, providerCode);
-    }
     case 403:
       return new AiAdapterError("This API key has no access to that model or feature", "forbidden", 403, providerCode);
     case 404:
@@ -108,8 +101,6 @@ export async function metaRequest(
     try {
       const headers: Record<string, string> = { Authorization: `Bearer ${cfg.apiKey}` };
       if (init.json !== undefined) headers["Content-Type"] = "application/json";
-      // OpenRouter shows this name in the person's activity list instead of "Unknown".
-      if (/^https?:\/\/([^/]*\.)?openrouter\.ai(\/|$)/i.test(cfg.baseUrl)) headers["X-Title"] = "EvalAI";
       if (init.accept) headers.Accept = init.accept;
       res = await fetch(url, {
         method: init.method ?? "POST",
