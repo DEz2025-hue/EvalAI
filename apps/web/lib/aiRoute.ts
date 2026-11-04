@@ -56,7 +56,11 @@ export async function loadAssessmentFacts(ctx: StoreCtx, assessmentId: string) {
 export function aiError(e: unknown): NextResponse {
   const msg = e instanceof Error ? e.message : String(e);
   if (e instanceof AiAdapterError) return adapterErrorResponse(e);
-  if (e instanceof Error && e.name === "ZodError") return NextResponse.json({ error: "Invalid request" }, { status: 400 });
+  if (e instanceof Error && e.name === "ZodError") {
+    // Where the check failed, never the values. Without this a limit that is too low only ever shows as "Invalid request".
+    console.error("AI request refused by its input check:", (e as Error & { issues?: Array<{ path: unknown[]; code: string }> }).issues?.slice(0, 5).map((i) => `${i.path.join(".")} (${i.code})`).join("; "));
+    return NextResponse.json({ error: "Invalid request" }, { status: 400 });
+  }
   if (e instanceof Error && (e.name === "DbFailure" || e.name === "DbConflict")) return NextResponse.json({ error: "Database operation failed — please retry" }, { status: 500 });
   if (msg.startsWith("Forbidden")) return NextResponse.json({ error: msg }, { status: 403 });
   if (/not found/i.test(msg)) return NextResponse.json({ error: msg }, { status: 404 });

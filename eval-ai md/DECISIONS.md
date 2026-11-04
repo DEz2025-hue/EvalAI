@@ -363,6 +363,13 @@ unknown/provisional.
 -   **Honest limits:** The fields and which answers count as concerns are a first judgement and have not been reviewed by a working engineer. Old answers are not converted, so an older job's items keep their notes until someone fills in the fields.
 -   **Documents updated:** DECISIONS.md, DATA_MODEL.md, FEATURE_STATUS.md, AI_AND_VOICE.md.
 
+### D-043 --- Every AI step that reads photo notes accepts everything the photo review writes
+
+-   **Status:** Confirmed — 2026-11-04.
+-   **Decision:** The limit on a photo note's lines is one constant (`PHOTO_NOTE_LINES`, 16) used by the photo review and by the input check of the report write-up, solar and CCTV design, plan review and materials steps. A request refused by an input check now logs where it failed. The materials step also reads the checklist's simple answers (D-042).
+-   **Context and evidence:** D-035 let a photo note hold up to 16 lines, but the input check stayed at 10. Any job with a longer note was refused with "Invalid request" before reaching the AI. On the live data: no materials suggestion has ever been logged, the real job's notes hold 12 lines or more, and its report drafts hold only the standard project plan with no summary. This is also the cause left open in D-039 and D-040's report: why report 538fddf6 had no write-up. Its notes failed the same check when run again.
+-   **Documents updated:** DECISIONS.md.
+
 ## Open decisions
 
 Remaining to resolve through provider verification and implementation: - Exact authentication and role/permission matrix details. - Exact Meta model IDs and verified image/audio/streaming capabilities per model. - Which voice capabilities deliver reliably per platform (web vs Expo). - Report export layout and PDF rendering choice. - Offline/sync scope. - Data retention and deletion periods. - Whether corrective-action assignment is in initial release.

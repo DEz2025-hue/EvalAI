@@ -46,7 +46,7 @@ export async function POST(req: Request) {
         scenario: facts.scenario,
         goal: goal?.slice(0, 1000),
         siteBrief: input.siteBrief,
-        checklist: input.checklist.map((c) => ({ title: c.title, status: c.status, notes: c.notes, category: c.category, required: c.required, covers: covers.get(c.title) ?? undefined, measured: c.measured, evidenceCount: c.evidenceCount })),
+        checklist: input.checklist.map((c) => ({ title: c.title, status: c.status, notes: c.notes, category: c.category, required: c.required, covers: covers.get(c.title) ?? undefined, measured: c.measured, answers: c.answers, evidenceCount: c.evidenceCount })),
         findings: input.findings.map((f) => ({ title: f.title, severity: f.severity, description: f.description, uncertainty: f.uncertainty })),
         findingsAwaitingReview: findings.filter((f) => f.status === "needs_review").length,
         measurements: input.measurements,

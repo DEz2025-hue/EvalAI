@@ -122,6 +122,12 @@ export const TranscribeAudioOutput = z.object({
   turnCount: z.number().optional(),
 });
 
+/**
+ * Lines a photo note can hold: up to 10 observations, 6 label readings and 3 suggestions, cut to this many by the photo review. Every AI step that reads the
+ * notes checks against it, so the two must stay in step: a limit below what the review writes rejects the whole request before it reaches the AI.
+ */
+export const PHOTO_NOTE_LINES = 16;
+
 export const DraftReportInput = z.object({
   workspaceId: z.string().min(1).max(100),
   assessmentId: z.string().min(1).max(100),
@@ -197,7 +203,7 @@ export const DraftReportInput = z.object({
         id: z.string().max(100).optional(),
         itemTitle: z.string().max(300).optional(),
         caption: z.string().max(500),
-        observations: z.array(z.string().max(400)).max(10).default([]),
+        observations: z.array(z.string().max(400)).max(PHOTO_NOTE_LINES).default([]),
         possibleIssues: z.array(z.string().max(400)).max(6).default([]),
         cannotTell: z.array(z.string().max(300)).max(6).default([]),
       }),

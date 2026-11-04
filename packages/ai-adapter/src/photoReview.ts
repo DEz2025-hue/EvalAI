@@ -5,6 +5,7 @@ import { chatJson, type CallOptions, type ContentPart } from "./chat";
 import { photoReviewSchema } from "./jsonSchemas";
 import { SYSTEM_GUARD, compact } from "./text";
 import { LENSES, lensesFor, type LensTopic } from "./photoLens";
+import { PHOTO_NOTE_LINES } from "./schemas";
 
 // Photo review for the report (decision D-022). The AI looks at the job's photos and says, per photo, what is visible and what
 // might be worth a person checking. Everything is UNVERIFIED: never a finding, measurement, count, rating or pass/fail.
@@ -152,7 +153,7 @@ export async function photoReview(input: unknown, options?: CallOptions): Promis
       .filter((r) => r.value)
       .map((r) => (r.label ? `Label reading - ${r.label}: ${r.value}` : `Label reading: ${r.value}`));
     const suggestions = strings(p.suggestions, PHOTO_LIMITS.observation, 3).map((x) => "Suggestion, to confirm on site: " + x);
-    const observations = [...strings(p.observations, PHOTO_LIMITS.observation, MAX_OBSERVATIONS), ...readings.slice(0, 6).map((r) => r.slice(0, PHOTO_LIMITS.observation)), ...suggestions].slice(0, MAX_OBSERVATIONS + 6);
+    const observations = [...strings(p.observations, PHOTO_LIMITS.observation, MAX_OBSERVATIONS), ...readings.slice(0, 6).map((r) => r.slice(0, PHOTO_LIMITS.observation)), ...suggestions].slice(0, PHOTO_NOTE_LINES);
     const possibleIssues = (Array.isArray(p.possible_issues) ? p.possible_issues : [])
       .map((i) => {
         const find = samPhrase(i?.find);
